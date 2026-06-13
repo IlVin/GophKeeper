@@ -36,7 +36,7 @@ services:
     command: server /data --console-address ":9001"
     restart: unless-stopped
 
-  # Автоматический инициализатор бакета (Добавляем этот блок)
+  # Автоматический инициализатор бакета
   gophkeeper-s3-init:
     image: minio/mc:latest
     networks:

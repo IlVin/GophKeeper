@@ -35,6 +35,27 @@ ps:
 psql:
 	export PGPASSWORD='gophkeeper_pswd' && psql -h localhost -p 5542 -Ugophkeeper -w
 
+keys:
+	ssh-keygen -t ed25519 -a 64 -N "" -f ./crypt/gophkeeper_ed25519 -C "gophkeeper"
+
+test:
+	go test ./...
+
+test-short:
+	go test ./... -short
+
+test-unit:
+	go test ./... -short -count=1
+
+test-functional:
+	go test -tags=functional ./internal/adapters/sshagent -run Functional -count=1 -v
+
+test-race:
+	go test ./... -race -count=1
+
+lint:
+	golangci-lint run
+
 # ## build: Сборка проекта
 # build:
 # 	$(MAKE) -C infra/database/accrual build
