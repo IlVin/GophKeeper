@@ -1,11 +1,21 @@
 # Переменные проекта
+VERSION=v1.0.1
+
 WORKDIR=.
 
-MAIN_SERVER=${WORKDIR}/cmd/server/main.go
-BINARY_SERVER=${WORKDIR}/cmd/server/gophkeeper_server
+MAIN_SERVER=${WORKDIR}/cmd/gophkeeper-server/main.go
+BINARY_SERVER=${WORKDIR}/cmd/gophkeeper-server/gophkeeper-server
 
-MAIN_CLIENT=${WORKDIR}/cmd/client/main.go
-BINARY_CLIENT=${WORKDIR}/cmd/client/gophkeeper_client
+MAIN_CLIENT=${WORKDIR}/cmd/gophkeeper/main.go
+BINARY_CLIENT=${WORKDIR}/cmd/gophkeeper/gophkeeper
+
+# ProtoBuf generator
+# Локальные пути для утилит
+GOPATH_BIN := $(shell go env GOPATH)/bin
+export PATH := $(PATH):$(GOPATH_BIN)
+
+PROTO_DIR := api/proto
+GEN_DIR := gen/go
 
 
 COVER_FILE=coverage.out
@@ -13,7 +23,7 @@ DOCKER_IMG=gophkeeper:latest
 
 COMPOSE_FILE=infra/compose.yml
 
-.PHONY: up down logs ps
+.PHONY: up down logs ps certs clean-certs
 
 ## up: Старт сервисов проекта
 up:
@@ -55,6 +65,57 @@ test-race:
 
 lint:
 	golangci-lint run
+
+build: certs gen-proto
+	@echo "Building binary..."
+	go generate ./...
+	CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.buildVersion=${VERSION} -X main.buildCommit=$$(git log -1 --format='%H') -X main.buildDate=$$(date +%F)" -o $(BINARY_CLIENT) $(MAIN_CLIENT)
+	CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.buildVersion=${VERSION} -X main.buildCommit=$$(git log -1 --format='%H') -X main.buildDate=$$(date +%F)" -o $(BINARY_SERVER) $(MAIN_SERVER)
+
+.PHONY: certs
+certs:
+	@mkdir -p internal/shared/certs/assets
+	@mkdir -p .certs_private
+	@echo "Generating System Root CAs (v4.0 Isolated PKI)..."
+	# 1. Серверный корень (Server CA) для TLS транспорта
+	openssl ecparam -name prime256v1 -genkey -noout -out .certs_private/server-ca.key
+	openssl req -new -x509 -sha256 -key .certs_private/server-ca.key \
+		-days 3650 \
+		-subj "/O=GophKeeper Server Network/CN=GophKeeper Server CA" \
+		-out internal/shared/certs/assets/server-ca.crt
+	# 2. Клиентский корень (Device CA) для строгого mTLS авторизации устройств
+	openssl ecparam -name prime256v1 -genkey -noout -out .certs_private/device-ca.key
+	openssl req -new -x509 -sha256 -key .certs_private/device-ca.key \
+		-days 3650 \
+		-subj "/O=GophKeeper Device Trust/CN=GophKeeper Device CA" \
+		-out internal/shared/certs/assets/device-ca.crt
+	@echo "--------------------------------------------------------"
+	@echo "SUCCESS: Public certificates generated in internal/shared/certs/assets/"
+	@echo "WARNING: Private keys saved OUTSIDE version control in .certs_private/"
+	@echo "Ensure .certs_private/ is added to your .gitignore file!"
+	@echo "Pass these key paths to your server via config file or flags."
+
+llm:
+	(cat ./go.mod && find ./ -name '*.llm' -exec sh -c 'echo "\n\n"; cat {}' \;) > ./LLM.txt
+	find . -type f -name '*.go' -exec sh -c 'echo "# {}"; cat "{}"; echo ""' \; > ./GO.md
+
+
+
+.PHONY: gen-proto
+gen-proto:
+	@echo "Generating Protobuf code..."
+	@mkdir -p $(GEN_DIR)
+	protoc --proto_path=$(PROTO_DIR) \
+		--go_out=$(GEN_DIR) --go_opt=paths=source_relative \
+		--go-grpc_out=$(GEN_DIR) --go-grpc_opt=paths=source_relative \
+		$(PROTO_DIR)/gophkeeper/v1/*.proto
+	@echo "Protobuf artifacts successfully generated in $(GEN_DIR)."
+
+.PHONY: proto-clean
+proto-clean:
+	@echo "Cleaning generated proto artifacts..."
+	@rm -rf $(GEN_DIR)
+
 
 # ## build: Сборка проекта
 # build:

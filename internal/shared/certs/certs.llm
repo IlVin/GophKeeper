@@ -1,0 +1,31 @@
+# Index for embed.go
+
+File: internal/shared/certs/embed.go
+Package: certs
+Purpose: Statically embeds system root certificate authority PEM blocks for server verification and mTLS device authorization.
+
+Globals and Init:
+serverCACertPEM, deviceCACertPEM: raw bytes compiled from assets/server-ca.crt and assets/device-ca.crt via go:embed.
+
+Functions:
+func ServerCAPEM() []byte. Purpose: returns embedded server-ca.crt bytes for client-side transport security verification.
+func DeviceCAPEM() []byte. Purpose: returns embedded device-ca.crt bytes for server-side device certificate validation.
+
+Build: requires go 1.16+ due to go:embed directives.
+Security Constraints: CA anchors are static and hardcoded into binaries. Rotation requires compilation.
+
+
+# Index for loader.go
+
+File: internal/shared/certs/loader.go
+Package: certs
+Purpose: Parses embedded CA PEM certificate arrays and constructs x509.CertPool trusted anchors for TLS/mTLS validation.
+
+Constants and Vars:
+ErrEmptyCA, ErrInvalidCACert: domain-specific x509 parsing validation errors.
+
+Functions:
+func LoadServerCAPool() (*x509.CertPool, error). Purpose: builds server root trust pool using ServerCAPEM. Errors: ErrEmptyCA; wrapped ErrInvalidCACert on PEM append failures.
+func LoadDeviceCAPool() (*x509.CertPool, error). Purpose: builds client device root trust pool using DeviceCAPEM. Errors: ErrEmptyCA; wrapped ErrInvalidCACert on PEM append failures.
+
+Security Constraints: AppendCertsFromPEM enforces cryptographic format and structure verification. Empty inputs fail immediately to protect callers.

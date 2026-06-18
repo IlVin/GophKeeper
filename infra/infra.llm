@@ -1,0 +1,21 @@
+File: infra/compose.yml
+Role: Local Infrastructure Manifest
+Purpose: Defines the multi-container orchestration environment for local development and testing, including PostgreSQL database and MinIO S3 object storage infrastructure.
+
+Required Env Vars:
+POSTGRES_USER, string, static, database owner user.
+POSTGRES_PASSWORD, string, static, database user password.
+POSTGRES_DB, string, static, primary database name.
+MINIO_ROOT_USER, string, static, S3 root admin access key.
+MINIO_ROOT_PASSWORD, string, static, S3 root admin secret key.
+
+Dependencies:
+gophkeeper-db: runs postgres container on host port 5542.
+gophkeeper-s3: runs minio object storage on host ports 9000 and 9001.
+gophkeeper-s3-init: ephemeral utility container, depends on gophkeeper-s3, creates target bucket gophkeeper.
+
+Networks:
+gophkeepernet: custom network bridge for internal container inter-connectivity.
+
+Volumes:
+gophkeeper_s3: persistent local storage for encrypted large binary artifacts or backups.

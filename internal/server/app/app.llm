@@ -1,0 +1,22 @@
+File: internal/server/app/runtime.go
+Package: app
+Purpose: Houses the central server runtime state object and handles explicit memory context propagation maps.
+Types: App struct scope. Holds configurations, proxy network listeners, root grpc.Server blocks, and active postgres connection pools.
+Functions:
+func NewApp(cfg config.Config, listener net.Listener, grpcServer *grpc.Server, acmeListener net.Listener) *App. Simple constructor.
+func WithApp(ctx context.Context, application *App) context.Context. Standard context mapper.
+func AppFromContext(ctx context.Context) (*App, error). Retrieves pointer references. Errors: app is missing in context.
+
+File: internal/server/app/bootstrap.go
+Package: app
+Purpose: Orchestrates full multi-layered system initialization tying TLS 1.3 mTLS pipelines to underlying database pools.
+Functions:
+func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, error). Entrypoint coordinator. Pulls validation models, builds native pgx connections, issues structural database migrations. If ACME handles are blank, triggers dynamic ServerCA key mapping and appends strict RequireAndVerifyClientCert mTLS verification topologies to bind hardware isolation layers. Errors: initialization, database, or CA parsing block rejections.
+Security Constraints: Forbids blank-unverified client socket exposures by anchoring active Device Identity pools on local nodes.
+
+File: internal/server/app/run.go
+Package: app
+Purpose: Governs execution states and teardown steps of the system daemon.
+Functions:
+func (a *App) Run() error. Triggers active grpc.Server.Serve monitoring blocks. Errors: grpc server or listener not initialized.
+func (a *App) Shutdown() error. Implements graceful stops, terminates ACME threads, and drains persistence pools.

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package gophkeeper.v1;
+
+option go_package = "gophkeeper/api/proto/gophkeeper/v1;v1";
+
+service InfoService {
+  // Возвращает базовые параметры состояния сервера для проверки связи
+  rpc GetInfo (InfoRequest) returns (InfoResponse);
+}
+
+message InfoRequest {}
+
+message InfoResponse {
+  string server_version = 1;
+  string environment = 2;
+  bool database_connected = 3;
+}

@@ -1,0 +1,20 @@
+File: internal/server/providers/postgres/acme_cache.go
+Package: postgres
+Purpose: Extends x/crypto/acme/autocert.Cache interface over SQL storage schemas using raw pgx query boundaries.
+Functions:
+func NewPostgresCache(pool *pgxpool.Pool) *PostgresCache. Instantiates target state engine.
+func (p *PostgresCache) Get(ctx context.Context, key string) ([]byte, error). Retrieves byte arrays. Maps pgx.ErrNoRows cleanly to autocert.ErrCacheMiss signatures. Errors: data conversion and connection drop boundaries.
+func (p *PostgresCache) Put(ctx context.Context, key string, data []byte) error. Executes high-performance upsert queries via ON CONFLICT primitives.
+func (p *PostgresCache) Delete(ctx context.Context, key string) error. Purges unique string identifiers from the cache namespace.
+
+File: internal/server/providers/postgres/connect.go
+Package: postgres
+Purpose: Resolves DSN network configurations and provisions native thread-safe pgx connection pools.
+Functions:
+func Connect(ctx context.Context, cfg config.StorageConfig) (*pgxpool.Pool, error). Entrypoint allocator. Parses credentials layout, applies structural pool-size limits, binds session dial constraints, and tests endpoints using atomic network pings. Errors: blank connection descriptors, string syntax anomalies, remote node authentication failures.
+
+File: internal/server/providers/postgres/migrate.go
+Package: postgres
+Purpose: Wraps existing native connection pools to roll embedded structural database changes via goose.
+Functions:
+func Migrate(pool *pgxpool.Pool) error. Injects target embed.FS scopes, explicitly locks postgres execution dialects, and maps stdlib wrappers to fire atomic up-migrations. Errors: null pool pointers, dialect binding rejections, structural schema definition block anomalies.

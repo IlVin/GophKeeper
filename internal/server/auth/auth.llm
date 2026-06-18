@@ -1,0 +1,6 @@
+File: internal/server/auth/interceptor.go
+Package: auth
+Purpose: Validates incoming peer connections by evaluating embedded X509 client certificate SAN URI chains.
+Functions:
+func NewUnaryAuthInterceptor() grpc.UnaryServerInterceptor. Generates an execution interceptor. Bypasses challenge-response registration methods, reads raw peer boundaries, verifies presence of client AuthInfo configurations, and parses target urn:gophkeeper:file:<uuid> values. Errors: propagated Unauthenticated status codes on empty context references or broken identity blocks.
+Security Constraints: Explicitly blocks execution routes unless a cryptographically verified per-container file URI signature matches structural parameters.

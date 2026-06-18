@@ -1,0 +1,18 @@
+File: internal/server/transport/grpc/register.go
+Package: grpc
+Role: Transport Handler
+Purpose: Implements passwordless gRPC RegistrationServer using challenge-response and crypto envelope submissions.
+Functions:
+func NewRegistrationHandler(cfg config.Config) *RegistrationHandler. Constructor helper.
+func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.RegisterBeginRequest) (*pb.RegisterBeginResponse, error). Purpose: Step 1 registration entrypoint. Generates random UserId, SessionId, 32-byte ServerNonce, and 32-byte AccountSalt via OS CSPRNG. Errors: InvalidArgument on empty username or public key; Internal on CSPRNG failures.
+func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.RegisterFinishRequest) (*pb.RegisterFinishResponse, error). Purpose: Step 2 registration finalizer. Validates mandatory cryptographic envelopes, authentication challenge signature, and PKCS10 CSR payload before returning newly issued container ClientCertificate and CaChain. Errors: InvalidArgument on missing UUID identifiers, empty signatures, missing envelopes, or blank CSR byte blobs.
+Security Constraints: Enforces cryptographic separation by requiring both cloud account_bootstrap_envelope and local device_master_key_envelope to freeze account registration state at transaction boundaries.
+
+File: internal/server/transport/grpc/server.go
+Package: grpc
+Role: Transport Bootstrap
+Purpose: Binds active TLS credentials and hooks application service interceptors to initialize the root gRPC network daemon.
+Functions:
+func NewGRPCServer(cfg config.Config, tlsConfig *tls.Config, pool *pgxpool.Pool) *grpc.Server. Purpose: instantiation pipeline. Resolves explicit credentials structure, spins up internal grpc.NewServer with credentials hooks, maps InfoServiceServer, RegistrationServer, and DeviceAttachmentServer onto shared multiplexer boundaries.
+Security Constraints: Enforces full platform encryption boundaries at layer 4 transport. Mandates binding of the multi-step attachment handler to isolate unauthenticated state machine endpoints.
+

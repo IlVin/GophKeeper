@@ -1,0 +1,1733 @@
+module gophkeeper
+
+go 1.26.3
+
+require (
+	github.com/adrg/xdg v0.5.3
+	github.com/pressly/goose/v3 v3.27.1
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/viper v1.21.0
+	github.com/stretchr/testify v1.11.1
+	golang.org/x/crypto v0.53.0
+	google.golang.org/grpc v1.81.1
+	google.golang.org/protobuf v1.36.11
+	modernc.org/sqlite v1.52.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.10.0 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/mattn/go-isatty v0.0.22 // indirect
+	github.com/mfridman/interpolate v0.0.2 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/pashagolub/pgxmock/v4 v4.9.0 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pires/go-proxyproto v0.12.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/sagikazarmark/locafero v0.11.0 // indirect
+	github.com/sethvargo/go-retry v0.3.0 // indirect
+	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
+	github.com/spf13/afero v1.15.0 // indirect
+	github.com/spf13/cast v1.10.0 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/subosito/gotenv v1.6.0 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	modernc.org/libc v1.72.3 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.11.0 // indirect
+)
+
+
+
+Generate a compact adaptive per file LLM index for a Go module.
+
+Goal
+
+Minimize tokens while preserving all non default, behaviorally relevant information present in each file.
+Use semantic packing: merge homogeneous facts when no information is lost.
+Treat the defaults below as a compression dictionary: never restate facts implied by defaults.
+
+Hard rules
+
+English only.
+Plain text only.
+Output must avoid characters commonly interpreted by Markdown.
+Do not use backticks.
+Do not use markdown headings, emphasis, tables, block quotes, code fences, list markers, or horizontal rules.
+Prefer letters, digits, spaces, commas, periods, semicolons, and parentheses.
+One output block per go file.
+Each file index must be emitted as a separate standalone plain text block so the client UI can attach a copy button per block if supported.
+Extremely concise, telegraphic style.
+Facts first. Infer only when strongly supported.
+Preserve all non default facts; compress wording, not information.
+If two outputs preserve the same non default facts, choose the shorter one.
+If unknown and important: Unknown.
+If absent or default: omit section entirely.
+Do not hallucinate.
+Omit standard library imports.
+Testing stack: Uber mockgen, testify.
+Do not expand obvious Go syntax into prose when it adds no behavioral information.
+Group homogeneous declarations into one fact line whenever no information is lost.
+Do not mirror the AST.
+Do not emit warnings for merely theoretical misuse; warn only on real hazards evidenced by code.
+
+Adaptive output size
+
+Tiny file: ultra short index, usually 3 to 6 lines.
+Medium file: normal compact index, only non default sections.
+Complex file: full compact index, still only non default sections.
+
+Complexity heuristic
+
+Tiny: 0 to 2 non trivial funcs or methods, little or no state, little or no I O, no concurrency, no lifecycle, no important globals; or declaration only file.
+Medium: several important funcs or methods or meaningful state, I O, config, dependencies.
+Complex: service, handler, transport, repository, bootstrap, core domain file; multiple contracts; lifecycle, concurrency, security, operational significance.
+
+Default assumptions
+
+Omit any aspect that matches these defaults.
+
+File and package defaults
+
+Scope: Internal
+Role: utility
+Go: Unknown
+Generated: no
+Build: None
+ADR: None
+Production Readiness: unknown
+Required Env Vars: None
+Depends On: omit unless important and non obvious
+Depended By: omit unless known and useful
+Imports: omit unless external or internal imports are behaviorally meaningful
+Package Context: omit unless needed to understand role in module
+
+Type defaults
+
+Zero Value: unknown unless clearly derivable and necessary for safe use
+Concurrency: None
+Fields: omit if obvious or trivial
+Invariants: None
+Implements or Implemented by: omit unless important
+
+Function and method defaults
+
+Returns: omit if obvious from signature
+Preconditions: None
+Postconditions: None
+Effects: None
+Errors: None
+Context: None
+Concurrency: None
+Thread Safety: conditional
+Security: None
+Idempotency: unknown
+
+File level defaults
+
+Preconditions: None
+Effects: None
+Security Constraints: None
+Concurrency and Thread Safety: None
+Lifecycle, Shutdown and Cleanup: None
+Cleanup Required: no
+Testability: omit unless notable
+Warnings: omit unless real risk or gotcha exists
+Call Stack Example: omit unless file role is service, transport, handler, or bootstrap and useful
+
+Information preservation rules
+
+Keep every explicit non default fact that affects API, validation, configuration, side effects, lifecycle, security, I O, concurrency, or operational behavior.
+Shared facts may be stated once for a group of symbols.
+Do not split one semantic fact into multiple lines if one line preserves it fully.
+For declaration only files, preserve distinctions only when they matter behaviorally.
+If a symbol name fully conveys its role and the file adds no extra behavior, listing the name may be sufficient.
+Preserve exported API surface, but it may be represented as grouped summaries rather than one entry per symbol when no non default information is lost.
+Distinguish symbols separately only when representation, constraints, effects, or role differ in a behaviorally relevant way.
+
+What to always include
+
+Always include:
+File
+Package
+Purpose
+
+Include only if non default or important:
+Role, if not utility or needed
+Scope, if Exported
+Go, if inferable from explicit features
+Generated, if yes or source known
+Build, if present
+ADR, if applicable
+Production Readiness, if can be judged from evidence and useful
+Required Env Vars, if any
+Depends On or Depended By, if useful
+Imports, if behaviorally meaningful
+Types and Interfaces, for important types only
+Constants and Vars, only behaviorally important
+Globals and Init, if side effects or state exist
+Functions, only important funcs or methods
+File level sections, only if non default
+Warnings, only if real
+Call Stack Example, only if useful
+
+Mandatory special rules
+
+Include Zero Value only when necessary for safe use, lifecycle correctness, nil safety, or behavioral understanding in this module.
+Usually omit Zero Value for aliases, newtypes, plain arrays, and passive structs.
+For passive types with no methods or invariants and identical representation class, prefer grouped listing in the form A, B, C: shared role or type class.
+Omit per type Concurrency, Fields, Invariants unless at least one differs or the fact is critical to safe use.
+For every described important function or method, include Thread Safety only if it is not the default conditional, or if safety is important to correct use.
+Errors must be plain text lines if any exist.
+Warnings section only when real warnings exist.
+Mention graceful shutdown or resource cleanup only when relevant.
+Mention Uber mockgen or testify only when relevant to tests or mocks.
+
+Inclusion rules for symbols
+
+Always include exported funcs or methods if they define real API or behavior.
+Exported types, constants, and vars may be grouped and summarized when no non default information is lost.
+Include unexported symbols only if they contain important logic, state mutation, I O, lifecycle, concurrency, security checks, registration side effects, or are central to understanding the file.
+Skip trivial helpers, getters, setters, obvious wrappers.
+For files dominated by repetitive declarations, summarize by pattern instead of enumerating every symbol.
+Skip per type entries when multiple types differ only by name and share identical representation and role class; list names together.
+Group constants or vars when they share domain, type role, or value pattern.
+If several constants differ only by name but share one meaningful property, state that property once.
+
+Output format
+
+Use only sections that contain non default useful information.
+Keep order when sections appear.
+One separate plain text output block per go file.
+Do not wrap blocks with backticks, code fences, or markdown code blocks.
+Use simple labels and sentences only.
+Do not use list bullets or numbering inside the generated index.
+Do not use characters commonly interpreted by Markdown if a plain sentence can express the same fact.
+Prefer comma separated or semicolon separated packing.
+
+Canonical block shape
+
+File: relative slash path
+Package: name, optionally plus Scope: Exported, optionally plus Role: role
+Purpose: one line responsibility
+
+Optional sections in this order
+
+Go: minimum version or features
+Generated: yes; source
+Build: tags or platform constraints
+ADR: relevant ADRs
+Production Readiness: ready, mostly ready, partial, or risky, plus short reason
+Required Env Vars: NAME, type, mandatory or optional, purpose. Repeat in one line if short; otherwise separate lines without bullets.
+Depends On: key dependencies
+Depended By: key dependents
+Imports: external or internal only; omit standard library
+Types and Interfaces: compact grouped facts. Example form: A, B, C: shared role or type class. Per symbol detail only when behaviorally distinct.
+Constants and Vars: compact grouped facts. Example form: A, B, C: shared meaning or shared property.
+Globals and Init: package vars, init, import time side effects, state registration
+Functions: one function entry per line or compact multi line entry without bullets
+Function entry shape: func Name(params) returns. Purpose: short. Preconditions: only if non default. Postconditions: only if non default. Effects: only if non default. Errors: err, exact condition; err, exact condition. Context: only if non default. Concurrency: only if non default. Thread Safety: yes, no, or conditional, plus short reason only if useful. Security: only if non default. Idempotency: yes, no, or conditional only if known and useful.
+Method entry shape: func receiver Name(params) returns. Purpose: short. Preconditions: only if non default. Postconditions: only if non default. Effects: only if non default. Errors: err, exact condition; err, exact condition. Context: only if non default. Concurrency: only if non default. Thread Safety: yes, no, or conditional, plus short reason only if useful. Security: only if non default. Idempotency: yes, no, or conditional only if known and useful.
+Preconditions: file level shared assumptions
+Effects: file level shared side effects
+Security Constraints: file level constraints
+Package Context: only if needed
+Concurrency and Thread Safety: file level model, caller duties, race risks
+Lifecycle, Shutdown and Cleanup: constructors, init, resources, Close, Stop, Shutdown, graceful shutdown, cleanup ownership, cancellation behavior
+Cleanup Required: yes or conditional
+Testability: only if notable
+Warnings: real gotcha, risk, or hazard. If several, separate with semicolons or use separate plain lines without bullets.
+Call Stack Example: entrypoint; handler or transport; service; repo or adapter
+
+Tiny file compression rules
+
+If a file contains only constants, aliases, newtypes, or passive structs with no methods, prefer 3 to 5 lines total.
+Group same purpose constants on one line.
+Group same shape types on one line.
+Omit Functions section entirely if no behavior exists.
+If Purpose subsumes most declarations, prefer a short grouped summary over per symbol entries.
+Do not restate sizes, primitive kinds, tags, or array lengths per symbol when shared by all listed symbols; state once.
+If the source is shorter than the prospective index, compress further.
+
+Medium file mode
+
+Use minimal header plus only non default sections needed for behavior, globals, key functions, and risks.
+
+Complex file mode
+
+Use all non default sections needed to capture API, contracts, state, dependencies, concurrency, lifecycle, security, operations, and key call flow.
+
+Normalization rules
+
+Zero Value values, when included: usable, not usable, or partially usable.
+Thread Safety values, when included: yes, no, or conditional.
+Production Readiness values, when included: ready, mostly ready, partial, or risky.
+Prefer grouped forms such as A, B, C: shared fact or A slash B slash C: shared fact.
+State a shared numeric or property value once when it applies to all listed symbols.
+If a fact is obvious from signature and adds no semantic value, omit it.
+Prefer omission over writing None.
+Prefer one compact line over multiple lines when clarity is preserved.
+
+Anti bloat rules
+
+Do not explain what is directly obvious from Go syntax unless it changes behavior.
+Do not enumerate symbols just because they are exported.
+Do not convert one obvious declaration into multiple prose facts.
+Do not state negative or default facts to complete a schema.
+Omit any fact recoverable from defaults plus a shorter grouped statement.
+When in doubt, shorten.
+
+Quality target
+
+The index must be the shortest text that preserves all non default, behaviorally relevant information from the file.
+For tiny files, prefer aggressive semantic packing.
+A correct grouped summary is better than a longer per symbol inventory.
+The index may be shorter than the source and should often be.
+
+
+File: internal/client/app/bootstrap.go
+Package: app
+Role: Composition Root
+Purpose: Orchestrates client application initialization, configuration loading, local SQLite pool allocation, and automatic schema migration execution.
+
+Functions:
+func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, error). Purpose: sequence flow. Invokes config loaders, opens SQLite via sqlite.Open, runs migrations via sqlite.Migrate, binds dependency container via WithApp. Errors: wrapped config, initialization, or migration schema failures.
+func Shutdown(application *App) error. Purpose: lifecycle finalizer. Gracefully closes active SQLite database descriptors. Safe against nil application context or uninitialized pool targets.
+
+***
+
+File: internal/client/app/runtime.go
+Package: app
+Role: Dependency Container
+Purpose: Encapsulates active runtime application state, configuration sections, and transactional resources inside type-safe context boundaries.
+
+Types and Interfaces:
+App struct. Holds immutable Config configuration model and mutable DB connection pool.
+contextKey string unexported alias type mapping appContextKey constant target.
+
+Functions:
+func NewApp(cfg config.Config, db *sql.DB) *App. Standard baseline constructor.
+func WithApp(ctx context.Context, application *App) context.Context. Injects active container instance into context layout.
+func AppFromContext(ctx context.Context) (*App, error). Purpose: runtime resolution helper extracting active application domain. Errors: explicit error returned if container missing.
+
+
+
+File: internal/client/config/config.go
+Package: config
+Role: Domain Configuration Model
+Purpose: Dictates client-side structural type layouts mapping configuration files into mapstructure targets.
+
+Constants and Vars:
+ErrSSHAgentSocketPathNotSet, ErrSQLitePathNotSet: fatal lifecycle validation targets.
+
+***
+
+File: internal/client/config/validate.go
+Package: config
+Role: Validation Engine
+Purpose: Verifies presence and structural sanitization metrics of crucial runtime paths.
+
+Functions:
+func (c Config) Validate() error. Purpose: evaluates fields. Prevents blank fields on required resources. Errors: ErrSSHAgentSocketPathNotSet; ErrSQLitePathNotSet.
+
+***
+
+File: internal/client/config/viper.go
+Package: config
+Role: External Configuration Provider
+Purpose: Binds OS environment keys, configuration maps, and flags to configuration models. Resolves default unconfigured properties via implicit platform XDG State definitions.
+
+Constants:
+defaultSQLiteRelativePath = gophkeeper/goph_keeper.db
+
+Functions:
+func NewViper() *viper.Viper. Purpose: builder. Pre-wires GOPHKEEPER prefix and automatically structures dot-separated namespaces.
+func ReadConfigFile(v *viper.Viper) error. Purpose: disk lookup loop. Parses target raw configuration descriptors.
+func LoadFromViper(v *viper.Viper) (Config, error). Purpose: unmarshaler and normalizer. Explicitly maps state fields and runs defensive fallback binding toward un-prefixed native OS environment variables like SSH_AUTH_SOCK. Errors: wrapped unmarshal or validation logic failures.
+func defaultSQLitePath(), defaultSQLitePathFromFunc(stateFile func(string) (string, error)) string. XDG runtime directory expansion hooks.
+
+
+
+File: internal/client/sshagent/helpers_test.go
+Package: sshagent
+Purpose: Test helpers for ssh-agent functional and unit tests. Generates test Ed25519 and RSA keys via ssh-keygen, starts real ssh-agent processes, adds keys, parses agent output. Requires ssh-keygen, ssh-agent, ssh-add binaries in PATH. Skips tests if missing.
+
+File: internal/client/sshagent/sshagent.go
+Package: sshagent
+Role: Infrastructure
+Purpose: SSH agent adapter providing connection management, key enumeration, fingerprint-based signing, deterministic Ed25519 self-test, and canonical signature extraction. SSH agent is root of trust; private key never leaves agent.
+
+Constants:
+KeyAlgoED25519 = ssh.KeyAlgoED25519
+
+Errors:
+ErrSSHAuthSockNotSet, ErrAgentHasNoKeys, ErrKeyNotFound, ErrUnsupportedKeyAlgorithm, ErrUnexpectedSignatureFormat, ErrNonDeterministicSignature, ErrEmptyPayload, ErrNilPublicKey, ErrEmptyFingerprint
+
+Types:
+SignerInfo struct. Comment, Algorithm, Fingerprint, PublicKey ssh.PublicKey.
+Client struct. socketPath string, mu sync.Mutex, conn net.Conn, ag sshagent.Agent. Thread Safety: all public methods safe for concurrent use via mutex.
+
+Functions:
+NewFromEnv() (*Client, error). Reads SSH_AUTH_SOCK, calls New. Errors: ErrSSHAuthSockNotSet.
+New(socketPath string) (*Client, error). Validates path non-empty, connects to agent. Errors: ErrSSHAuthSockNotSet, connection errors.
+Close() error. Closes connection idempotently. Returns close error, nil if already closed.
+Ping() error. Calls List, returns error if agent unavailable.
+List() ([]SignerInfo, error). Lists all keys, parses public keys, converts to SignerInfo. Skips malformed entries. Transparent reconnect on stale connection. Errors: ErrAgentHasNoKeys if no keys or all malformed.
+ListED25519() ([]SignerInfo, error). Filters List results to ssh-ed25519 only. Errors: ErrKeyNotFound if no Ed25519 keys.
+FindByFingerprint(fingerprint string) (*SignerInfo, error). Lists keys, matches fingerprint. Errors: ErrKeyNotFound, ErrEmptyFingerprint.
+FindED25519ByFingerprint(fingerprint string) (*SignerInfo, error). Finds by fingerprint, validates algorithm. Errors: ErrKeyNotFound, ErrUnsupportedKeyAlgorithm.
+Sign(fingerprint string, payload []byte) (*ssh.Signature, error). Signs payload with key by fingerprint. Errors: ErrEmptyPayload, FindByFingerprint errors, agent signing errors.
+SignED25519(fingerprint string, payload []byte) (*ssh.Signature, error). Signs with Ed25519 key, validates signature format equals ssh-ed25519. Errors: ErrEmptyPayload, FindED25519ByFingerprint errors, agent signing errors, ErrUnexpectedSignatureFormat.
+SignED25519Raw(fingerprint string, payload []byte) ([]byte, error). Returns canonical 64-byte raw Ed25519 signature via ExtractED25519RawSignature. Errors: SignED25519 errors, extraction errors.
+SelfTestDeterministicED25519(fingerprint string, payload []byte) error. Signs same payload twice, compares raw signatures. Required before derivation. Errors: ErrEmptyPayload, SignED25519Raw errors, ErrNonDeterministicSignature.
+FingerprintSHA256(pub ssh.PublicKey) string. Returns SHA256:base64 format. Stable key identifier.
+ExtractED25519RawSignature(sig *ssh.Signature) ([]byte, error). Validates signature format and blob length 64. Returns copy of raw bytes. Errors: ErrUnexpectedSignatureFormat on nil, wrong format, wrong blob length.
+signWithPublicKey unexported. Internal signing with reconnect retry. Attempts transparent reconnect on stale connection and retries once.
+connectLocked internal. Dial unix socket, create agent client.
+ensureConnectedLocked internal. Establishes connection if absent.
+reconnectLocked internal. Closes existing connection, reconnects.
+
+Security Constraints: SSH agent acts as root of trust. Private key never read by application. Determinism self-test prevents non-deterministic signatures from being used. Ed25519 only in MVP. Raw signature extraction validates algorithm and size. Reconnect on stale connections but failed agent operations may retry once.
+
+Concurrency and Thread Safety: All public methods safe for concurrent use. Mutex serializes agent access. Connection may be reestablished if stale.
+
+Warnings: SelfTestDeterministicED25519 performs two signing operations; may be expensive. Agent disconnect during signing triggers one automatic reconnect retry. Malformed keys in List are silently skipped, may hide agent configuration issues. Fingerprint matching is case-sensitive exact match. OpenSSH-style fingerprint format required.
+
+File: internal/client/sshagent/ssh_agent_functional_test.go
+Package: sshagent
+Build: functional
+Purpose: Functional tests requiring real ssh-agent. Tests NewFromEnv, List, FindByFingerprint, SignED25519, SignED25519Raw, SelfTestDeterministicED25519, explicit socket path, empty payload handling, and missing socket errors. Skipped in short mode.
+
+File: internal/client/sshagent/sshagent_test.go
+Package: sshagent
+Purpose: Unit tests with mock agent. Tests NewFromEnv, New, Close, FingerprintSHA256, ExtractED25519RawSignature, List, ListED25519, FindByFingerprint, FindED25519ByFingerprint, Sign, SignED25519, SignED25519Raw, SelfTestDeterministicED25519, reconnect logic, and error paths. Uses mockAgent implementing sshagent.Agent interface with configurable listFn and signFn.
+
+
+File: internal/client/providers/grpc/info_client.go
+Package: grpc
+Role: Infrastructure Transport Adapter
+Purpose: Connects to remote storage nodes over secure TLS channels to query server operational state parameters.
+
+Functions:
+func FetchServerInfo(ctx context.Context, serverAddr string) (*pb.InfoResponse, error). Purpose: communication logic. Resolves client TLS properties, boots non-blocking grpc.NewClient, sets isolated 5-second context timeouts, triggers Remote Procedure Call. Errors: wrapped TLS setup, connection, or remote status failure.
+
+***
+
+File: internal/client/providers/grpc/tlsconfig.go
+Package: grpc
+Role: Security Factory Configuration
+Purpose: Generates tailored x509 cryptographic contexts isolating client connection privileges across explicit lifecycle steps (bootstrap vs mTLS).
+
+Functions:
+func ConfigForBootstrap() (*tls.Config, error). Purpose: unauthenticated state. Loads ServerCAPool as target RootCAs anchor without local identities. Errors: wrapped CA mapping failures.
+func ConfigForMTLS(cert tls.Certificate, caPool *x509.CertPool) (*tls.Config, error). Purpose: authenticated context. Embeds operational device identity certificate inside safe TLS handshake frameworks. Errors: wrapped CA fallback pool failures.
+func ConfigForTest() *tls.Config. Diagnostic stub bypassing certificate identity logic. Enforces InsecureSkipVerify=true.
+
+
+
+File: internal/client/providers/sqlite/migrations/00001_init.sql
+Role: Database Schema Migration
+Purpose: Creates standalone single-row device_state table enforcing local-first zero-knowledge invariants.
+Security Constraints: Singleton table state guaranteed via PRIMARY KEY CHECK (id = 1). Stores server bindings, user/device UUIDs, public SSH key, cloud account_bootstrap_envelope, local device_master_key_envelope, encrypted_mtls_private_key, and client mTLS certificate. Down migration drops table.
+
+
+
+File: internal/client/providers/sqlite/embed.go
+Package: sqlite
+Purpose: Embeds migration SQL files from migrations/*.sql into binary via go:embed directive. Provides migrationsFS embed.FS for goose migrations.
+
+File: internal/client/providers/sqlite/sqlite.go
+Package: sqlite
+Purpose: Opens, creates, validates, and hardens client SQLite database file. Imports: modernc.org/sqlite.
+
+Errors: ErrEmptyPath, ErrParentDirNotDirectory, ErrParentDirInsecurePermissions, ErrDatabaseFileNotRegular, ErrDatabaseFileInsecurePermissions.
+
+Functions:
+func Open(path string) (*sql.DB, error). Trims path, ensures parent dir exists mode 700, ensures DB file exists mode 600, validates existing file permissions, opens sqlite, pings, configures pragmas. Effects: may create parent dir mode 700 and DB file mode 600. Errors: ErrEmptyPath, ensureParentDir errors, ensureDatabaseFile errors, validateDatabaseFile errors, open/ping/pragma errors. Cleanup Required: caller closes returned DB.
+func ensureParentDir(dir string) error. Creates dir mode 700 if missing, validates existing dir, rejects non-directories, validates permissions.
+func ensureDatabaseFile(path string) (bool, error). Returns true if existing regular file, creates missing file with O_RDWR|O_CREATE|O_EXCL mode 600, rejects non-regular paths.
+func validateDatabaseFile(path string) error. Requires regular file and platform-specific secure permissions.
+func configureSQLite(db *sql.DB) error. Sets MaxOpenConns=1, enables foreign_keys, sets busy_timeout=5000ms, requires journal_mode WAL. Errors: pragma failures, error if WAL not returned.
+
+Concurrency and Thread Safety: DB constrained to single open connection via MaxOpenConns=1.
+Security Constraints: Enforces 0700 parent directories and 0600 DB files on Unix. Foreign keys enabled, WAL mode for concurrency.
+Warnings: Windows permission validation incomplete. ensureDatabaseFile creates file mode 600 but parent dir permissions may allow other access if parent insecure. MaxOpenConns=1 limits concurrency but prevents lock conflicts.
+
+
+File: internal/client/providers/sqlite/errors.go
+Package: sqlite
+Purpose: Declares structural error flags indicating insecure filesystem posture states.
+Globals: ErrParentDirInsecurePermissions, ErrDatabaseFileInsecurePermissions.
+
+File: internal/client/providers/sqlite/perms_unix.go
+Package: sqlite
+Build: unix
+Purpose: Assures standard POSIX octal file permission compliance rules hold over localized rest storage.
+Functions:
+func validateDirPermissions(path string, info os.FileInfo) error. Verifies mode matches exactly 0700. Errors: ErrParentDirInsecurePermissions.
+func validateFilePermissions(path string, info os.FileInfo) error. Verifies mode matches exactly 0600. Errors: ErrDatabaseFileInsecurePermissions.
+
+File: internal/client/providers/sqlite/perms_windows.go
+Package: sqlite
+Build: windows
+Purpose: Grants absolute encryption container protection at rest on Windows by manipulating native kernel DACL blocks.
+Functions:
+func validateDirPermissions(path string, info os.FileInfo) error. Targets container directory namespaces.
+func validateFilePermissions(path string, info os.FileInfo) error. Targets physical database files.
+func aclProtectCurrentURLExclusive(path string) error. Extracts executing process user SIDs, constructs explicit access matrices, and strips parent folder inheritance via PROTECTED_DACL_SECURITY_INFORMATION to lock contents to the active owner.
+
+File: internal/client/providers/sqlite/migrate.go
+Package: sqlite
+Purpose: Safely manages embedded schema installation rules for local SQLite databases.
+Globals: ErrNilDatabase.
+Functions:
+func Migrate(db *sql.DB) error. Execution finalizer. Implements a mandatory entryguard to intercept null connection wrappers, sets up goose engine environments, and rolls schema updates. Errors: ErrNilDatabase, dial, or syntax execution faults.
+Security Constraints: Terminates processing immediately on uninitialized database handlers to prevent runtime environment segmentation violations.
+
+
+
+File: internal/client/providers/device/certificate.go
+Package: device
+Role: Infrastructure PKI Adapter
+Purpose: Manages lifecycle transformations of client-side mTLS credentials, parsing raw text structures into Go TLS primitives and enforcing mandatory ClientAuth validation constraints.
+
+Constants and Vars:
+ErrNoPrivateKey, ErrNoCertificate: structural mapping and validation block errors.
+
+Functions:
+func LoadDeviceCertificate(certPEM, keyPEM []byte) (tls.Certificate, error). Purpose: construction pipeline. Invokes standard x509 deserialization and triggers strict validateClientCertificate validation rules. Errors: wrapped parsing or extended usage validation errors.
+func validateClientCertificate(cert *tls.Certificate) error. Purpose: strict structural enforcement. Ensures certificate leaf slice presence and mandates x509.ExtKeyUsageClientAuth in ExtKeyUsage. Errors: ErrNoCertificate; wrapped x509 parsing error; specific clientAuth missing error.
+func EncapsulateDeviceCertificate(cert tls.Certificate) (certPEM, keyPEM []byte, err error). Purpose: serialization pipeline. Encodes all certificate DER structures into standard blocks, marshals target private key components using generic x509.MarshalPKCS8PrivateKey specification formatting. Errors: ErrNoPrivateKey; wrapped PKCS8 marshaling failures.
+
+Security Constraints: Explicitly validates clientAuth usage to shield mTLS gRPC network endpoints from misconfigured, invalid, or unauthorized certificate payloads. Enforces standardized PKCS8 formatting for local encryption wrappers.
+
+
+
+File: internal/client/commands/context.go
+Package: commands
+Role: CLI Context Bridge
+Purpose: Solves application lifecycle lookup by resolving global application container states inside deep Cobra execution contexts.
+
+Functions:
+func AppFromCommand(cmd *cobra.Command) (*clientapp.App, error). Purpose: context accessor. Resolves nested container instance mapping. Errors: returned if context lacks type-safe storage hooks.
+
+***
+
+File: internal/client/commands/create.go
+Package: commands
+Role: CLI Command Leaf
+Purpose: Implements target interaction structures for explicit local item/secret instantiation procedures. Outputs configuration matrices for validation logs.
+
+Functions:
+func newCreateCommand() *cobra.Command. Purpose: constructor. Captures input type, key, and value flags via variable addresses. Runs target container evaluation over output buffers.
+
+***
+
+File: internal/client/commands/root.go
+Package: commands
+Role: CLI Root Orchestrator
+Purpose: Constructs primary execution tree structure. Sets global runtime constraints, PersistentPreRunE lifecycle container boostrapping pipelines, and automated cleanup steps.
+
+Functions:
+func NewRootCommand(v *viper.Viper) (*cobra.Command, error). Purpose: composition layer. Allocates core layout, hooks PersistentPreRunE and PersistentPostRunE handlers, and binds dynamic flags to target Viper settings nodes. Errors: failure on flag map operations.
+
+***
+
+File: internal/client/commands/status.go
+Package: commands
+Role: CLI Command Leaf
+Purpose: Controls remote storage transport sanity operations by issuing baseline diagnostic network queries over explicit client TLS credentials pools.
+
+Functions:
+func newStatusCommand() *cobra.Command. Purpose: constructor. Wire server flags targets and translates command requests into background gRPC probe actions.
+
+
+
+File: internal/server/auth/interceptor.go
+Package: auth
+Purpose: Validates incoming peer connections by evaluating embedded X509 client certificate SAN URI chains.
+Functions:
+func NewUnaryAuthInterceptor() grpc.UnaryServerInterceptor. Generates an execution interceptor. Bypasses challenge-response registration methods, reads raw peer boundaries, verifies presence of client AuthInfo configurations, and parses target urn:gophkeeper:file:<uuid> values. Errors: propagated Unauthenticated status codes on empty context references or broken identity blocks.
+Security Constraints: Explicitly blocks execution routes unless a cryptographically verified per-container file URI signature matches structural parameters.
+
+
+
+File: internal/server/transport/grpc/register.go
+Package: grpc
+Role: Transport Handler
+Purpose: Implements passwordless gRPC RegistrationServer using challenge-response and crypto envelope submissions.
+Functions:
+func NewRegistrationHandler(cfg config.Config) *RegistrationHandler. Constructor helper.
+func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.RegisterBeginRequest) (*pb.RegisterBeginResponse, error). Purpose: Step 1 registration entrypoint. Generates random UserId, SessionId, 32-byte ServerNonce, and 32-byte AccountSalt via OS CSPRNG. Errors: InvalidArgument on empty username or public key; Internal on CSPRNG failures.
+func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.RegisterFinishRequest) (*pb.RegisterFinishResponse, error). Purpose: Step 2 registration finalizer. Validates mandatory cryptographic envelopes, authentication challenge signature, and PKCS10 CSR payload before returning newly issued container ClientCertificate and CaChain. Errors: InvalidArgument on missing UUID identifiers, empty signatures, missing envelopes, or blank CSR byte blobs.
+Security Constraints: Enforces cryptographic separation by requiring both cloud account_bootstrap_envelope and local device_master_key_envelope to freeze account registration state at transaction boundaries.
+
+File: internal/server/transport/grpc/server.go
+Package: grpc
+Role: Transport Bootstrap
+Purpose: Binds active TLS credentials and hooks application service interceptors to initialize the root gRPC network daemon.
+Functions:
+func NewGRPCServer(cfg config.Config, tlsConfig *tls.Config, pool *pgxpool.Pool) *grpc.Server. Purpose: instantiation pipeline. Resolves explicit credentials structure, spins up internal grpc.NewServer with credentials hooks, maps InfoServiceServer, RegistrationServer, and DeviceAttachmentServer onto shared multiplexer boundaries.
+Security Constraints: Enforces full platform encryption boundaries at layer 4 transport. Mandates binding of the multi-step attachment handler to isolate unauthenticated state machine endpoints.
+
+
+
+
+File: internal/server/app/runtime.go
+Package: app
+Purpose: Houses the central server runtime state object and handles explicit memory context propagation maps.
+Types: App struct scope. Holds configurations, proxy network listeners, root grpc.Server blocks, and active postgres connection pools.
+Functions:
+func NewApp(cfg config.Config, listener net.Listener, grpcServer *grpc.Server, acmeListener net.Listener) *App. Simple constructor.
+func WithApp(ctx context.Context, application *App) context.Context. Standard context mapper.
+func AppFromContext(ctx context.Context) (*App, error). Retrieves pointer references. Errors: app is missing in context.
+
+File: internal/server/app/bootstrap.go
+Package: app
+Purpose: Orchestrates full multi-layered system initialization tying TLS 1.3 mTLS pipelines to underlying database pools.
+Functions:
+func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, error). Entrypoint coordinator. Pulls validation models, builds native pgx connections, issues structural database migrations. If ACME handles are blank, triggers dynamic ServerCA key mapping and appends strict RequireAndVerifyClientCert mTLS verification topologies to bind hardware isolation layers. Errors: initialization, database, or CA parsing block rejections.
+Security Constraints: Forbids blank-unverified client socket exposures by anchoring active Device Identity pools on local nodes.
+
+File: internal/server/app/run.go
+Package: app
+Purpose: Governs execution states and teardown steps of the system daemon.
+Functions:
+func (a *App) Run() error. Triggers active grpc.Server.Serve monitoring blocks. Errors: grpc server or listener not initialized.
+func (a *App) Shutdown() error. Implements graceful stops, terminates ACME threads, and drains persistence pools.
+
+
+
+File: internal/server/config/config.go
+Package: config
+Purpose: Declares target configuration model bindings mapping server networks, persistence engines, and external crypto material locations.
+Types: Config, ServerConfig, StorageConfig, PKIConfig struct scopes.
+Globals: ErrServerBindGRPCEmpty, ErrPostgresDSNEmpty, ErrHTTPBindWithoutACME, ErrServerCAKeyEmpty, ErrDeviceCAKeyEmpty, ErrDeviceCACertEmpty.
+Security Constraints: Explicitly decouples transport identity by hosting individual paths for decoupled server-auth and container-issuance private keys.
+
+File: internal/server/config/validate.go
+Package: config
+Purpose: Evaluates configuration boundaries ensuring zero-knowledge isolation parameters remain active.
+Functions:
+func (c Config) Validate() error. Purpose: validation runner. Enforces presence of gRPC bind and persistence strings. If ACME/LetsEncrypt domains are unassigned, strictly requires external filesystem locations for ServerCAKeyPath, DeviceCAKeyPath, and DeviceCACertPath to guarantee explicit cryptographic infrastructure boot.
+Security Constraints: Prevents runtime operational mode with empty keys when local certificate synthesis is active.
+
+File: internal/server/config/viper.go
+Package: config
+Purpose: Ties platform environment boundaries, default maps, and YAML files to the unified config registry.
+Functions:
+func NewViper() *viper.Viper. Purpose: Allocates state, defines GOPHKEEPER_SERVER env namespaces, maps dots to underscores, binds default addresses.
+func ReadConfigFile(v *viper.Viper) error. Purpose: Injects runtime YAML parameters if a configuration target path exists.
+func LoadFromViper(v *viper.Viper) (Config, error). Purpose: Combines unmarshalling routines with structural validation rules.
+
+File: internal/server/config/config_test.go
+Package: config_test
+Purpose: Runs verification suites over initialization layers using deterministic mocked environment constraints.
+Functions:
+TestNewViper_Defaults: Assures baseline defaults load properly.
+TestConfig_Validate: Exercises all structural error conditions across invalid setups.
+TestLoadFromViper_EnvironmentVariables: Validates automated prefix mappings via t.Setenv strings.
+TestReadConfigFile: Spawns ephemeral temporary disk files to guarantee config serialization.
+
+
+
+File: internal/server/providers/postgres/acme_cache.go
+Package: postgres
+Purpose: Extends x/crypto/acme/autocert.Cache interface over SQL storage schemas using raw pgx query boundaries.
+Functions:
+func NewPostgresCache(pool *pgxpool.Pool) *PostgresCache. Instantiates target state engine.
+func (p *PostgresCache) Get(ctx context.Context, key string) ([]byte, error). Retrieves byte arrays. Maps pgx.ErrNoRows cleanly to autocert.ErrCacheMiss signatures. Errors: data conversion and connection drop boundaries.
+func (p *PostgresCache) Put(ctx context.Context, key string, data []byte) error. Executes high-performance upsert queries via ON CONFLICT primitives.
+func (p *PostgresCache) Delete(ctx context.Context, key string) error. Purges unique string identifiers from the cache namespace.
+
+File: internal/server/providers/postgres/connect.go
+Package: postgres
+Purpose: Resolves DSN network configurations and provisions native thread-safe pgx connection pools.
+Functions:
+func Connect(ctx context.Context, cfg config.StorageConfig) (*pgxpool.Pool, error). Entrypoint allocator. Parses credentials layout, applies structural pool-size limits, binds session dial constraints, and tests endpoints using atomic network pings. Errors: blank connection descriptors, string syntax anomalies, remote node authentication failures.
+
+File: internal/server/providers/postgres/migrate.go
+Package: postgres
+Purpose: Wraps existing native connection pools to roll embedded structural database changes via goose.
+Functions:
+func Migrate(pool *pgxpool.Pool) error. Injects target embed.FS scopes, explicitly locks postgres execution dialects, and maps stdlib wrappers to fire atomic up-migrations. Errors: null pool pointers, dialect binding rejections, structural schema definition block anomalies.
+
+
+
+File: internal/server/providers/postgres/migrations/00001_acme_cache.sql
+Role: Database Schema Migration
+Purpose: Creates a dedicated table for distributed Let's Encrypt ACME challenge token and certificate caching.
+Security Constraints: Key parameter is bound as PRIMARY KEY to maintain serialization during concurrent ACME validations across scaled backend instances. Bytea payload encapsulates serialized crypto primitives. Down block safely truncates the schema.
+
+
+
+File: internal/server/pki/ca.go
+Package: pki
+Purpose: Orchestrates file-driven dynamic root key provisioning to split mTLS from server transport authority scopes.
+Functions:
+func LoadServerCA(cfg config.Config) (*x509.Certificate, *ecdsa.PrivateKey, error). Purpose: Service engine. Binds local system shared transport trust anchors to disk paths.
+func LoadDeviceCA(cfg config.Config) (*x509.Certificate, *ecdsa.PrivateKey, error). Purpose: Identity engine. Extracts operational trust material directly from variable filesystem targets.
+func loadPrivateKeyFromFile(path string) (*ecdsa.PrivateKey, error). Internal reader. Decodes PKCS8/PKCS1 elliptic curves.
+Security Constraints: Separates device clientAuth issuance keys from transport profiles to prevent horizontal privilege escalations.
+
+File: internal/server/pki/ca_test.go
+Package: pki_test
+Purpose: Runs verification assertions over key ingestion pipelines using temporary OS storage handles.
+Functions:
+TestLoadServerCA_MissingConfig: Validates safety fallback loops on structural blinks.
+TestLoadDeviceCA_FullWorkflow: Simulates full cryptographic boot sequences over ephemeral filesystem storage nodes.
+
+File: internal/server/pki/server_cert.go
+Package: pki
+Purpose: Fabricates contextual transport certificates on demand.
+Functions:
+func GenerateDynamicServerCertificate(caCert *x509.Certificate, caPrivateKey *ecdsa.PrivateKey, host string) (*tls.Certificate, error). Dynamic builder. Computes unique serial markers, registers serverAuth extensions, appends host SAN masks.
+Security Constraints: Hard-locks issued leaf parameters to prevent utilization inside client authorization handlers.
+
+File: internal/server/pki/server_cert_test.go
+Package: pki_test
+Purpose: Verifies x509 field constraints match target specification requirements.
+Functions:
+TestGenerateDynamicServerCertificate_Success: Asserts CommonName generation, chain length limits, and ExtKeyUsage arrays evaluate cleanly.
+TestGenerateDynamicServerCertificate_ValidationErrors: Assures empty parameters bounce out gracefully.
+
+
+
+File: internal/server/commands/context.go
+Package: commands
+Purpose: Bridge helper to extract root server runtime applications directly out of active Cobra execution trees.
+Functions:
+func AppFromCommand(cmd *cobra.Command) (*serverapp.App, error). Context unpacker. Forwards the internal command context block straight into the application state locator. Errors: propagated context lookup failures.
+
+File: internal/server/commands/root.go
+Package: commands
+Purpose: Assembles the main server CLI command tree and links native terminal flags to explicit Viper configuration keys.
+Functions:
+func NewServerRootCommand(v *viper.Viper) (*cobra.Command, error). Component constructor. Provisions explicit String flags for configurations, addresses, database strings, and structural standalone paths for server-ca-key, device-ca-key, and device-ca-crt material. Sets up automated context interceptors via PersistentPreRunE blocks. Errors: lookup configuration flag mapping errors.
+Security Constraints: Validates execution context boundaries and links standalone filesystem isolation vectors before launching target use-cases.
+
+File: internal/server/commands/start.go
+Package: commands
+Purpose: Launches the main server runtime loop and prints active profile layouts to the text output console.
+Functions:
+func newStartCommand() *cobra.Command. Instantiates the start sub-tree handler. Resolves running application contexts, evaluates active certificate provisioning schemes, and maps running configurations straight into active runtime structures.
+Security Constraints: Cleans logs to shield internal secrets while verifying absolute visibility over infrastructure keys.
+
+File: internal/server/commands/stop.go
+Package: commands
+Purpose: Provides an explicit terminal command shortcut to execute memory-bound runtime teardown steps.
+Functions:
+func newStopCommand() *cobra.Command. Builds the cleanup sub-tree. Resolves parent process contexts and triggers structural thread terminations.
+
+
+
+File: internal/domain/security/material.go
+Package: security
+Purpose: Defines fixed-size byte array value objects for cryptographic materials isolation.
+Constants: DerivationSignatureSize=64, KEKSize=32, SaltSize=32, DeviceIDSize=16.
+Types: DerivationSignature [64]byte, AccountUnlockKey [32]byte, DeviceKEK [32]byte, AccountSalt [32]byte, DeviceID [16]byte.
+Functions:
+func NewDerivationSignature(raw []byte) (DerivationSignature, error). Purpose: validates len==64, returns copy. Errors: invalid derivation signature length on length mismatch.
+Zero Value: Zeroed materials are invalid for operational use.
+
+File: internal/domain/security/kek.go
+Package: security
+Purpose: Implements two-step domain-separated KEK derivation using HKDF-SHA256.
+Constants: infoAccountUnlockKey=gophkeeper-account-unlock-v1, infoDeviceKEK=gophkeeper-device-kek-v1.
+Functions:
+func DeriveAccountUnlockKey(signature DerivationSignature, accountSalt AccountSalt) (AccountUnlockKey, error). Purpose: derives root account key via HKDF-SHA256 with signature as IKM and accountSalt as salt. Errors: derive account unlock key on reader failures.
+func DeriveDeviceKEK(accountUnlockKey AccountUnlockKey, deviceID DeviceID) (DeviceKEK, error). Purpose: derives container-specific key via HKDF-SHA256 with accountUnlockKey as IKM and deviceID as salt. Errors: derive device kek on reader failures.
+Security Constraints: Strict domain separation via fixed info labels ensures key isolation. io.ReadFull guarantees exactly 32 bytes extraction.
+
+File: internal/domain/security/derivation_payload.go
+Package: security
+Purpose: Constructs and serializes deterministic derivation payload for local account unlocking.
+Constants: DerivationPayloadVersion=1, DerivationPayloadContext=gophkeeper-account-unlock-v1, maxEncodedFieldLen=65535.
+Globals and Init: ErrEmptyUserID, ErrInvalidUserID, ErrEmptySSHFingerprint, ErrEncodedFieldTooLong, ErrInvalidDerivationVersion: domain validation targets.
+Types: DerivationPayload struct. Holds Version uint32, Context string, UserID [16]byte, SSHFingerprint []byte.
+Functions:
+func NewDerivationPayload(userID string, sshFingerprint []byte) (DerivationPayload, error). Purpose: builder validation. Errors: ErrEmptyUserID; ErrInvalidUserID on bad UUID; ErrEmptySSHFingerprint.
+func MarshalDerivationPayload(userID string, sshFingerprint []byte) ([]byte, error). Convenience encoder.
+func (p DerivationPayload) MarshalBinary() ([]byte, error). Purpose: encodes schema to BigEndian structure with uint16 length prefixes. Errors: ErrInvalidDerivationVersion; ErrEmptyUserID; ErrEmptySSHFingerprint; field encoding failures.
+func writeBinaryBytes(buf *bytes.Buffer, data []byte) error. Internal BigEndian uint16 length-prefixed writer. Errors: ErrEncodedFieldTooLong.
+Security Constraints: Strict binary layout enforces exact matching with server-side validation schemes.
+
+
+
+# Index for embed.go
+
+File: internal/shared/certs/embed.go
+Package: certs
+Purpose: Statically embeds system root certificate authority PEM blocks for server verification and mTLS device authorization.
+
+Globals and Init:
+serverCACertPEM, deviceCACertPEM: raw bytes compiled from assets/server-ca.crt and assets/device-ca.crt via go:embed.
+
+Functions:
+func ServerCAPEM() []byte. Purpose: returns embedded server-ca.crt bytes for client-side transport security verification.
+func DeviceCAPEM() []byte. Purpose: returns embedded device-ca.crt bytes for server-side device certificate validation.
+
+Build: requires go 1.16+ due to go:embed directives.
+Security Constraints: CA anchors are static and hardcoded into binaries. Rotation requires compilation.
+
+
+# Index for loader.go
+
+File: internal/shared/certs/loader.go
+Package: certs
+Purpose: Parses embedded CA PEM certificate arrays and constructs x509.CertPool trusted anchors for TLS/mTLS validation.
+
+Constants and Vars:
+ErrEmptyCA, ErrInvalidCACert: domain-specific x509 parsing validation errors.
+
+Functions:
+func LoadServerCAPool() (*x509.CertPool, error). Purpose: builds server root trust pool using ServerCAPEM. Errors: ErrEmptyCA; wrapped ErrInvalidCACert on PEM append failures.
+func LoadDeviceCAPool() (*x509.CertPool, error). Purpose: builds client device root trust pool using DeviceCAPEM. Errors: ErrEmptyCA; wrapped ErrInvalidCACert on PEM append failures.
+
+Security Constraints: AppendCertsFromPEM enforces cryptographic format and structure verification. Empty inputs fail immediately to protect callers.
+
+
+
+File: cmd/gophkeeper/main.go
+Package: main
+Scope: Exported
+Role: Entrypoint
+Purpose: Initializes client configuration and executes the root CLI command tree. Separates execution logic into run function for testability.
+
+Functions:
+func main(). Purpose: Entrypoint flow. Invokes run and logs fatal error on failure.
+func run() error. Purpose: Operational logic. Initializes Viper config via config.NewViper, constructs client root command tree via commands.NewRootCommand, and triggers arguments parsing via cmd.Execute. Errors: returns wrapped initialization or command execution errors.
+
+
+
+File: cmd/gophkeeper-server/main.go
+Package: main
+Scope: Exported
+Role: Entrypoint
+Purpose: Initializes server configuration and executes the root CLI command for the GophKeeper storage server application.
+
+Functions:
+func main(). Purpose: Entrypoint flow. Initializes Viper configuration via config.NewViper, constructs server root command tree via commands.NewServerRootCommand, and triggers arguments parsing and execution loop via rootCmd.Execute. Errors: logs fatal on command initialization failure; exits with code 1 on command execution failure.
+
+
+
+File: api/proto/gophkeeper/v1/register.proto
+Package: gophkeeper.v1
+Role: API Contract
+Purpose: Defines two-step passwordless first-device registration protocol with challenge-response SSH authentication.
+Service: Registration
+RPCs: RegisterBegin(RegisterBeginRequest) returns (RegisterBeginResponse); RegisterFinish(RegisterFinishRequest) returns (RegisterFinishResponse).
+RegisterBeginRequest: username string, ssh_public_key bytes. RegisterBeginResponse: user_id string, account_salt bytes, session_id string, server_nonce bytes.
+RegisterFinishRequest: user_id string, session_id string, auth_challenge_signature bytes, device_id string, account_bootstrap_envelope bytes, device_master_key_envelope bytes, csr bytes.
+RegisterFinishResponse: client_certificate bytes, ca_chain bytes.
+Security Constraints: RegisterFinish verifies auth_challenge_signature over ChallengePayload(register). Submits cloud account_bootstrap_envelope and local device_master_key_envelope. CSR is public key only. Marks challenge session consumed.
+
+File: api/proto/gophkeeper/v1/attach_device.proto
+Package: gophkeeper.v1
+Role: API Contract
+Purpose: Defines three-step device attachment protocol ensuring withholding of account secrets until SSH possession is proven.
+Service: DeviceAttachment
+RPCs: AttachDeviceBegin(AttachDeviceBeginRequest) returns (AttachDeviceBeginResponse); AttachDeviceAuth(AttachDeviceAuthRequest) returns (AttachDeviceAuthResponse); AttachDeviceFinish(AttachDeviceFinishRequest) returns (AttachDeviceFinishResponse).
+AttachDeviceBeginRequest: ssh_public_key bytes. AttachDeviceBeginResponse: user_id string, session_id string, server_nonce bytes.
+AttachDeviceAuthRequest: user_id string, session_id string, auth_challenge_signature bytes. AttachDeviceAuthResponse: account_salt bytes, account_bootstrap_envelope bytes.
+AttachDeviceFinishRequest: user_id string, session_id string, device_id string, device_master_key_envelope bytes, csr bytes.
+AttachDeviceFinishResponse: client_certificate bytes, ca_chain bytes.
+Security Constraints: AttachDeviceBegin explicitly withholds account_salt and cloud envelope. AttachDeviceAuth releases secrets only after signature validation. AttachDeviceFinish registers container device_id and issues mTLS certificate. Prevents session reuse.
+
+
+
+File: infra/compose.yml
+Role: Local Infrastructure Manifest
+Purpose: Defines the multi-container orchestration environment for local development and testing, including PostgreSQL database and MinIO S3 object storage infrastructure.
+
+Required Env Vars:
+POSTGRES_USER, string, static, database owner user.
+POSTGRES_PASSWORD, string, static, database user password.
+POSTGRES_DB, string, static, primary database name.
+MINIO_ROOT_USER, string, static, S3 root admin access key.
+MINIO_ROOT_PASSWORD, string, static, S3 root admin secret key.
+
+Dependencies:
+gophkeeper-db: runs postgres container on host port 5542.
+gophkeeper-s3: runs minio object storage on host ports 9000 and 9001.
+gophkeeper-s3-init: ephemeral utility container, depends on gophkeeper-s3, creates target bucket gophkeeper.
+
+Networks:
+gophkeepernet: custom network bridge for internal container inter-connectivity.
+
+Volumes:
+gophkeeper_s3: persistent local storage for encrypted large binary artifacts or backups.
+
+
+
+.
+├── cmd/                                            # Только entrypoints бинарей
+│   ├── gophkeeper/                                # Клиентский binary entrypoint
+│   │   └── main.go                                # Создает viper/root command и вызывает Execute
+│   │
+│   └── gophkeeper-server/                         # Серверный binary entrypoint
+│       └── main.go                                # Создает server app/root command и запускает сервер
+│
+│   Правила:
+│   - Только main.go и минимальный bootstrap.
+│   - Никакой бизнес-логики, криптографии, SQL, миграций, Cobra wiring дерева команд.
+│   - Допустимо: создать root command/app и вызвать Execute/Run.
+│   - cmd/gophkeeper может зависеть только от internal/client/...
+│   - cmd/gophkeeper-server может зависеть только от internal/server/...
+│
+├── configs/                                       # Примеры конфигов и шаблоны
+│   ├── client.example.yaml                        # Пример клиентского конфига
+│   ├── server.example.yaml                        # Пример серверного конфига
+│   ├── dev.client.yaml                            # Dev-конфиг клиента
+│   └── dev.server.yaml                            # Dev-конфиг сервера
+│
+│   Правила:
+│   - Только примеры config files: yaml/toml/json/env.
+│   - Не хранить production secrets.
+│   - Не хранить Go-код.
+│
+├── infra/                                         # Локальная инфраструктура и devops
+│   ├── docker-compose.yml                         # Локальный стек
+│   ├── pgsql/                                     # Инициализация postgres / локальные манифесты
+│   │   └── init.sql
+│   ├── redis/                                     # Локальные конфиги redis
+│   │   └── redis.conf
+│   └── certs/                                     # Dev certificates для локального стенда, если нужны
+│       └── README.md
+│
+│   Правила:
+│   - Docker, compose, init scripts, локальные manifests.
+│   - Только то, что нужно для local/integration окружения.
+│   - Не хранить бизнес-логику приложения.
+│
+├── internal/
+│   ├── client/                                    # Только клиентский код
+│   │   ├── app/                                   # Runtime container, bootstrap, lifecycle
+│   │   │   ├── runtime.go                         # type App, NewApp, WithApp, AppFromContext
+│   │   │   └── bootstrap.go                       # Bootstrap(ctx, v, configFile), Shutdown(app)
+│   │   │
+│   │   │   Что класть:
+│   │   │   - runtime dependencies клиента
+│   │   │   - lifecycle orchestration
+│   │   │   - сборку client app state
+│   │   │
+│   │   │   Не класть:
+│   │   │   - Cobra команды
+│   │   │   - низкоуровневый SQL код
+│   │   │   - криптографические детали
+│   │   │
+│   │   ├── commands/                              # Cobra CLI слой клиента
+│   │   │   ├── context.go                         # AppFromCommand(cmd) и подобные command helpers
+│   │   │   ├── root.go                            # NewRootCommand, flags, AddCommand, pre/post run orchestration
+│   │   │   ├── create.go                          # Команда create
+│   │   │   ├── register.go                        # Команда регистрации устройства/пользователя
+│   │   │   ├── attach.go                          # Команда привязки нового устройства
+│   │   │   ├── get.go                             # Команда чтения секрета
+│   │   │   ├── list.go                            # Команда списка секретов
+│   │   │   └── delete.go                          # Команда удаления секрета
+│   │   │
+│   │   │   Что класть:
+│   │   │   - cobra.Command
+│   │   │   - args, flags, help text
+│   │   │   - orchestration уровня CLI
+│   │   │   - вызовы app/service
+│   │   │
+│   │   │   Не класть:
+│   │   │   - SQL implementation
+│   │   │   - SSH agent socket implementation
+│   │   │   - TLS internals
+│   │   │   - core crypto/domain rules
+│   │   ├── config/                                # Клиентская конфигурация
+│   │   │   ├── config.go                          # Структуры Config, вложенные секции
+│   │   │   ├── validate.go                        # Validate() / отдельные валидаторы
+│   │   │   └── viper.go                           # NewViper(), LoadFromViper(), defaults, env binding
+│   │   │
+│   │   │   Что класть:
+│   │   │   - схема клиентского конфига
+│   │   │   - defaults
+│   │   │   - валидация
+│   │   │   - Viper loading
+│   │   │
+│   │   │   Не класть:
+│   │   │   - runtime orchestration
+│   │   │   - открытие БД
+│   │   │   - транспорт
+│   │   │
+│   │   ├── service/                               # Клиентские use cases / application services
+│   │   │   ├── secret_service.go                  # Операции над секретами
+│   │   │   ├── register_service.go                # Регистрация устройства / attachment
+│   │   │   ├── sync_service.go                    # Синхронизация с сервером
+│   │   │   └── interfaces.go                      # Интерфейсы зависимостей, если нужны
+│   │   │
+│   │   │   Что класть:
+│   │   │   - use cases клиента
+│   │   │   - orchestration приложения, независимая от Cobra
+│   │   │
+│   │   │   Не класть:
+│   │   │   - cobra.Command
+│   │   │   - *sql.DB детали
+│   │   │   - grpc connection bootstrap
+│   │   │
+│   │   ├── repository/                            # Контракты клиентского persistence, если понадобятся
+│   │   │   ├── secret_store.go                    # Интерфейс локального хранилища секретов
+│   │   │   └── device_store.go                    # Интерфейс хранилища device state
+│   │   │
+│   │   │   Что класть:
+│   │   │   - интерфейсы, нужные service/usecase слою
+│   │   │
+│   │   │   Не класть:
+│   │   │   - sqlite implementation
+│   │   │
+│   │   └── providers/                             # Внешние зависимости клиента
+│   │       ├── device/                            # Device cert/key material handling
+│   │       │   └── certificate.go                 # PEM encode/decode, representation локального device cert/key
+│   │       │
+│   │       │   Что класть:
+│   │       │   - работа с PEM
+│   │       │   - local device identity material
+│   │       │
+│   │       │   Не класть:
+│   │       │   - grpc/tls transport
+│   │       │   - sqlite
+│   │       │
+│   │       ├── grpc/                              # gRPC client adapter
+│   │       │   ├── conn.go                        # grpc.Dial / connection setup
+│   │       │   ├── tlsconfig.go                   # TLS config для клиента
+│   │       │   ├── metadata.go                    # auth metadata / headers, если нужно
+│   │       │   └── client.go                      # Adapter над generated stubs, если понадобится
+│   │       │
+│   │       │   Что класть:
+│   │       │   - setup gRPC connection
+│   │       │   - client transport config
+│   │       │   - TLS config для server access
+│   │       │
+│   │       │   Не класть:
+│   │       │   - server handlers
+│   │       │   - device PEM serialization
+│   │       │
+│   │       ├── sshagent/                          # SSH agent integration
+│   │       │   └── client.go                      # SSH_AUTH_SOCK, key listing, signing
+│   │       │
+│   │       │   Что класть:
+│   │       │   - интеграция с ssh-agent
+│   │       │   - list/sign operations
+│   │       │
+│   │       │   Не класть:
+│   │       │   - product security policy
+│   │       │   - derivation formulas core spec
+│   │       │
+│   │       └── sqlite/                            # Локальный persistence adapter клиента
+│   │           ├── sqlite.go                      # Open(), DB setup
+│   │           ├── migrate.go                     # Migrate(db)
+│   │           ├── secret_store.go                # Реализация repository.SecretStore, если появится
+│   │           ├── device_store.go                # Реализация repository.DeviceStore, если появится
+│   │           ├── perms_unix.go                  # Проверки прав на unix
+│   │           ├── perms_windows.go               # Проверки прав на windows
+│   │           └── migrations/
+│   │               └── 00001_init.sql             # Миграция таблицы device_state с CHECK(id=1)
+│   │
+│   │           Что класть:
+│   │           - SQLite open
+│   │           - migrations
+│   │           - DB-specific setup
+│   │           - file permission checks
+│   │
+│   │           Не класть:
+│   │           - tls
+│   │           - ssh-agent
+│   │           - device certificate handling
+│   │
+│   ├── domain/                                    # Внутреннее ядро модели
+│   │   └── security/                              # Security subdomain
+│   │       ├── material.go                        # Key material types / value objects
+│   │       ├── derivation_payload.go              # Derivation payload model
+│   │       ├── kek.go                             # KEK derivation / rules (v4.0 без root_secret)
+│   │       └── errors.go                          # Доменные ошибки, если нужны
+│   │
+│   │       Что класть:
+│   │       - pure functions
+│   │       - value objects
+│   │       - security architecture invariants
+│   │
+│   │       Не класть:
+│   │       - ssh-agent socket access
+│   │       - SQL
+│   │       - Cobra/Viper
+│   │       - x509 pool loading
+│   │       - gRPC/TLS bootstrap
+│   ├── server/                                    # Только серверный код
+│   │   ├── app/                                   # Composition root и lifecycle сервера
+│   │   │   ├── app.go                             # Server app container/state
+│   │   │   ├── bootstrap.go                       # Initialize providers/services/transports
+│   │   │   └── run.go                             # Run()/Shutdown()
+│   │   │
+│   │   │   Что класть:
+│   │   │   - сборка сервера
+│   │   │   - lifecycle orchestration
+│   │   │
+│   │   │   Не класть:
+│   │   │   - handlers
+│   │   │   - CA details
+│   │   │   - бизнес use cases
+│   │   │
+│   │   ├── auth/                                  # AuthN/AuthZ server-side
+│   │   │   ├── identity.go                        # identity binding rules
+│   │   │   ├── interceptor.go                     # auth interceptors с парсингом urn:gophkeeper:file:<uuid>
+│   │   │   ├── context.go                         # auth context helpers
+│   │   │   └── verifier.go                        # cert/token verification rules
+│   │   │
+│   │   │   Что класть:
+│   │   │   - auth flows
+│   │   │   - identity validation
+│   │   │   - interceptors
+│   │   │
+│   │   ├── commands/                              # CLI команды сервера
+│   │   │   ├── root.go                            # root server command
+│   │   │   ├── serve.go                           # run server command
+│   │   │   └── migrate.go                         # отдельная server migrate command, если нужна
+│   │   │
+│   │   │   Что класть:
+│   │   │   - Cobra слой сервера
+│   │   │   - flags и args
+│   │   │
+│   │   ├── config/                                # Серверная конфигурация
+│   │   │   ├── config.go                          # Server config schema
+│   │   │   ├── validate.go                        # Валидация server config
+│   │   │   └── viper.go                           # Viper loading/defaults
+│   │   │
+│   │   ├── transport/                             # Входные transport-слои сервера
+│   │   │   ├── grpc/
+│   │   │   │   ├── server.go                      # grpc server bootstrap
+│   │   │   │   ├── register.go                    # registration handlers
+│   │   │   │   ├── secrets.go                     # secrets handlers (обработка слепой синхронизации)
+│   │   │   │   ├── interceptors.go                # transport-level interceptors
+│   │   │   │   └── mapping.go                     # protobuf <-> service input/output mapping
+│   │   │   │
+│   │   │   └── http/                              # Если позже появятся health/metrics/admin endpoints
+│   │   │       ├── health.go
+│   │   │       └── metrics.go
+│   │   │
+│   │   │   Что класть:
+│   │   │   - handlers
+│   │   │   - request/response mapping
+│   │   │   - transport bootstrap
+│   │   │
+│   │   │   Не класть:
+│   │   │   - use cases
+│   │   │   - persistence logic
+│   │   │
+│   │   ├── pki/                                   # PKI / CA / CSR / cert issuance logic
+│   │   │   ├── ca.go                              # CA representation and operations
+│   │   │   ├── issue.go                           # certificate issuance
+│   │   │   ├── csr.go                             # CSR processing
+│   │   │   ├── verify.go                          # cert verification/revocation-related checks
+│   │   │   └── profile.go                         # issuance profiles / templates
+│   │   │
+│   │   │   Что класть:
+│   │   │   - CA logic
+│   │   │   - CSR processing
+│   │   │   - cert issuance rules
+│   │   │   - crypto checks, связанные с PKI
+│   │   │
+│   │   ├── service/                               # Серверные use cases
+│   │   │   ├── register_service.go                # Регистрация устройства/пользователя
+│   │   │   ├── secret_service.go                  # CRUD/доступ к секретам
+│   │   │   ├── device_service.go                  # Операции над устройствами (управление привязками)
+│   │   │   └── interfaces.go                      # Зависимости сервиса: repositories/providers
+│   │   │
+│   │   │   Что класть:
+│   │   │   - use cases
+│   │   │   - application services
+│   │   │   - orchestration, не зависящая от Cobra и gRPC
+│   │   │
+│   │   │   Не класть:
+│   │   │   - protobuf DTO
+│   │   │   - SQL queries
+│   │   │   - cobra.Command
+│   │   │
+│   │   ├── repository/                            # Контракты доступа к данным
+│   │   │   ├── secret_repository.go               # Интерфейс репозитория секретов
+│   │   │   ├── device_repository.go               # Интерфейс репозитория устройств
+│   │   │   ├── user_repository.go                 # Интерфейс репозитория пользователей
+│   │   │   └── tx.go                              # Транзакционные контракты, если нужны
+│   │   │
+│   │   │   Что класть:
+│   │   │   - interfaces/abstractions
+│   │   │
+│   │   │   Не класть:
+│   │   │   - postgres/sql implementation
+│   │   │
+│   │   └── providers/                             # Внешние зависимости сервера
+│   │       ├── postgres/
+│   │       │   ├── connect.go                     # Открытие подключения
+│   │       │   ├── migrate.go                     # Server DB migrations
+│   │       │   ├── secret_repository.go           # Реализация repository.SecretRepository
+│   │       │   ├── device_repository.go           # Реализация repository.DeviceRepository
+│   │       │   ├── user_repository.go             # Реализация repository.UserRepository
+│   │       │   └── migrations/
+│   │       │       ├── 001_init.sql
+│   │       │       └── 002_add_constraints.sql
+│   │       │
+│   │       ├── redis/
+│   │       │   └── client.go                      # Redis adapter / cache/session storage
+│   │       │
+│   │       ├── monitoring/
+│   │       │   └── metrics.go                     # Метрики, tracing bootstrap, etc.
+│   │       │
+│   │       ├── certstore/
+│   │       │   └── store.go                       # Хранилище сертификатов/CRL, если внешнее
+│   │       │
+│   │       └── clock/
+│   │           └── clock.go                       # Внешний provider времени, если нужен для тестов
+│   │
+│   │       Что класть:
+│   │       - инфраструктурные adapters
+│   │       - postgres, redis, monitoring, external stores
+│   │
+│   │       Не класть:
+│   │       - CLI logic
+│   │       - core domain rules
+│   │
+│   └── shared/                                    # Реально общий код для client и server
+│       ├── certs/
+│       │   ├── embed.go                           # embedded trust material
+│       │   └── loader.go                          # x509 pool loading
+│       │
+│       └── logging/
+│           └── logger.go                          # Только если реально используется и клиентом, и сервером
+│
+│       Правила:
+│       - Класть только то, что уже реально используется и клиентом, и сервером.
+│       - Не складывать "на будущее".
+│       - shared не зависит от client и server.
+│
+├── migrations/                                    # Общие миграции проекта
+│   ├── README.md                                  # Объяснение, какие миграции сюда относятся
+│   └── server/                                    # Только если появятся общие server-level migrations
+│       ├── 001_bootstrap.sql
+│       └── 002_seed.sql
+│
+│   Правила:
+│   - Только миграции, не привязанные строго к одному provider package.
+│   - Если миграции относятся только к client sqlite provider — держать рядом с internal/client/providers/sqlite.
+│   - Если только к server postgres provider — держать рядом с internal/server/providers/postgres.
+│
+├── scripts/                                       # Вспомогательные скрипты
+│   ├── ci.sh                                      # CI helper
+│   ├── generate.sh                                # codegen helper
+│   ├── bootstrap-dev.sh                           # локальный bootstrap
+│   └── release.sh                                 # release helper
+│
+│   Правила:
+│   - Скрипты для CI/codegen/local bootstrap/release.
+│   - Не хранить в них бизнес-логику приложения.
+│
+├── api/                                           # protobuf / openapi / contracts, если будут
+│   └── proto/
+│       └── gophkeeper/
+│           ├── v1/
+│           │   ├── register.proto                 # Контракт беспарольной двухэтапной регистрации
+│           │   ├── attach_device.proto            # Трехэтапный контракт привязки контейнера с withholding соли
+│           │   └── secrets.proto                  # Контракт слепой синхронизации секретов по mTLS
+│           └── buf.gen.yaml
+│
+│   Правила:
+│   - Контракты API, proto/openapi schemas, codegen manifests.
+│   - Generated Go code можно хранить либо рядом, либо в отдельном gen-пакете по принятому правилу проекта.
+│
+├── go.mod
+└── go.sum
+
+
+
+document:
+  id: gophkeeper-security-spec-index
+  language: en
+  kind: llm_compact_index
+  sources:
+    - SPEC.md
+    - RFC_SPEC.txt
+  status:
+    spec: active
+    adr: accepted
+  title: GophKeeper Security Architecture
+  purpose: >
+    Zero-knowledge client-server secret storage. Server stores encrypted data,
+    sync metadata, and device identities, but cannot decrypt user secrets or
+    recover AccountMasterKey, AccountUnlockKey, or DeviceKEK plaintext.
+
+system_model:
+  architecture: client_side_encryption
+  authentication: passwordless_via_ssh
+  device_authentication: mtls_client_certificates
+  trust_root_user: ssh_agent_with_registered_ssh_ed25519_key
+  trust_root_device: server_private_ca
+  account_recovery_rule: registered_ssh_key_proves_account_ownership
+  non_goal: devices_are_not_independent_recovery_factors
+
+security_goals:
+  - server_must_not_access_plaintext_user_data
+  - server_must_not_access_plaintext_account_master_key
+  - server_must_not_access_plaintext_account_unlock_key
+  - passwordless_user_authentication
+  - per_container_cryptographic_identity
+  - account_and_device_wrapping_domain_separation
+  - resilience_to_server_db_compromise
+  - resilience_to_network_interception
+  - resilience_to_offline_theft_of_client_files
+
+threat_model:
+  protects_against:
+    - untrusted_server_storage
+    - server_database_compromise
+    - network_interception
+    - offline_theft_of_client_files
+    - device_spoofing_without_valid_client_certificate
+  does_not_claim:
+    - fully_compromised_client_host_at_runtime
+    - memory_disclosure_of_unlocked_client_process
+    - abuse_of_ssh_auth_sock_by_local_malware
+    - privileged_local_attackers
+    - secure_memory_equivalent_from_buffer_wiping
+  implications:
+    - possession of registered_ssh_key_equals_account_access_capability
+    - compromised_runtime_client_can_defeat_model
+
+cryptographic_profile:
+  ssh_key_algorithm: ssh-ed25519
+  device_keypair: software_openssh_ed25519
+  aead: xchacha20_poly1305
+  kdf: hkdf_sha256
+  hash: sha256
+  randomness: os_csprng
+  mvp_constraints: >
+    Only deterministic software OpenSSH Ed25519 keys are supported.
+    Hardware-backed, FIDO-based, PKCS11-backed, and all non-deterministic
+    signing implementations are forbidden in MVP. One SSH key per account.
+
+core_principles:
+  - zero_knowledge_server
+  - passwordless_auth
+  - ssh_agent_only_proof_of_possession
+  - deterministic_signature_self_test_required
+  - per_container_identity_via_mtls_cert
+  - domain_separation_in_kdf_and_aad
+  - canonical_signature_bytes_required
+  - deterministic_serialization_for_signed_payloads
+
+key_material:
+  ssh_public_key:
+    secrecy: public
+    storage: server
+    purpose: account_identity
+  ssh_private_key:
+    secrecy: secret
+    storage: ssh_agent_only
+    purpose: proof_of_possession_and_local_derivation
+  account_salt:
+    secrecy: non_secret
+    scope: account
+    storage: server_and_client
+    note: immutable_after_registration
+  AccountUnlockKey:
+    secrecy: secret_transient
+    storage: not_persisted
+    purpose: wrap_account_bootstrap_envelope_and_derive_device_kek
+  DeviceKEK:
+    secrecy: secret_transient
+    storage: not_persisted
+    purpose: wrap_device_master_key_envelope_and_mtls_private_key
+  AccountMasterKey:
+    secrecy: secret
+    storage: client_memory_plaintext_only; server_encrypted_only
+    purpose: encrypt_user_records
+  mTLS_private_key:
+    secrecy: secret
+    storage: local_sqlite_encrypted
+    purpose: container_device_authentication
+  mTLS_certificate:
+    secrecy: public
+    storage: local_sqlite
+    purpose: container_device_identity
+  user_id:
+    secrecy: non_secret
+    purpose: account_identifier_uuid
+  device_id:
+    secrecy: non_secret
+    purpose: container_identifier_uuid
+key_hierarchy:
+  summary: >
+    ssh-agent signature over deterministic derivation payload -> canonical signature bytes
+    -> HKDF(account_salt) -> AccountUnlockKey -> HKDF(device_id) -> DeviceKEK.
+  derivation_payload:
+    type: DerivationPayload
+    fields:
+      version: 1
+      context: gophkeeper-account-unlock-v1
+      user_id: required
+      ssh_fingerprint: required
+    serialization: deterministic_required
+  canonical_signature_extraction:
+    algorithm: ssh-ed25519
+    raw_length: 64
+    validation: verify_embedded_algorithm_identifier_is_exactly_ssh-ed25519
+    failure: derivation_fails_on_malformed_blob_wrong_algorithm_or_non_64_byte_signature
+  self_test:
+    rule: >
+      Client must sign the same derivation payload twice before using a key.
+      Returned signature bytes must be identical. On mismatch, key is rejected as unsupported.
+    applies_to: all_operations_not_just_derivation
+  formulas:
+    - signature = ssh_agent.Sign(DerivationPayload)
+    - AccountUnlockKey = HKDF_SHA256(ikm=CanonicalSignatureBytes(signature), salt=account_salt, info=gophkeeper-account-unlock-v1, len=32)
+    - DeviceKEK = HKDF_SHA256(ikm=AccountUnlockKey, salt=device_id_raw, info=gophkeeper-device-kek-v1, len=32)
+  invariants:
+    - do_not_use_transport_specific_ssh_agent_response_blobs_unless_canonicalized
+    - AccountUnlockKey_and_DeviceKEK_must_be_domain_separated
+    - AccountUnlockKey_must_not_be_stored
+
+envelope_format:
+  applies_to:
+    - account_bootstrap_envelope
+    - device_master_key_envelope
+    - encrypted_records
+  required_fields:
+    - version
+    - alg
+    - nonce
+    - aad_schema
+    - ciphertext
+  nonce_rules:
+    - generated_by_csprng
+    - exactly_24_bytes_for_xchacha20_poly1305
+    - no_nonce_reuse_under_same_key
+
+aad_schemas:
+  account_bootstrap_wrap:
+    schema: gophkeeper-account-bootstrap-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - ssh_fingerprint
+  device_master_key_wrap:
+    schema: gophkeeper-device-master-key-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - device_id
+  mtls_private_key_wrap:
+    schema: gophkeeper-mtls-private-key-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - device_id
+  record_encryption:
+    schema: gophkeeper-record-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - record_id
+  rule: all_encrypted_objects_must_use_aad
+
+local_device_secret_storage:
+  object: mTLS_private_key
+  encryption:
+    key: DeviceKEK
+    algorithm: xchacha20_poly1305
+    output: encrypted_mtls_private_key_blob
+  filesystem_requirements:
+    unix: 0600
+    windows: current_user_only_inheritance_disabled
+
+server_side_wrapped_vault_key:
+  object: AccountMasterKey
+  encryption:
+    key: AccountUnlockKey
+    algorithm: xchacha20_poly1305
+    output: account_bootstrap_envelope
+  storage_rule: server_stores_account_bootstrap_envelope_only
+  uniqueness_rules:
+    - one_ssh_fingerprint_must_belong_to_at_most_one_user
+  safety_rules:
+    - server_must_not_log_persist_or_return_plaintext_keys
+
+record_encryption:
+  plaintext_type: RecordEnvelope
+  plaintext_must_be_structured: true
+  plaintext_fields_typical:
+    - version
+    - record_type
+    - timestamps
+    - private_metadata
+    - secret_payload
+  encryption:
+    key: AccountMasterKey
+    algorithm: xchacha20_poly1305
+    output: encrypted_record
+  server_storage:
+    - encrypted_records_only
+    - sync_metadata_only
+
+device_identity_and_mtls:
+  certificate_issuer: server_root_ca
+  certificate_requirements:
+    extended_key_usage: clientAuth
+    device_id_location: san_uri_only
+    san_uri_format: urn:gophkeeper:file:<uuid>
+    common_name_must_not_be_used_for_identity: true
+  server_device_record_fields:
+    - device_id
+    - user_id
+    - cert_serial
+    - spki_sha256
+    - issued_at
+    - expires_at
+    - revoked_at
+  authenticated_rpc_validation:
+    - validate_chain_to_embedded_root_ca
+    - extract_device_id_from_san_uri
+    - load_device_record
+    - verify_not_revoked
+    - verify_cert_serial_matches_record
+    - verify_spki_sha256_matches_record
+    - bind_user_id_and_device_id_into_typed_request_context
+  auth_failure_result: UNAUTHENTICATED
+  root_ca_protection: >
+    Root CA private key must be protected independently of main application database.
+challenge_protocol:
+  payload_type: ChallengePayload
+  serialization: deterministic_required
+  fields:
+    version: 1
+    context: required
+    user_id: required
+    session_id: required
+    server_nonce: required_csprng_generated
+  anti_replay_rules:
+    - server_nonce_generated_by_csprng
+    - session_id_unique
+    - challenge_single_use
+    - ttl_max_5_minutes
+    - after_success_session_atomically_consumed_or_deleted
+    - replay_of_consumed_session_must_be_rejected
+
+protocols:
+  register_first_device:
+    begin:
+      request: RegisterBegin(username, ssh_public_key)
+      server_must:
+        - reject_occupied_username
+        - reject_ssh_key_bound_to_another_user
+        - create_pending_registration_session
+        - return_user_id_session_id_server_nonce
+    finish:
+      request: RegisterFinish(user_id, session_id, auth_challenge_signature, device_id, account_bootstrap_envelope, device_master_key_envelope, csr)
+      client_must:
+        - generate_account_salt
+        - generate_device_id
+        - generate_account_master_key
+        - generate_device_keypair
+        - perform_ssh_signature_self_test
+        - sign_registration_challenge
+        - derive_account_unlock_key_and_device_kek
+        - encrypt_account_bootstrap_envelope
+        - encrypt_device_master_key_envelope
+        - encrypt_mtls_private_key
+      server_must:
+        - validate_pending_session
+        - validate_signature
+        - validate_ttl
+        - validate_device_id_uniqueness
+        - validate_device_id_uuid_syntax
+        - ignore_csr_subject_metadata_use_public_key_only
+        - issue_client_cert_with_san_uri_and_clientAuth
+        - store_user_ssh_key_device_and_envelope_bindings_in_single_transaction
+        - mark_session_consumed
+
+  normal_client_startup:
+    client_must:
+      - load_local_configuration
+      - select_ssh_key_matching_active_ssh_fingerprint
+      - perform_signature_determinism_self_test
+      - derive_account_unlock_key_and_device_kek
+      - decrypt_local_mtls_private_key
+      - establish_mtls_grpc_connection
+      - unlock_account_master_key_via_device_master_key_envelope
+      - sync_encrypted_records
+      - decrypt_records_locally
+    client_should:
+      - wipe_key_material_from_memory_after_use
+    failure_mode: >
+      If configured active SSH key is unavailable in ssh-agent,
+      client must fail closed.
+
+  attach_device:
+    begin:
+      request: AttachDeviceBegin(ssh_public_key)
+      server_must:
+        - locate_user_and_active_ssh_key
+        - create_pending_attachment_session
+        - return_user_id_session_id_server_nonce
+        - explicitly_withhold_account_salt_and_account_bootstrap_envelope
+      server_should:
+        - rate_limit
+    auth:
+      request: AttachDeviceAuth(user_id, session_id, auth_challenge_signature)
+      server_must:
+        - validate_session_and_ttl
+        - validate_signature_using_stored_ssh_public_key
+        - move_session_state_to_authenticated
+        - return_account_salt_and_account_bootstrap_envelope
+    finish:
+      request: AttachDeviceFinish(user_id, session_id, device_id, device_master_key_envelope, csr)
+      client_must_before_send:
+        - perform_ssh_self_test
+        - derive_account_unlock_key
+        - decrypt_account_bootstrap_envelope_to_recover_account_master_key
+        - generate_device_id
+        - derive_device_kek
+        - encrypt_device_master_key_envelope
+        - generate_device_keypair
+        - encrypt_local_mtls_private_key
+      server_must:
+        - validate_session_is_authenticated
+        - issue_device_certificate
+        - create_new_device_binding
+        - mark_session_completed
+
+  revoke_device:
+    rule: user_may_revoke_another_device_using_active_authenticated_device_session
+    constraint: devices_are_not_recovery_factors
+    server_must:
+      - verify_caller_identity_via_mtls
+      - ensure_both_devices_belong_to_same_user
+      - set_device_status_revoked_at_atomically
+      - invalidate_stored_certificate_binding
+    effect:
+      - revoked_devices_rejected_by_authentication_interceptor
+
+  certificate_renewal:
+    rules:
+      - device_certificates_should_have_bounded_lifetime
+      - renewal_may_be_performed_via_active_device_session
+      - revoked_devices_must_not_be_renewable
+
+rpc_authorization:
+  Sync: active_mtls_same_user
+  RegisterFinish: valid_pending_challenge_plus_ssh_proof
+  AttachDeviceAuth: valid_pending_challenge_plus_ssh_proof
+  AttachDeviceFinish: session_state_authenticated
+  RevokeDevice: mtls_from_another_active_device_same_user
+  rule: no_post_registration_rpc_without_mtls_except_explicit_challenge_endpoints
+
+memory_handling:
+  should_zero_after_use:
+    - AccountMasterKey
+    - AccountUnlockKey
+    - DeviceKEK
+    - mTLS_private_key
+  implementation_notes:
+    - runtime_KeepAlive_may_reduce_compiler_elimination_of_wipe_loops
+    - wiping_reduces_lifetime_but_is_not_secure_memory
+
+critical_invariants:
+  - server_never_stores_plaintext_keys
+  - server_never_learns_plaintext_user_records
+  - ssh_private_key_is_never_read_directly_by_application
+  - deterministic_signature_self_test_required_before_any_derivation
+  - canonical_signature_bytes_required for local unlock derivation
+  - all_sensitive_ssh_proofs_use_deterministic_challenge_payloads
+  - challenge_sessions_are_single_use_and_time_limited
+  - each_device_has_its_own_mtls_certificate_and_revocable_binding
+  - device_identity_comes_from_san_uri_not_common_name
+  - account_salt_and_bootstrap_envelope_withheld_until_attach_challenge_authenticated
+  - devices_do_not_independently_unlock_master_key_without_ssh_derived_material
+  - devices_are_not_recovery_factors
+  - nonce_reuse_under_same_key_must_not_occur
+  - account_salt_immutable_after_successful_registration
+
+consequences:
+  positive:
+    - server_cannot_decrypt_user_data_even_with_db_access
+    - db_compromise_does_not_reveal_plaintext_secrets
+    - device_local_key_at_rest_requires_ssh_agent_signing_capability
+    - multiple_devices_can_coexist_safely_with_independent_mtls_revocation
+  negative:
+    - loss_of_the_single_ssh_key_implies_permanent_account_loss
+    - mvp_depends_on_deterministic_ed25519_signing_behavior
+    - model_does_not_defend_against_runtime_host_compromise
+
+operational_security:
+  rate_limiting: server_should_apply_to_sensitive_endpoints
+  rate_limiting_endpoints:
+    - RegisterBegin
+    - RegisterFinish
+    - AttachDeviceBegin
+    - AttachDeviceAuth
+  audit_events:
+    - registration
+    - device_attachment
+    - device_revocation
+    - certificate_renewal_attempts
+    - repeated_failed_authentication_or_proof_attempts
+  audit_rule: logs_must_not_include_plaintext_secrets_or_key_material
+
+search_index:
+  aliases:
+    - GophKeeper security scheme
+    - zero knowledge secret manager
+    - ssh-agent local derivation
+    - account bootstrap envelope
+    - device master key envelope
+    - mtls file container identity
+  canonical_terms:
+    - AccountUnlockKey
+    - DeviceKEK
+    - AccountMasterKey
+    - account_bootstrap_envelope
+    - device_master_key_envelope
+    - mTLS_private_key
+    - DerivationPayload
+    - ChallengePayload
+    - RecordEnvelope
+    - ssh_fingerprint
+    - spki_sha256
+    - SAN URI
+    - clientAuth
+  exact_constants:
+    - gophkeeper-account-unlock-v1
+    - gophkeeper-device-kek-v1
+    - gophkeeper-account-bootstrap-aad-v1
+    - gophkeeper-device-master-key-aad-v1
+    - gophkeeper-mtls-private-key-aad-v1
+    - gophkeeper-record-aad-v1
+    - urn:gophkeeper:file:<uuid>
+  likely_questions:
+    - why_must_ssh_signatures_be_deterministic
+    - how_is_account_master_key_stored_on_server
+    - how_are_device_keys_protected_locally
+    - how_does_mtls_file_validation_work
+    - how_is_first_device_registered
+    - how_is_new_device_attached_safely
+    - what_threats_are_in_scope
+    - what_breaks_the_security_model

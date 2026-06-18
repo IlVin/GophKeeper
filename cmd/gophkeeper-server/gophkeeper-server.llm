@@ -1,0 +1,8 @@
+File: cmd/gophkeeper-server/main.go
+Package: main
+Scope: Exported
+Role: Entrypoint
+Purpose: Initializes server configuration and executes the root CLI command for the GophKeeper storage server application.
+
+Functions:
+func main(). Purpose: Entrypoint flow. Initializes Viper configuration via config.NewViper, constructs server root command tree via commands.NewServerRootCommand, and triggers arguments parsing and execution loop via rootCmd.Execute. Errors: logs fatal on command initialization failure; exits with code 1 on command execution failure.

@@ -6,6 +6,11 @@ networks:
 volumes:
   gophkeeper_s3:
 
+# pki:
+#   server_ca_key_path: ".certs_private/server-ca.key"
+#   device_ca_key_path: ".certs_private/device-ca.key"
+#   device_ca_cert_path: "internal/shared/certs/assets/device-ca.crt"
+
 services:
   gophkeeper-db:
     image: gophkeeper_postgres:latest

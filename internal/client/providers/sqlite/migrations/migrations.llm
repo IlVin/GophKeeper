@@ -1,0 +1,4 @@
+File: internal/client/providers/sqlite/migrations/00001_init.sql
+Role: Database Schema Migration
+Purpose: Creates standalone single-row device_state table enforcing local-first zero-knowledge invariants.
+Security Constraints: Singleton table state guaranteed via PRIMARY KEY CHECK (id = 1). Stores server bindings, user/device UUIDs, public SSH key, cloud account_bootstrap_envelope, local device_master_key_envelope, encrypted_mtls_private_key, and client mTLS certificate. Down migration drops table.

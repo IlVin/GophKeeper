@@ -1,0 +1,53 @@
+File: internal/client/sshagent/helpers_test.go
+Package: sshagent
+Purpose: Test helpers for ssh-agent functional and unit tests. Generates test Ed25519 and RSA keys via ssh-keygen, starts real ssh-agent processes, adds keys, parses agent output. Requires ssh-keygen, ssh-agent, ssh-add binaries in PATH. Skips tests if missing.
+
+File: internal/client/sshagent/sshagent.go
+Package: sshagent
+Role: Infrastructure
+Purpose: SSH agent adapter providing connection management, key enumeration, fingerprint-based signing, deterministic Ed25519 self-test, and canonical signature extraction. SSH agent is root of trust; private key never leaves agent.
+
+Constants:
+KeyAlgoED25519 = ssh.KeyAlgoED25519
+
+Errors:
+ErrSSHAuthSockNotSet, ErrAgentHasNoKeys, ErrKeyNotFound, ErrUnsupportedKeyAlgorithm, ErrUnexpectedSignatureFormat, ErrNonDeterministicSignature, ErrEmptyPayload, ErrNilPublicKey, ErrEmptyFingerprint
+
+Types:
+SignerInfo struct. Comment, Algorithm, Fingerprint, PublicKey ssh.PublicKey.
+Client struct. socketPath string, mu sync.Mutex, conn net.Conn, ag sshagent.Agent. Thread Safety: all public methods safe for concurrent use via mutex.
+
+Functions:
+NewFromEnv() (*Client, error). Reads SSH_AUTH_SOCK, calls New. Errors: ErrSSHAuthSockNotSet.
+New(socketPath string) (*Client, error). Validates path non-empty, connects to agent. Errors: ErrSSHAuthSockNotSet, connection errors.
+Close() error. Closes connection idempotently. Returns close error, nil if already closed.
+Ping() error. Calls List, returns error if agent unavailable.
+List() ([]SignerInfo, error). Lists all keys, parses public keys, converts to SignerInfo. Skips malformed entries. Transparent reconnect on stale connection. Errors: ErrAgentHasNoKeys if no keys or all malformed.
+ListED25519() ([]SignerInfo, error). Filters List results to ssh-ed25519 only. Errors: ErrKeyNotFound if no Ed25519 keys.
+FindByFingerprint(fingerprint string) (*SignerInfo, error). Lists keys, matches fingerprint. Errors: ErrKeyNotFound, ErrEmptyFingerprint.
+FindED25519ByFingerprint(fingerprint string) (*SignerInfo, error). Finds by fingerprint, validates algorithm. Errors: ErrKeyNotFound, ErrUnsupportedKeyAlgorithm.
+Sign(fingerprint string, payload []byte) (*ssh.Signature, error). Signs payload with key by fingerprint. Errors: ErrEmptyPayload, FindByFingerprint errors, agent signing errors.
+SignED25519(fingerprint string, payload []byte) (*ssh.Signature, error). Signs with Ed25519 key, validates signature format equals ssh-ed25519. Errors: ErrEmptyPayload, FindED25519ByFingerprint errors, agent signing errors, ErrUnexpectedSignatureFormat.
+SignED25519Raw(fingerprint string, payload []byte) ([]byte, error). Returns canonical 64-byte raw Ed25519 signature via ExtractED25519RawSignature. Errors: SignED25519 errors, extraction errors.
+SelfTestDeterministicED25519(fingerprint string, payload []byte) error. Signs same payload twice, compares raw signatures. Required before derivation. Errors: ErrEmptyPayload, SignED25519Raw errors, ErrNonDeterministicSignature.
+FingerprintSHA256(pub ssh.PublicKey) string. Returns SHA256:base64 format. Stable key identifier.
+ExtractED25519RawSignature(sig *ssh.Signature) ([]byte, error). Validates signature format and blob length 64. Returns copy of raw bytes. Errors: ErrUnexpectedSignatureFormat on nil, wrong format, wrong blob length.
+signWithPublicKey unexported. Internal signing with reconnect retry. Attempts transparent reconnect on stale connection and retries once.
+connectLocked internal. Dial unix socket, create agent client.
+ensureConnectedLocked internal. Establishes connection if absent.
+reconnectLocked internal. Closes existing connection, reconnects.
+
+Security Constraints: SSH agent acts as root of trust. Private key never read by application. Determinism self-test prevents non-deterministic signatures from being used. Ed25519 only in MVP. Raw signature extraction validates algorithm and size. Reconnect on stale connections but failed agent operations may retry once.
+
+Concurrency and Thread Safety: All public methods safe for concurrent use. Mutex serializes agent access. Connection may be reestablished if stale.
+
+Warnings: SelfTestDeterministicED25519 performs two signing operations; may be expensive. Agent disconnect during signing triggers one automatic reconnect retry. Malformed keys in List are silently skipped, may hide agent configuration issues. Fingerprint matching is case-sensitive exact match. OpenSSH-style fingerprint format required.
+
+File: internal/client/sshagent/ssh_agent_functional_test.go
+Package: sshagent
+Build: functional
+Purpose: Functional tests requiring real ssh-agent. Tests NewFromEnv, List, FindByFingerprint, SignED25519, SignED25519Raw, SelfTestDeterministicED25519, explicit socket path, empty payload handling, and missing socket errors. Skipped in short mode.
+
+File: internal/client/sshagent/sshagent_test.go
+Package: sshagent
+Purpose: Unit tests with mock agent. Tests NewFromEnv, New, Close, FingerprintSHA256, ExtractED25519RawSignature, List, ListED25519, FindByFingerprint, FindED25519ByFingerprint, Sign, SignED25519, SignED25519Raw, SelfTestDeterministicED25519, reconnect logic, and error paths. Uses mockAgent implementing sshagent.Agent interface with configurable listFn and signFn.

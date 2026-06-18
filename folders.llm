@@ -1,0 +1,377 @@
+.
+├── cmd/                                            # Только entrypoints бинарей
+│   ├── gophkeeper/                                # Клиентский binary entrypoint
+│   │   └── main.go                                # Создает viper/root command и вызывает Execute
+│   │
+│   └── gophkeeper-server/                         # Серверный binary entrypoint
+│       └── main.go                                # Создает server app/root command и запускает сервер
+│
+│   Правила:
+│   - Только main.go и минимальный bootstrap.
+│   - Никакой бизнес-логики, криптографии, SQL, миграций, Cobra wiring дерева команд.
+│   - Допустимо: создать root command/app и вызвать Execute/Run.
+│   - cmd/gophkeeper может зависеть только от internal/client/...
+│   - cmd/gophkeeper-server может зависеть только от internal/server/...
+│
+├── configs/                                       # Примеры конфигов и шаблоны
+│   ├── client.example.yaml                        # Пример клиентского конфига
+│   ├── server.example.yaml                        # Пример серверного конфига
+│   ├── dev.client.yaml                            # Dev-конфиг клиента
+│   └── dev.server.yaml                            # Dev-конфиг сервера
+│
+│   Правила:
+│   - Только примеры config files: yaml/toml/json/env.
+│   - Не хранить production secrets.
+│   - Не хранить Go-код.
+│
+├── infra/                                         # Локальная инфраструктура и devops
+│   ├── docker-compose.yml                         # Локальный стек
+│   ├── pgsql/                                     # Инициализация postgres / локальные манифесты
+│   │   └── init.sql
+│   ├── redis/                                     # Локальные конфиги redis
+│   │   └── redis.conf
+│   └── certs/                                     # Dev certificates для локального стенда, если нужны
+│       └── README.md
+│
+│   Правила:
+│   - Docker, compose, init scripts, локальные manifests.
+│   - Только то, что нужно для local/integration окружения.
+│   - Не хранить бизнес-логику приложения.
+│
+├── internal/
+│   ├── client/                                    # Только клиентский код
+│   │   ├── app/                                   # Runtime container, bootstrap, lifecycle
+│   │   │   ├── runtime.go                         # type App, NewApp, WithApp, AppFromContext
+│   │   │   └── bootstrap.go                       # Bootstrap(ctx, v, configFile), Shutdown(app)
+│   │   │
+│   │   │   Что класть:
+│   │   │   - runtime dependencies клиента
+│   │   │   - lifecycle orchestration
+│   │   │   - сборку client app state
+│   │   │
+│   │   │   Не класть:
+│   │   │   - Cobra команды
+│   │   │   - низкоуровневый SQL код
+│   │   │   - криптографические детали
+│   │   │
+│   │   ├── commands/                              # Cobra CLI слой клиента
+│   │   │   ├── context.go                         # AppFromCommand(cmd) и подобные command helpers
+│   │   │   ├── root.go                            # NewRootCommand, flags, AddCommand, pre/post run orchestration
+│   │   │   ├── create.go                          # Команда create
+│   │   │   ├── register.go                        # Команда регистрации устройства/пользователя
+│   │   │   ├── attach.go                          # Команда привязки нового устройства
+│   │   │   ├── get.go                             # Команда чтения секрета
+│   │   │   ├── list.go                            # Команда списка секретов
+│   │   │   └── delete.go                          # Команда удаления секрета
+│   │   │
+│   │   │   Что класть:
+│   │   │   - cobra.Command
+│   │   │   - args, flags, help text
+│   │   │   - orchestration уровня CLI
+│   │   │   - вызовы app/service
+│   │   │
+│   │   │   Не класть:
+│   │   │   - SQL implementation
+│   │   │   - SSH agent socket implementation
+│   │   │   - TLS internals
+│   │   │   - core crypto/domain rules
+│   │   ├── config/                                # Клиентская конфигурация
+│   │   │   ├── config.go                          # Структуры Config, вложенные секции
+│   │   │   ├── validate.go                        # Validate() / отдельные валидаторы
+│   │   │   └── viper.go                           # NewViper(), LoadFromViper(), defaults, env binding
+│   │   │
+│   │   │   Что класть:
+│   │   │   - схема клиентского конфига
+│   │   │   - defaults
+│   │   │   - валидация
+│   │   │   - Viper loading
+│   │   │
+│   │   │   Не класть:
+│   │   │   - runtime orchestration
+│   │   │   - открытие БД
+│   │   │   - транспорт
+│   │   │
+│   │   ├── service/                               # Клиентские use cases / application services
+│   │   │   ├── secret_service.go                  # Операции над секретами
+│   │   │   ├── register_service.go                # Регистрация устройства / attachment
+│   │   │   ├── sync_service.go                    # Синхронизация с сервером
+│   │   │   └── interfaces.go                      # Интерфейсы зависимостей, если нужны
+│   │   │
+│   │   │   Что класть:
+│   │   │   - use cases клиента
+│   │   │   - orchestration приложения, независимая от Cobra
+│   │   │
+│   │   │   Не класть:
+│   │   │   - cobra.Command
+│   │   │   - *sql.DB детали
+│   │   │   - grpc connection bootstrap
+│   │   │
+│   │   ├── repository/                            # Контракты клиентского persistence, если понадобятся
+│   │   │   ├── secret_store.go                    # Интерфейс локального хранилища секретов
+│   │   │   └── device_store.go                    # Интерфейс хранилища device state
+│   │   │
+│   │   │   Что класть:
+│   │   │   - интерфейсы, нужные service/usecase слою
+│   │   │
+│   │   │   Не класть:
+│   │   │   - sqlite implementation
+│   │   │
+│   │   └── providers/                             # Внешние зависимости клиента
+│   │       ├── device/                            # Device cert/key material handling
+│   │       │   └── certificate.go                 # PEM encode/decode, representation локального device cert/key
+│   │       │
+│   │       │   Что класть:
+│   │       │   - работа с PEM
+│   │       │   - local device identity material
+│   │       │
+│   │       │   Не класть:
+│   │       │   - grpc/tls transport
+│   │       │   - sqlite
+│   │       │
+│   │       ├── grpc/                              # gRPC client adapter
+│   │       │   ├── conn.go                        # grpc.Dial / connection setup
+│   │       │   ├── tlsconfig.go                   # TLS config для клиента
+│   │       │   ├── metadata.go                    # auth metadata / headers, если нужно
+│   │       │   └── client.go                      # Adapter над generated stubs, если понадобится
+│   │       │
+│   │       │   Что класть:
+│   │       │   - setup gRPC connection
+│   │       │   - client transport config
+│   │       │   - TLS config для server access
+│   │       │
+│   │       │   Не класть:
+│   │       │   - server handlers
+│   │       │   - device PEM serialization
+│   │       │
+│   │       ├── sshagent/                          # SSH agent integration
+│   │       │   └── client.go                      # SSH_AUTH_SOCK, key listing, signing
+│   │       │
+│   │       │   Что класть:
+│   │       │   - интеграция с ssh-agent
+│   │       │   - list/sign operations
+│   │       │
+│   │       │   Не класть:
+│   │       │   - product security policy
+│   │       │   - derivation formulas core spec
+│   │       │
+│   │       └── sqlite/                            # Локальный persistence adapter клиента
+│   │           ├── sqlite.go                      # Open(), DB setup
+│   │           ├── migrate.go                     # Migrate(db)
+│   │           ├── secret_store.go                # Реализация repository.SecretStore, если появится
+│   │           ├── device_store.go                # Реализация repository.DeviceStore, если появится
+│   │           ├── perms_unix.go                  # Проверки прав на unix
+│   │           ├── perms_windows.go               # Проверки прав на windows
+│   │           └── migrations/
+│   │               └── 00001_init.sql             # Миграция таблицы device_state с CHECK(id=1)
+│   │
+│   │           Что класть:
+│   │           - SQLite open
+│   │           - migrations
+│   │           - DB-specific setup
+│   │           - file permission checks
+│   │
+│   │           Не класть:
+│   │           - tls
+│   │           - ssh-agent
+│   │           - device certificate handling
+│   │
+│   ├── domain/                                    # Внутреннее ядро модели
+│   │   └── security/                              # Security subdomain
+│   │       ├── material.go                        # Key material types / value objects
+│   │       ├── derivation_payload.go              # Derivation payload model
+│   │       ├── kek.go                             # KEK derivation / rules (v4.0 без root_secret)
+│   │       └── errors.go                          # Доменные ошибки, если нужны
+│   │
+│   │       Что класть:
+│   │       - pure functions
+│   │       - value objects
+│   │       - security architecture invariants
+│   │
+│   │       Не класть:
+│   │       - ssh-agent socket access
+│   │       - SQL
+│   │       - Cobra/Viper
+│   │       - x509 pool loading
+│   │       - gRPC/TLS bootstrap
+│   ├── server/                                    # Только серверный код
+│   │   ├── app/                                   # Composition root и lifecycle сервера
+│   │   │   ├── app.go                             # Server app container/state
+│   │   │   ├── bootstrap.go                       # Initialize providers/services/transports
+│   │   │   └── run.go                             # Run()/Shutdown()
+│   │   │
+│   │   │   Что класть:
+│   │   │   - сборка сервера
+│   │   │   - lifecycle orchestration
+│   │   │
+│   │   │   Не класть:
+│   │   │   - handlers
+│   │   │   - CA details
+│   │   │   - бизнес use cases
+│   │   │
+│   │   ├── auth/                                  # AuthN/AuthZ server-side
+│   │   │   ├── identity.go                        # identity binding rules
+│   │   │   ├── interceptor.go                     # auth interceptors с парсингом urn:gophkeeper:file:<uuid>
+│   │   │   ├── context.go                         # auth context helpers
+│   │   │   └── verifier.go                        # cert/token verification rules
+│   │   │
+│   │   │   Что класть:
+│   │   │   - auth flows
+│   │   │   - identity validation
+│   │   │   - interceptors
+│   │   │
+│   │   ├── commands/                              # CLI команды сервера
+│   │   │   ├── root.go                            # root server command
+│   │   │   ├── serve.go                           # run server command
+│   │   │   └── migrate.go                         # отдельная server migrate command, если нужна
+│   │   │
+│   │   │   Что класть:
+│   │   │   - Cobra слой сервера
+│   │   │   - flags и args
+│   │   │
+│   │   ├── config/                                # Серверная конфигурация
+│   │   │   ├── config.go                          # Server config schema
+│   │   │   ├── validate.go                        # Валидация server config
+│   │   │   └── viper.go                           # Viper loading/defaults
+│   │   │
+│   │   ├── transport/                             # Входные transport-слои сервера
+│   │   │   ├── grpc/
+│   │   │   │   ├── server.go                      # grpc server bootstrap
+│   │   │   │   ├── register.go                    # registration handlers
+│   │   │   │   ├── secrets.go                     # secrets handlers (обработка слепой синхронизации)
+│   │   │   │   ├── interceptors.go                # transport-level interceptors
+│   │   │   │   └── mapping.go                     # protobuf <-> service input/output mapping
+│   │   │   │
+│   │   │   └── http/                              # Если позже появятся health/metrics/admin endpoints
+│   │   │       ├── health.go
+│   │   │       └── metrics.go
+│   │   │
+│   │   │   Что класть:
+│   │   │   - handlers
+│   │   │   - request/response mapping
+│   │   │   - transport bootstrap
+│   │   │
+│   │   │   Не класть:
+│   │   │   - use cases
+│   │   │   - persistence logic
+│   │   │
+│   │   ├── pki/                                   # PKI / CA / CSR / cert issuance logic
+│   │   │   ├── ca.go                              # CA representation and operations
+│   │   │   ├── issue.go                           # certificate issuance
+│   │   │   ├── csr.go                             # CSR processing
+│   │   │   ├── verify.go                          # cert verification/revocation-related checks
+│   │   │   └── profile.go                         # issuance profiles / templates
+│   │   │
+│   │   │   Что класть:
+│   │   │   - CA logic
+│   │   │   - CSR processing
+│   │   │   - cert issuance rules
+│   │   │   - crypto checks, связанные с PKI
+│   │   │
+│   │   ├── service/                               # Серверные use cases
+│   │   │   ├── register_service.go                # Регистрация устройства/пользователя
+│   │   │   ├── secret_service.go                  # CRUD/доступ к секретам
+│   │   │   ├── device_service.go                  # Операции над устройствами (управление привязками)
+│   │   │   └── interfaces.go                      # Зависимости сервиса: repositories/providers
+│   │   │
+│   │   │   Что класть:
+│   │   │   - use cases
+│   │   │   - application services
+│   │   │   - orchestration, не зависящая от Cobra и gRPC
+│   │   │
+│   │   │   Не класть:
+│   │   │   - protobuf DTO
+│   │   │   - SQL queries
+│   │   │   - cobra.Command
+│   │   │
+│   │   ├── repository/                            # Контракты доступа к данным
+│   │   │   ├── secret_repository.go               # Интерфейс репозитория секретов
+│   │   │   ├── device_repository.go               # Интерфейс репозитория устройств
+│   │   │   ├── user_repository.go                 # Интерфейс репозитория пользователей
+│   │   │   └── tx.go                              # Транзакционные контракты, если нужны
+│   │   │
+│   │   │   Что класть:
+│   │   │   - interfaces/abstractions
+│   │   │
+│   │   │   Не класть:
+│   │   │   - postgres/sql implementation
+│   │   │
+│   │   └── providers/                             # Внешние зависимости сервера
+│   │       ├── postgres/
+│   │       │   ├── connect.go                     # Открытие подключения
+│   │       │   ├── migrate.go                     # Server DB migrations
+│   │       │   ├── secret_repository.go           # Реализация repository.SecretRepository
+│   │       │   ├── device_repository.go           # Реализация repository.DeviceRepository
+│   │       │   ├── user_repository.go             # Реализация repository.UserRepository
+│   │       │   └── migrations/
+│   │       │       ├── 001_init.sql
+│   │       │       └── 002_add_constraints.sql
+│   │       │
+│   │       ├── redis/
+│   │       │   └── client.go                      # Redis adapter / cache/session storage
+│   │       │
+│   │       ├── monitoring/
+│   │       │   └── metrics.go                     # Метрики, tracing bootstrap, etc.
+│   │       │
+│   │       ├── certstore/
+│   │       │   └── store.go                       # Хранилище сертификатов/CRL, если внешнее
+│   │       │
+│   │       └── clock/
+│   │           └── clock.go                       # Внешний provider времени, если нужен для тестов
+│   │
+│   │       Что класть:
+│   │       - инфраструктурные adapters
+│   │       - postgres, redis, monitoring, external stores
+│   │
+│   │       Не класть:
+│   │       - CLI logic
+│   │       - core domain rules
+│   │
+│   └── shared/                                    # Реально общий код для client и server
+│       ├── certs/
+│       │   ├── embed.go                           # embedded trust material
+│       │   └── loader.go                          # x509 pool loading
+│       │
+│       └── logging/
+│           └── logger.go                          # Только если реально используется и клиентом, и сервером
+│
+│       Правила:
+│       - Класть только то, что уже реально используется и клиентом, и сервером.
+│       - Не складывать "на будущее".
+│       - shared не зависит от client и server.
+│
+├── migrations/                                    # Общие миграции проекта
+│   ├── README.md                                  # Объяснение, какие миграции сюда относятся
+│   └── server/                                    # Только если появятся общие server-level migrations
+│       ├── 001_bootstrap.sql
+│       └── 002_seed.sql
+│
+│   Правила:
+│   - Только миграции, не привязанные строго к одному provider package.
+│   - Если миграции относятся только к client sqlite provider — держать рядом с internal/client/providers/sqlite.
+│   - Если только к server postgres provider — держать рядом с internal/server/providers/postgres.
+│
+├── scripts/                                       # Вспомогательные скрипты
+│   ├── ci.sh                                      # CI helper
+│   ├── generate.sh                                # codegen helper
+│   ├── bootstrap-dev.sh                           # локальный bootstrap
+│   └── release.sh                                 # release helper
+│
+│   Правила:
+│   - Скрипты для CI/codegen/local bootstrap/release.
+│   - Не хранить в них бизнес-логику приложения.
+│
+├── api/                                           # protobuf / openapi / contracts, если будут
+│   └── proto/
+│       └── gophkeeper/
+│           ├── v1/
+│           │   ├── register.proto                 # Контракт беспарольной двухэтапной регистрации
+│           │   ├── attach_device.proto            # Трехэтапный контракт привязки контейнера с withholding соли
+│           │   └── secrets.proto                  # Контракт слепой синхронизации секретов по mTLS
+│           └── buf.gen.yaml
+│
+│   Правила:
+│   - Контракты API, proto/openapi schemas, codegen manifests.
+│   - Generated Go code можно хранить либо рядом, либо в отдельном gen-пакете по принятому правилу проекта.
+│
+├── go.mod
+└── go.sum

@@ -1,0 +1,19 @@
+File: internal/client/providers/grpc/info_client.go
+Package: grpc
+Role: Infrastructure Transport Adapter
+Purpose: Connects to remote storage nodes over secure TLS channels to query server operational state parameters.
+
+Functions:
+func FetchServerInfo(ctx context.Context, serverAddr string) (*pb.InfoResponse, error). Purpose: communication logic. Resolves client TLS properties, boots non-blocking grpc.NewClient, sets isolated 5-second context timeouts, triggers Remote Procedure Call. Errors: wrapped TLS setup, connection, or remote status failure.
+
+***
+
+File: internal/client/providers/grpc/tlsconfig.go
+Package: grpc
+Role: Security Factory Configuration
+Purpose: Generates tailored x509 cryptographic contexts isolating client connection privileges across explicit lifecycle steps (bootstrap vs mTLS).
+
+Functions:
+func ConfigForBootstrap() (*tls.Config, error). Purpose: unauthenticated state. Loads ServerCAPool as target RootCAs anchor without local identities. Errors: wrapped CA mapping failures.
+func ConfigForMTLS(cert tls.Certificate, caPool *x509.CertPool) (*tls.Config, error). Purpose: authenticated context. Embeds operational device identity certificate inside safe TLS handshake frameworks. Errors: wrapped CA fallback pool failures.
+func ConfigForTest() *tls.Config. Diagnostic stub bypassing certificate identity logic. Enforces InsecureSkipVerify=true.

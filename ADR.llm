@@ -1,0 +1,475 @@
+document:
+  id: gophkeeper-security-spec-index
+  language: en
+  kind: llm_compact_index
+  sources:
+    - SPEC.md
+    - RFC_SPEC.txt
+  status:
+    spec: active
+    adr: accepted
+  title: GophKeeper Security Architecture
+  purpose: >
+    Zero-knowledge client-server secret storage. Server stores encrypted data,
+    sync metadata, and device identities, but cannot decrypt user secrets or
+    recover AccountMasterKey, AccountUnlockKey, or DeviceKEK plaintext.
+
+system_model:
+  architecture: client_side_encryption
+  authentication: passwordless_via_ssh
+  device_authentication: mtls_client_certificates
+  trust_root_user: ssh_agent_with_registered_ssh_ed25519_key
+  trust_root_device: server_private_ca
+  account_recovery_rule: registered_ssh_key_proves_account_ownership
+  non_goal: devices_are_not_independent_recovery_factors
+
+security_goals:
+  - server_must_not_access_plaintext_user_data
+  - server_must_not_access_plaintext_account_master_key
+  - server_must_not_access_plaintext_account_unlock_key
+  - passwordless_user_authentication
+  - per_container_cryptographic_identity
+  - account_and_device_wrapping_domain_separation
+  - resilience_to_server_db_compromise
+  - resilience_to_network_interception
+  - resilience_to_offline_theft_of_client_files
+
+threat_model:
+  protects_against:
+    - untrusted_server_storage
+    - server_database_compromise
+    - network_interception
+    - offline_theft_of_client_files
+    - device_spoofing_without_valid_client_certificate
+  does_not_claim:
+    - fully_compromised_client_host_at_runtime
+    - memory_disclosure_of_unlocked_client_process
+    - abuse_of_ssh_auth_sock_by_local_malware
+    - privileged_local_attackers
+    - secure_memory_equivalent_from_buffer_wiping
+  implications:
+    - possession of registered_ssh_key_equals_account_access_capability
+    - compromised_runtime_client_can_defeat_model
+
+cryptographic_profile:
+  ssh_key_algorithm: ssh-ed25519
+  device_keypair: software_openssh_ed25519
+  aead: xchacha20_poly1305
+  kdf: hkdf_sha256
+  hash: sha256
+  randomness: os_csprng
+  mvp_constraints: >
+    Only deterministic software OpenSSH Ed25519 keys are supported.
+    Hardware-backed, FIDO-based, PKCS11-backed, and all non-deterministic
+    signing implementations are forbidden in MVP. One SSH key per account.
+
+core_principles:
+  - zero_knowledge_server
+  - passwordless_auth
+  - ssh_agent_only_proof_of_possession
+  - deterministic_signature_self_test_required
+  - per_container_identity_via_mtls_cert
+  - domain_separation_in_kdf_and_aad
+  - canonical_signature_bytes_required
+  - deterministic_serialization_for_signed_payloads
+
+key_material:
+  ssh_public_key:
+    secrecy: public
+    storage: server
+    purpose: account_identity
+  ssh_private_key:
+    secrecy: secret
+    storage: ssh_agent_only
+    purpose: proof_of_possession_and_local_derivation
+  account_salt:
+    secrecy: non_secret
+    scope: account
+    storage: server_and_client
+    note: immutable_after_registration
+  AccountUnlockKey:
+    secrecy: secret_transient
+    storage: not_persisted
+    purpose: wrap_account_bootstrap_envelope_and_derive_device_kek
+  DeviceKEK:
+    secrecy: secret_transient
+    storage: not_persisted
+    purpose: wrap_device_master_key_envelope_and_mtls_private_key
+  AccountMasterKey:
+    secrecy: secret
+    storage: client_memory_plaintext_only; server_encrypted_only
+    purpose: encrypt_user_records
+  mTLS_private_key:
+    secrecy: secret
+    storage: local_sqlite_encrypted
+    purpose: container_device_authentication
+  mTLS_certificate:
+    secrecy: public
+    storage: local_sqlite
+    purpose: container_device_identity
+  user_id:
+    secrecy: non_secret
+    purpose: account_identifier_uuid
+  device_id:
+    secrecy: non_secret
+    purpose: container_identifier_uuid
+key_hierarchy:
+  summary: >
+    ssh-agent signature over deterministic derivation payload -> canonical signature bytes
+    -> HKDF(account_salt) -> AccountUnlockKey -> HKDF(device_id) -> DeviceKEK.
+  derivation_payload:
+    type: DerivationPayload
+    fields:
+      version: 1
+      context: gophkeeper-account-unlock-v1
+      user_id: required
+      ssh_fingerprint: required
+    serialization: deterministic_required
+  canonical_signature_extraction:
+    algorithm: ssh-ed25519
+    raw_length: 64
+    validation: verify_embedded_algorithm_identifier_is_exactly_ssh-ed25519
+    failure: derivation_fails_on_malformed_blob_wrong_algorithm_or_non_64_byte_signature
+  self_test:
+    rule: >
+      Client must sign the same derivation payload twice before using a key.
+      Returned signature bytes must be identical. On mismatch, key is rejected as unsupported.
+    applies_to: all_operations_not_just_derivation
+  formulas:
+    - signature = ssh_agent.Sign(DerivationPayload)
+    - AccountUnlockKey = HKDF_SHA256(ikm=CanonicalSignatureBytes(signature), salt=account_salt, info=gophkeeper-account-unlock-v1, len=32)
+    - DeviceKEK = HKDF_SHA256(ikm=AccountUnlockKey, salt=device_id_raw, info=gophkeeper-device-kek-v1, len=32)
+  invariants:
+    - do_not_use_transport_specific_ssh_agent_response_blobs_unless_canonicalized
+    - AccountUnlockKey_and_DeviceKEK_must_be_domain_separated
+    - AccountUnlockKey_must_not_be_stored
+
+envelope_format:
+  applies_to:
+    - account_bootstrap_envelope
+    - device_master_key_envelope
+    - encrypted_records
+  required_fields:
+    - version
+    - alg
+    - nonce
+    - aad_schema
+    - ciphertext
+  nonce_rules:
+    - generated_by_csprng
+    - exactly_24_bytes_for_xchacha20_poly1305
+    - no_nonce_reuse_under_same_key
+
+aad_schemas:
+  account_bootstrap_wrap:
+    schema: gophkeeper-account-bootstrap-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - ssh_fingerprint
+  device_master_key_wrap:
+    schema: gophkeeper-device-master-key-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - device_id
+  mtls_private_key_wrap:
+    schema: gophkeeper-mtls-private-key-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - device_id
+  record_encryption:
+    schema: gophkeeper-record-aad-v1
+    fields:
+      - version
+      - schema
+      - user_id
+      - record_id
+  rule: all_encrypted_objects_must_use_aad
+
+local_device_secret_storage:
+  object: mTLS_private_key
+  encryption:
+    key: DeviceKEK
+    algorithm: xchacha20_poly1305
+    output: encrypted_mtls_private_key_blob
+  filesystem_requirements:
+    unix: 0600
+    windows: current_user_only_inheritance_disabled
+
+server_side_wrapped_vault_key:
+  object: AccountMasterKey
+  encryption:
+    key: AccountUnlockKey
+    algorithm: xchacha20_poly1305
+    output: account_bootstrap_envelope
+  storage_rule: server_stores_account_bootstrap_envelope_only
+  uniqueness_rules:
+    - one_ssh_fingerprint_must_belong_to_at_most_one_user
+  safety_rules:
+    - server_must_not_log_persist_or_return_plaintext_keys
+
+record_encryption:
+  plaintext_type: RecordEnvelope
+  plaintext_must_be_structured: true
+  plaintext_fields_typical:
+    - version
+    - record_type
+    - timestamps
+    - private_metadata
+    - secret_payload
+  encryption:
+    key: AccountMasterKey
+    algorithm: xchacha20_poly1305
+    output: encrypted_record
+  server_storage:
+    - encrypted_records_only
+    - sync_metadata_only
+
+device_identity_and_mtls:
+  certificate_issuer: server_root_ca
+  certificate_requirements:
+    extended_key_usage: clientAuth
+    device_id_location: san_uri_only
+    san_uri_format: urn:gophkeeper:file:<uuid>
+    common_name_must_not_be_used_for_identity: true
+  server_device_record_fields:
+    - device_id
+    - user_id
+    - cert_serial
+    - spki_sha256
+    - issued_at
+    - expires_at
+    - revoked_at
+  authenticated_rpc_validation:
+    - validate_chain_to_embedded_root_ca
+    - extract_device_id_from_san_uri
+    - load_device_record
+    - verify_not_revoked
+    - verify_cert_serial_matches_record
+    - verify_spki_sha256_matches_record
+    - bind_user_id_and_device_id_into_typed_request_context
+  auth_failure_result: UNAUTHENTICATED
+  root_ca_protection: >
+    Root CA private key must be protected independently of main application database.
+challenge_protocol:
+  payload_type: ChallengePayload
+  serialization: deterministic_required
+  fields:
+    version: 1
+    context: required
+    user_id: required
+    session_id: required
+    server_nonce: required_csprng_generated
+  anti_replay_rules:
+    - server_nonce_generated_by_csprng
+    - session_id_unique
+    - challenge_single_use
+    - ttl_max_5_minutes
+    - after_success_session_atomically_consumed_or_deleted
+    - replay_of_consumed_session_must_be_rejected
+
+protocols:
+  register_first_device:
+    begin:
+      request: RegisterBegin(username, ssh_public_key)
+      server_must:
+        - reject_occupied_username
+        - reject_ssh_key_bound_to_another_user
+        - create_pending_registration_session
+        - return_user_id_session_id_server_nonce
+    finish:
+      request: RegisterFinish(user_id, session_id, auth_challenge_signature, device_id, account_bootstrap_envelope, device_master_key_envelope, csr)
+      client_must:
+        - generate_account_salt
+        - generate_device_id
+        - generate_account_master_key
+        - generate_device_keypair
+        - perform_ssh_signature_self_test
+        - sign_registration_challenge
+        - derive_account_unlock_key_and_device_kek
+        - encrypt_account_bootstrap_envelope
+        - encrypt_device_master_key_envelope
+        - encrypt_mtls_private_key
+      server_must:
+        - validate_pending_session
+        - validate_signature
+        - validate_ttl
+        - validate_device_id_uniqueness
+        - validate_device_id_uuid_syntax
+        - ignore_csr_subject_metadata_use_public_key_only
+        - issue_client_cert_with_san_uri_and_clientAuth
+        - store_user_ssh_key_device_and_envelope_bindings_in_single_transaction
+        - mark_session_consumed
+
+  normal_client_startup:
+    client_must:
+      - load_local_configuration
+      - select_ssh_key_matching_active_ssh_fingerprint
+      - perform_signature_determinism_self_test
+      - derive_account_unlock_key_and_device_kek
+      - decrypt_local_mtls_private_key
+      - establish_mtls_grpc_connection
+      - unlock_account_master_key_via_device_master_key_envelope
+      - sync_encrypted_records
+      - decrypt_records_locally
+    client_should:
+      - wipe_key_material_from_memory_after_use
+    failure_mode: >
+      If configured active SSH key is unavailable in ssh-agent,
+      client must fail closed.
+
+  attach_device:
+    begin:
+      request: AttachDeviceBegin(ssh_public_key)
+      server_must:
+        - locate_user_and_active_ssh_key
+        - create_pending_attachment_session
+        - return_user_id_session_id_server_nonce
+        - explicitly_withhold_account_salt_and_account_bootstrap_envelope
+      server_should:
+        - rate_limit
+    auth:
+      request: AttachDeviceAuth(user_id, session_id, auth_challenge_signature)
+      server_must:
+        - validate_session_and_ttl
+        - validate_signature_using_stored_ssh_public_key
+        - move_session_state_to_authenticated
+        - return_account_salt_and_account_bootstrap_envelope
+    finish:
+      request: AttachDeviceFinish(user_id, session_id, device_id, device_master_key_envelope, csr)
+      client_must_before_send:
+        - perform_ssh_self_test
+        - derive_account_unlock_key
+        - decrypt_account_bootstrap_envelope_to_recover_account_master_key
+        - generate_device_id
+        - derive_device_kek
+        - encrypt_device_master_key_envelope
+        - generate_device_keypair
+        - encrypt_local_mtls_private_key
+      server_must:
+        - validate_session_is_authenticated
+        - issue_device_certificate
+        - create_new_device_binding
+        - mark_session_completed
+
+  revoke_device:
+    rule: user_may_revoke_another_device_using_active_authenticated_device_session
+    constraint: devices_are_not_recovery_factors
+    server_must:
+      - verify_caller_identity_via_mtls
+      - ensure_both_devices_belong_to_same_user
+      - set_device_status_revoked_at_atomically
+      - invalidate_stored_certificate_binding
+    effect:
+      - revoked_devices_rejected_by_authentication_interceptor
+
+  certificate_renewal:
+    rules:
+      - device_certificates_should_have_bounded_lifetime
+      - renewal_may_be_performed_via_active_device_session
+      - revoked_devices_must_not_be_renewable
+
+rpc_authorization:
+  Sync: active_mtls_same_user
+  RegisterFinish: valid_pending_challenge_plus_ssh_proof
+  AttachDeviceAuth: valid_pending_challenge_plus_ssh_proof
+  AttachDeviceFinish: session_state_authenticated
+  RevokeDevice: mtls_from_another_active_device_same_user
+  rule: no_post_registration_rpc_without_mtls_except_explicit_challenge_endpoints
+
+memory_handling:
+  should_zero_after_use:
+    - AccountMasterKey
+    - AccountUnlockKey
+    - DeviceKEK
+    - mTLS_private_key
+  implementation_notes:
+    - runtime_KeepAlive_may_reduce_compiler_elimination_of_wipe_loops
+    - wiping_reduces_lifetime_but_is_not_secure_memory
+
+critical_invariants:
+  - server_never_stores_plaintext_keys
+  - server_never_learns_plaintext_user_records
+  - ssh_private_key_is_never_read_directly_by_application
+  - deterministic_signature_self_test_required_before_any_derivation
+  - canonical_signature_bytes_required for local unlock derivation
+  - all_sensitive_ssh_proofs_use_deterministic_challenge_payloads
+  - challenge_sessions_are_single_use_and_time_limited
+  - each_device_has_its_own_mtls_certificate_and_revocable_binding
+  - device_identity_comes_from_san_uri_not_common_name
+  - account_salt_and_bootstrap_envelope_withheld_until_attach_challenge_authenticated
+  - devices_do_not_independently_unlock_master_key_without_ssh_derived_material
+  - devices_are_not_recovery_factors
+  - nonce_reuse_under_same_key_must_not_occur
+  - account_salt_immutable_after_successful_registration
+
+consequences:
+  positive:
+    - server_cannot_decrypt_user_data_even_with_db_access
+    - db_compromise_does_not_reveal_plaintext_secrets
+    - device_local_key_at_rest_requires_ssh_agent_signing_capability
+    - multiple_devices_can_coexist_safely_with_independent_mtls_revocation
+  negative:
+    - loss_of_the_single_ssh_key_implies_permanent_account_loss
+    - mvp_depends_on_deterministic_ed25519_signing_behavior
+    - model_does_not_defend_against_runtime_host_compromise
+
+operational_security:
+  rate_limiting: server_should_apply_to_sensitive_endpoints
+  rate_limiting_endpoints:
+    - RegisterBegin
+    - RegisterFinish
+    - AttachDeviceBegin
+    - AttachDeviceAuth
+  audit_events:
+    - registration
+    - device_attachment
+    - device_revocation
+    - certificate_renewal_attempts
+    - repeated_failed_authentication_or_proof_attempts
+  audit_rule: logs_must_not_include_plaintext_secrets_or_key_material
+
+search_index:
+  aliases:
+    - GophKeeper security scheme
+    - zero knowledge secret manager
+    - ssh-agent local derivation
+    - account bootstrap envelope
+    - device master key envelope
+    - mtls file container identity
+  canonical_terms:
+    - AccountUnlockKey
+    - DeviceKEK
+    - AccountMasterKey
+    - account_bootstrap_envelope
+    - device_master_key_envelope
+    - mTLS_private_key
+    - DerivationPayload
+    - ChallengePayload
+    - RecordEnvelope
+    - ssh_fingerprint
+    - spki_sha256
+    - SAN URI
+    - clientAuth
+  exact_constants:
+    - gophkeeper-account-unlock-v1
+    - gophkeeper-device-kek-v1
+    - gophkeeper-account-bootstrap-aad-v1
+    - gophkeeper-device-master-key-aad-v1
+    - gophkeeper-mtls-private-key-aad-v1
+    - gophkeeper-record-aad-v1
+    - urn:gophkeeper:file:<uuid>
+  likely_questions:
+    - why_must_ssh_signatures_be_deterministic
+    - how_is_account_master_key_stored_on_server
+    - how_are_device_keys_protected_locally
+    - how_does_mtls_file_validation_work
+    - how_is_first_device_registered
+    - how_is_new_device_attached_safely
+    - what_threats_are_in_scope
+    - what_breaks_the_security_model

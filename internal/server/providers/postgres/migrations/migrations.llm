@@ -1,0 +1,4 @@
+File: internal/server/providers/postgres/migrations/00001_acme_cache.sql
+Role: Database Schema Migration
+Purpose: Creates a dedicated table for distributed Let's Encrypt ACME challenge token and certificate caching.
+Security Constraints: Key parameter is bound as PRIMARY KEY to maintain serialization during concurrent ACME validations across scaled backend instances. Bytea payload encapsulates serialized crypto primitives. Down block safely truncates the schema.
