@@ -167,7 +167,11 @@ func (c *CLI) bindPersistentFlags(cmd *cobra.Command) error {
 func (c *CLI) addCommands(cmd *cobra.Command) {
 	cmd.AddCommand(
 		newInitCommand(c),
-		newRegisterCommand(c),
+		// newRegisterCommand(c),
+		newCreateCommand(c),
+		newListCommand(c),
+		newGetCommand(c),
+		newDeleteCommand(c),
 	)
 }
 

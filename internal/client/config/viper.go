@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/adrg/xdg"
@@ -32,16 +34,25 @@ func NewViper() (*viper.Viper, error) {
 
 	v.SetDefault("app.config_file", defaultConfigPath())
 	v.SetDefault("storage.sqlite_path", defaultSQLitePath())
+	v.SetDefault("logging.log_file", defaultLogPath())
+	v.SetDefault("logging.level", "info")
+	v.SetDefault("logging.format", "text")
 
 	return v, nil
 }
 
 func ReadConfigFile(v *viper.Viper) error {
 	configFile := strings.TrimSpace(v.GetString("app.config_file"))
+
 	if configFile != "" {
 		v.SetConfigFile(configFile)
 
 		if err := v.ReadInConfig(); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil // Отсутствие конфига — это нормально
+			}
+
+			// На случай, если Viper все же обернул её в свой тип
 			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 				return nil
 			}
@@ -52,8 +63,12 @@ func ReadConfigFile(v *viper.Viper) error {
 		return nil
 	}
 
+	// Ветка, если путь ищется по дефолтным путям AddConfigPath
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			return nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 
@@ -100,5 +115,14 @@ func defaultSQLitePathFromFunc(stateFile func(string) (string, error)) string {
 		return ""
 	}
 
+	return path
+}
+
+func defaultLogPath() string {
+	// Используем XDG State спецификацию (для логов и истории)
+	path, err := xdg.StateFile("gophkeeper/client.log")
+	if err != nil {
+		return ""
+	}
 	return path
 }

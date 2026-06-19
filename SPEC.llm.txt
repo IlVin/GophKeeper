@@ -1,0 +1,734 @@
+# GophKeeper Security Scheme v4.1 — LLM Index
+
+## Purpose / model
+GophKeeper is a local-first, client-server secret vault with zero-knowledge client-side encryption. Server is untrusted blind storage/sync only; it must never learn plaintext secrets, `AccountUnlockKey`, `DeviceKEK`, or `AccountMasterKey`. No master password exists. Root of trust is proof of possession of one registered OpenSSH `Ed25519` key available via `ssh-agent`. MVP supports exactly one SSH key per account, no rotation, no recovery. “Device” means one specific local SQLite file/container, not a physical host.
+
+Client can run `gophkeeper init` fully offline: create local SQLite container, generate local `AccountSalt`, `AccountMasterKey`, `DeviceID`, derived keys, envelopes, optional mTLS keypair, then use vault offline. On later registration, this local pre-registration account-state either becomes the canonical server account-state for that SSH key or is reconciled to already-existing server canonical state.
+
+## Security goals
+- Server never gets decrypted user data, `AccountUnlockKey`, `DeviceKEK`, `AccountMasterKey`.
+- Authentication/derivation/bootstrap are passwordless and SSH-key based.
+- SQLite file is protected by OS file permissions and cryptographically bound to its own `DeviceID` through `DeviceKEK`.
+- Copying DB file to another host alone does not reveal contents; decryption still requires registered SSH signing capability because `DeviceKEK` derives from `AccountUnlockKey` + `DeviceID`, not OS properties.
+- PostgreSQL compromise must not reveal secrets.
+- Replay of critical registration/attach messages must fail.
+- In attach flow server must not reveal `AccountSalt` or `AccountBootstrapEnvelope` before successful proof of SSH-key possession in a one-time challenge session.
+- `MtlsPrivateKey` is encrypted under `DeviceKEK`, not account-level unlock key.
+- Autonomous local init must work before first server registration.
+- After registration all containers for one account must converge to one canonical `AccountSalt`; if needed client must reconcile and rewrap/re-encrypt local state.
+
+## Threat model / key assumption
+Security of access to `AccountMasterKey` is equivalent to ability to:
+1. obtain deterministic signature of stable `DerivationPayload` from registered SSH private key;
+2. separately obtain valid signature of one-time `ChallengePayload` for server auth.
+
+Local protection of one SQLite container also depends on correct:
+`DeviceKEK = HKDF_SHA256(AccountUnlockKey, DeviceID_raw, "gophkeeper-device-kek-v1", 32)`
+
+Implications:
+- Anyone controlling active `SSH_AUTH_SOCK` / `ssh-agent` signing capability has full vault decryption power.
+- Runtime adds no second factor; relies on OS protection of agent socket.
+- Host compromise enabling arbitrary agent signing means total compromise of local SQLite vault even if DB file perms are `0600`.
+- Compromise of one container does not automatically compromise another container’s network identity because each `MtlsPrivateKey` is wrapped under its own `DeviceKEK`.
+- Before first successful registration, the local container exists only locally; loss of that pre-registration SQLite before publishing `AccountBootstrapEnvelope` + `AccountSalt` to server means total data loss.
+
+Defends against:
+- full server DB compromise;
+- network interception/modification/replay on gRPC channel;
+- offline theft/physical extraction of local SQLite files.
+
+Does not claim to defend against:
+- full compromise of client OS while running;
+- unauthorized use of `SSH_AUTH_SOCK`;
+- RAM extraction from unlocked client process;
+- privileged local admin.
+
+## Architecture principles
+- Zero-knowledge: server stores encrypted records, encrypted `AccountBootstrapEnvelope`, plus open identifiers/metadata (`SshPublicKey`, `SshFingerprint`, `AccountSalt`, device registry, challenge sessions, cert artifacts) needed for routing/auth/revocation/sync.
+- Passwordless: no passwords/PINs/mnemonics.
+- SSH signing capability is root of trust; operational anchor is `ssh-agent`.
+- Local-first: all CRUD commits atomically in local SQLite; server interaction isolated to register, attach, sync.
+- Domain separation: unique text contexts / HKDF info for all derivations and challenge signatures.
+- Strict separation of signature roles:
+  - `DerivationSignature`: deterministic signature over stable `DerivationPayload`, used only locally to compute `AccountUnlockKey`.
+  - `AuthChallengeSignature`: signature over one-time `ChallengePayload`, used only to prove key possession to server and for anti-replay.
+- Two wrapping layers for same `AccountMasterKey`:
+  - `AccountBootstrapEnvelope`: cloud/account bootstrap envelope encrypted under `AccountUnlockKey`, used for bootstrap/attach and server-canonical account-state.
+  - `DeviceMasterKeyEnvelope`: local container-bound envelope encrypted under `DeviceKEK`, used for everyday local operation.
+- Server-canonical account-state per `SshFingerprint`:
+  - `AccountSalt`
+  - `AccountBootstrapEnvelope`
+- Registration always returns canonical account-state, even on first registration; client always compares local vs canonical and reconciles if different. This avoids client protocol branching by “first container vs later container.”
+
+## Cryptography
+- User SSH key: OpenSSH software `Ed25519` only in MVP.
+- Transport: TLS 1.3 with server auth from embedded `ServerCA`; optional LE TLS.
+- Symmetric AEAD: `XChaCha20-Poly1305`.
+- KDF: `HKDF-SHA256`.
+- Hash: `SHA-256`.
+- RNG: OS CSPRNG via `crypto/rand`.
+
+## MVP limits
+- Only software OpenSSH `Ed25519`.
+- No hardware tokens/FIDO2/non-deterministic signatures.
+- Exactly one SSH key per account.
+- No SSH key rotation.
+- No emergency recovery.
+- Prepared for future multi-key migration but no such RPC/schema in MVP.
+
+## Key entities
+- `SshPublicKey`: client+server identity and SSH signature verification.
+- `SshPrivateKey`: in `ssh-agent`; proves account ownership and derives `AccountUnlockKey`.
+- `SshFingerprint`: canonical SSH-key/account identifier.
+- `AccountSalt`: 32-byte account salt; client-generated; after registration also on server.
+- `AccountUnlockKey`: not stored; derived from `DerivationSignature`.
+- `DeviceKEK`: not stored; derived from `AccountUnlockKey` + `DeviceID`.
+- `AccountMasterKey`: one per account; client memory only.
+- `AccountBootstrapEnvelope`: client + server after registration; wraps `AccountMasterKey` under `AccountUnlockKey`.
+- `DeviceMasterKeyEnvelope`: stored in SQLite; wraps same `AccountMasterKey` under `DeviceKEK`.
+- `UserID`: server and client after registration.
+- `DeviceID`: public UUID of specific local container.
+- `ServerUrl`: in SQLite.
+- `EncryptedMtlsPrivateKey`: in SQLite; encrypted under `DeviceKEK`.
+- `ClientCertificate`: in SQLite; public part on server.
+- `SessionID`, `ServerNonce`: temporary server challenge material.
+
+## Key hierarchy
+One `AccountMasterKey` per account. One `AccountUnlockKey` per account. One `DeviceKEK` per container. Server stores one canonical `AccountBootstrapEnvelope`. Each SQLite file stores its own `DeviceMasterKeyEnvelope` and encrypted `MtlsPrivateKey`. Before registration a container may have pre-canonical `AccountSalt` / `AccountBootstrapEnvelope`; after registration all account containers must be converged to server-canonical state.
+
+Derivation:
+- `AccountUnlockKey = HKDF_SHA256(derivation_signature_raw64, AccountSalt, "gophkeeper-account-unlock-v1", 32)`
+- `DeviceKEK = HKDF_SHA256(AccountUnlockKey, DeviceID_raw16, "gophkeeper-device-kek-v1", 32)`
+
+Neither `AccountUnlockKey` nor `DeviceKEK` are ever sent to server.
+
+## SSH signature requirements
+Before init or registration client must self-test deterministic signature:
+1. list identities from `SSH_AUTH_SOCK`;
+2. sign same test `DerivationPayload` twice;
+3. compare bytes;
+4. if different, key unsupported.
+
+Client must extract only canonical raw 64-byte Ed25519 signature (`R||S`) from `ssh-agent sign` after strict algorithm check `ssh-ed25519`. SSH framing must not enter KDF.
+
+### `DerivationPayload`
+Deterministic, stable, no server/session/user/time fields:
+- `version=1` uint32 BE
+- `context="gophkeeper-account-unlock-v1"` as uint16 length + bytes
+- `ssh_fingerprint` as uint16 length + raw hash bytes
+
+### `ChallengePayload`
+One-time server-auth payload:
+- `version=1` uint32 BE
+- `context="gophkeeper-auth-challenge-v1"`
+- `user_id` raw UUID bytes
+- `session_id` raw UUID bytes
+- `server_nonce` raw bytes
+- `operation` in {"register","attach-device"}
+
+Used only to obtain `AuthChallengeSignature`, and only within one challenge session.
+
+## Envelopes
+Every encrypted object is a versioned envelope:
+- `version` uint32
+- `alg` e.g. `"XChaCha20-Poly1305"`
+- `nonce` 24 bytes
+- `aad_schema`
+- `ciphertext` incl 16-byte Poly1305 tag
+
+## Local SQLite protection
+`device_state` table invariant: single row `CHECK(id=1)`. Stores:
+- `server_url`
+- `user_id`
+- `device_id`
+- `ssh_public_key`
+- `account_salt`
+- `device_master_key_envelope`
+- `account_bootstrap_envelope`
+- `encrypted_mtls_private_key`
+- `client_certificate`
+
+`AccountBootstrapEnvelope` may be cached locally for bootstrap reuse, but normal operation must unlock `AccountMasterKey` via `DeviceMasterKeyEnvelope`.
+
+Filesystem protection:
+- Unix: file `0600`, dir `0700`
+- Windows: ACL current SID only
+
+SQLite pragmas:
+- `foreign_keys=ON`
+- `busy_timeout=5000`
+- `journal_mode=WAL`
+
+## AAD semantics
+`AccountBootstrapEnvelope` AAD:
+- `version=1`
+- `schema="gophkeeper-account-bootstrap-aad-v1"`
+- `ssh_fingerprint`
+
+`DeviceMasterKeyEnvelope` AAD:
+- `version=1`
+- `schema="gophkeeper-device-master-key-aad-v1"`
+- `user_id` if known else zero value pre-registration
+- `device_id`
+MVP may use mandatory `device_id` and omit `user_id` before registration. After registration implementation may recreate local `DeviceMasterKeyEnvelope` in full canonical AAD if it stores `user_id` in AAD.
+
+`EncryptedMtlsPrivateKey` AAD:
+- `version=1`
+- `schema="gophkeeper-mtls-private-key-aad-v1"`
+- `user_id` if known else zero
+- `device_id`
+
+`RecordEnvelope` AAD:
+- `version=1`
+- `schema="gophkeeper-record-aad-v1"`
+- `user_id` if known else zero
+- `record_id`
+
+Records:
+`encrypted_record = XChaCha20Poly1305_Enc(AccountMasterKey, nonce, RecordEnvelope, AAD_record)`
+
+If container was created offline with pre-canonical AAD lacking `user_id`, reconcile must re-encrypt local records into canonical account-state.
+
+## Network transport
+Server uses one `--bind-grpc` port, default `:443`, behind `go-proxyproto` listener. If PROXY protocol preamble exists, real client IP replaces `RemoteAddr()`, else direct connection.
+
+## Container identity and mTLS
+Each SQLite file/container has its own:
+- `DeviceID`
+- mTLS keypair
+- client cert issued by server Root CA
+
+For `gophkeeper sync`, client:
+1. loads `EncryptedMtlsPrivateKey`;
+2. derives `DeviceKEK`;
+3. decrypts `MtlsPrivateKey`;
+4. opens mTLS channel.
+
+Server rejects handshake if:
+- no valid client cert;
+- cert lacks `ExtendedKeyUsage=clientAuth`;
+- SAN lacks URI `urn:gophkeeper:file:<uuid>`;
+- `DeviceID` revoked or not owned by account.
+
+## Challenge protocols / anti-replay
+Critical ops use one-time challenge sessions.
+
+Challenge session contains:
+- `SessionID` random UUID
+- `ServerNonce` random bytes
+- `UserID`
+- `Operation`
+- `CreatedAt`
+- `ExpiresAt = +5 min`
+- state `unused`
+
+Server accepts `AuthChallengeSignature` only if all hold:
+1. `SessionID` exists;
+2. challenge operation matches expected op;
+3. not expired;
+4. still unused;
+5. SSH signature verifies against registered `SshPublicKey` or reserved key for new registration;
+6. serialized `ChallengePayload` fields `user_id`,`session_id`,`server_nonce`,`operation` exactly match server-stored values.
+
+After successful verification:
+- register: mark challenge `used`;
+- attach auth: mark `authenticated`.
+
+Same `SessionID` may never be reused.
+
+Replay defense:
+1. For register/attach: one-time challenge bound to `SessionID`,`ServerNonce`,`Operation`, TTL 5 min, state transition on first success.
+2. For transport: TLS 1.3 / mTLS gives confidentiality, integrity, session binding, no arbitrary message injection without handshake.
+This is sufficient for critical registration/attach/challenge-auth. For sync it protects transport confidentiality/integrity but does not replace separate idempotency/versioning/conflict-resolution at sync protocol layer.
+
+## Offline local init (`gophkeeper init`)
+Client:
+1. query `ssh-agent`, get `SshPublicKey`;
+2. run deterministic-signature self-test;
+3. build `DerivationPayload`;
+4. obtain `DerivationSignature`;
+5. generate random `AccountSalt`;
+6. derive `AccountUnlockKey`;
+7. generate random `AccountMasterKey`;
+8. generate `DeviceID`;
+9. derive `DeviceKEK`;
+10. encrypt `AccountMasterKey` under `AccountUnlockKey` → local `AccountBootstrapEnvelope`;
+11. encrypt same `AccountMasterKey` under `DeviceKEK` → `DeviceMasterKeyEnvelope`;
+12. optionally generate mTLS keypair now or defer;
+13. if generated, encrypt `MtlsPrivateKey` under `DeviceKEK`;
+14. save all in SQLite.
+After init, client can read/write locally offline.
+
+## Registration flow
+Registration is unified “create account if SSH fingerprint absent, else join existing account”. Server canonical account-state wins.
+
+### RegisterBegin
+Client sends `RegisterBegin(Username, SshPublicKey)`.
+Server computes `SshFingerprint`, checks if account exists.
+- If absent: reserve new `UserID`.
+- If present: use existing `UserID`.
+Server creates `"register"` challenge session and returns:
+- `UserID`
+- `SessionID`
+- `ServerNonce`
+
+### RegisterFinish
+Client loads local:
+- `AccountSalt`
+- `AccountBootstrapEnvelope`
+- `DeviceID`
+- `DeviceMasterKeyEnvelope`
+Generates mTLS keypair and CSR if needed.
+Builds `ChallengePayload("register")`.
+Gets `AuthChallengeSignature`.
+Sends:
+`RegisterFinish(UserID, SessionID, AuthChallengeSignature, AccountSalt, DeviceID, AccountBootstrapEnvelope, DeviceMasterKeyEnvelope, CSR)`
+
+Server:
+1. verifies challenge session;
+2. verifies exactly `AuthChallengeSignature` over `ChallengePayload`;
+3. ensures unused and not expired;
+4. atomically marks challenge `used`;
+5. checks whether canonical account-state already exists for this `SshFingerprint`.
+
+If no existing account:
+- create account;
+- store client-provided `AccountSalt` and `AccountBootstrapEnvelope` as canonical;
+- register `DeviceID`;
+- store device metadata;
+- issue client cert;
+- return:
+  - `UserID`
+  - `CanonicalAccountSalt`
+  - `CanonicalAccountBootstrapEnvelope`
+  - `ClientCertificate`
+  - status `account_created`
+
+If existing account:
+- do not replace canonical `AccountSalt` / `AccountBootstrapEnvelope`;
+- register new `DeviceID`;
+- store metadata;
+- issue cert;
+- return:
+  - `UserID`
+  - stored `CanonicalAccountSalt`
+  - stored `CanonicalAccountBootstrapEnvelope`
+  - `ClientCertificate`
+  - status `account_joined`
+
+Returning canonical account-state is mandatory in both cases.
+
+### Client after RegisterFinish
+Client compares local `AccountSalt` and `AccountBootstrapEnvelope` with canonical values.
+- If both equal: store `UserID`, `ClientCertificate`, finish.
+- If either differs: run reconcile migration.
+
+## Reconcile migration
+If local autonomous container account-state differs from server canonical state, client must fully reconcile locally:
+
+1. rebuild `DerivationPayload`;
+2. obtain `DerivationSignature`;
+3. derive canonical `AccountUnlockKey` from `CanonicalAccountSalt`;
+4. decrypt `CanonicalAccountBootstrapEnvelope`;
+5. obtain canonical `AccountMasterKey`;
+6. decrypt local records with old local `AccountMasterKey` if any;
+7. re-encrypt all local user records under canonical `AccountMasterKey`;
+8. derive new `DeviceKEK` from canonical `AccountUnlockKey` + same `DeviceID`;
+9. rewrap `DeviceMasterKeyEnvelope` under new `DeviceKEK`;
+10. if local `MtlsPrivateKey` exists, decrypt with old `DeviceKEK` and re-encrypt with new `DeviceKEK`;
+11. replace in SQLite:
+   - `AccountSalt`
+   - `AccountBootstrapEnvelope`
+   - `DeviceMasterKeyEnvelope`
+   - `EncryptedMtlsPrivateKey` if exists
+   - local `RecordEnvelope`s
+   - `UserID`
+   - `ClientCertificate`
+12. commit atomically in one SQLite transaction;
+13. zero old keys/intermediates from memory.
+
+If no local user records exist, reconcile still must replace `AccountSalt`, `AccountBootstrapEnvelope`, `DeviceMasterKeyEnvelope`, and `EncryptedMtlsPrivateKey` if it exists.
+
+### Reconcile atomicity
+Reconcile is a critical cryptographic operation and must never leave partial migration, e.g.:
+- some records under new `AccountMasterKey`, some under old;
+- `DeviceMasterKeyEnvelope` rewrapped but `EncryptedMtlsPrivateKey` not yet;
+- `AccountSalt` replaced before records/envelopes align.
+
+Allowed implementations:
+- one SQLite transaction;
+- staged migration with temporary area + commit switch;
+- copy-on-write container rebuild + atomic switch.
+
+## Attach new device
+Account is bound to one registered SSH key. New device may be added only if user proves possession of that key. On new machine user must have access to registered key via local `ssh-agent`, forwarded agent, or compatible signing mechanism.
+
+New container gets:
+- its own `DeviceID`
+- own mTLS keypair
+- own `ClientCertificate`
+- local copy of canonical `AccountBootstrapEnvelope`
+- own `DeviceMasterKeyEnvelope`
+- local sync metadata
+
+### Attach flow
+1. Client sends `AttachDeviceBegin(SshPublicKey)`.
+2. Server finds account by canonical `SshFingerprint`, creates `"attach-device"` challenge, returns only:
+   - `UserID`
+   - `SessionID`
+   - `ServerNonce`
+   Server must not return `AccountSalt` or `AccountBootstrapEnvelope` yet.
+3. Client builds `ChallengePayload("attach-device")`, gets `AuthChallengeSignature`.
+4. Client sends `AttachDeviceAuth(UserID, SessionID, AuthChallengeSignature)`.
+   Server verifies signature over `ChallengePayload`, checks TTL and `unused`, marks session `authenticated`.
+   Only after this server reveals:
+   - canonical `AccountSalt`
+   - canonical `AccountBootstrapEnvelope`
+5. Client locally:
+   - builds stable `DerivationPayload`
+   - gets separate `DerivationSignature`
+   - derives `AccountUnlockKey`
+   - decrypts `AccountBootstrapEnvelope`
+   - recovers `AccountMasterKey`
+6. Client generates new container identity:
+   - new `DeviceID`
+   - derives `DeviceKEK`
+   - wraps `AccountMasterKey` into `DeviceMasterKeyEnvelope`
+   - generates mTLS keypair
+   - builds CSR
+   - encrypts `MtlsPrivateKey` under `DeviceKEK`
+   - stores local service fields in SQLite
+7. Client sends `AttachDeviceFinish(UserID, SessionID, DeviceID, DeviceMasterKeyEnvelope, CSR)`.
+   Server ensures challenge state is `authenticated`, op is `"attach-device"`, registers `DeviceID`, stores metadata, issues client cert, marks attach session completed and non-reusable, returns:
+   - `ClientCertificate`
+   - optionally CA chain
+
+## Blind sync protocol
+`gophkeeper sync` runs only inside mTLS of a specific SQLite container:
+1. client derives `AccountUnlockKey`;
+2. derives `DeviceKEK` from its `DeviceID`;
+3. unwraps `AccountMasterKey` from `DeviceMasterKeyEnvelope`;
+4. reads changed local records;
+5. records are already encrypted under `AccountMasterKey`;
+6. sends them via mTLS;
+7. server stores ciphertexts + sync metadata;
+8. server returns encrypted delta from other devices of same account.
+
+Server allows sync only if:
+- valid mTLS cert presented;
+- cert not revoked;
+- `DeviceID` belongs to account.
+
+Registration never syncs payloads. Registration only:
+- creates or joins account,
+- aligns canonical account-state,
+- reconciles local container if needed.
+Uploading local records to server happens only in separate `sync`.
+
+## Device management / revocation
+For each device server stores:
+- `DeviceID`
+- public `ClientCertificate`
+- status `active|revoked`
+- registration time
+- last sync time
+
+On revoke:
+1. mark `DeviceID` revoked;
+2. block client cert;
+3. deny new sync sessions;
+4. do not change `AccountMasterKey`;
+5. other devices continue;
+6. no data re-encryption required.
+
+Audit log:
+`audit_device_events(event_id, timestamp, user_id, device_id, action, operator_ip)`
+
+## mTLS cert lifecycle
+- Device client cert TTL = 30 days.
+- Auto-refresh during `gophkeeper sync` if less than 7 days remain.
+- Reuse of `serial_number` forbidden via unique PostgreSQL index.
+- Revocation checked by server in gRPC interceptor via device status.
+
+Auto-renew allowed only before expiry and only within already-valid mTLS session. If cert expired, container cannot renew through normal sync; MVP requires re-attach or future renewal RPC outside MVP.
+
+## Memory hygiene / runtime limits
+Client must zero after use:
+- `AccountMasterKey`
+- `AccountUnlockKey`
+- `DeviceKEK`
+- `DerivationSignature`
+- `AuthChallengeSignature` if buffered
+- decrypted `MtlsPrivateKey`
+
+Go uses `runtime.KeepAlive()` to reduce compiler optimizations. This reduces secret lifetime in RAM but is not secure memory and does not protect against full host compromise.
+
+## No recovery in MVP
+Loss of original SSH private key means permanent loss of access to both local and cloud vault. Server has no reset/recovery capability.
+
+## Differences vs complex model
+Current model simplifies a more complex multi-key design:
+- 1 SSH key instead of up to 3;
+- autonomous init supported;
+- hierarchy is `SSH -> AccountUnlockKey -> DeviceKEK(DeviceID) -> DeviceMasterKeyEnvelope -> AccountMasterKey` plus `AccountBootstrapEnvelope`;
+- one cloud bootstrap envelope only;
+- mandatory split of derivation vs auth signature;
+- attach cannot reveal `AccountSalt`/bootstrap pre-auth;
+- `AccountSalt` client-generated at init, later canonicalized on server;
+- mTLS is container-bound transport identity;
+- no SSH key rotation;
+- reconcile explicitly required;
+- medium complexity rather than high.
+
+## Key architectural decisions
+1. One `AccountUnlockKey` per account to simplify MVP.
+2. Separate `DerivationSignature` and `AuthChallengeSignature`.
+3. In attach flow release `AccountSalt` and `AccountBootstrapEnvelope` only after successful challenge auth.
+4. Introduce `DeviceKEK` to restore local cryptographic binding to `DeviceID`.
+5. Separate `AccountBootstrapEnvelope` vs `DeviceMasterKeyEnvelope`.
+6. Encrypt `MtlsPrivateKey` under `DeviceKEK`.
+7. Local-first async sync.
+8. Autonomous `gophkeeper init`.
+9. Server-canonical account-state to unify independently initialized containers without server-side data re-encryption.
+10. Mandatory reconcile so all containers use same canonical `AccountSalt` and `AccountMasterKey` after registration.
+
+## Formal security invariants
+Implementation is correct only if:
+1. `AccountUnlockKey` is computed only locally from `DerivationSignature`, `AccountSalt`, fixed HKDF context.
+2. `DeviceKEK` only locally from `AccountUnlockKey`, raw 16 bytes `DeviceID`, fixed HKDF context.
+3. `DerivationSignature` and `AuthChallengeSignature` are over different payloads and not interchangeable.
+4. Server never accepts reused `AuthChallengeSignature` for same `SessionID`.
+5. Server never releases `AccountSalt` or `AccountBootstrapEnvelope` before successful `AuthChallengeSignature` verification in attach flow.
+6. `AccountMasterKey` is never sent to server in clear.
+7. All user records are encrypted only under `AccountMasterKey`.
+8. Local container in normal work must unlock `AccountMasterKey` via `DeviceMasterKeyEnvelope`.
+9. Each container’s `MtlsPrivateKey` is encrypted only under that container’s `DeviceKEK`.
+10. All network sync ops occur only inside TLS 1.3 / mTLS.
+11. For each `SshFingerprint` server stores exactly one canonical account-state = `AccountSalt` + `AccountBootstrapEnvelope`.
+12. After successful registration container’s local `AccountSalt` must equal account canonical `AccountSalt`.
+13. If local pre-canonical state differs from server canonical state, client must reconcile before registration completes.
+14. Reconcile must:
+   - re-encrypt all local user records under canonical `AccountMasterKey`;
+   - rewrap `DeviceMasterKeyEnvelope` under `DeviceKEK` derived from canonical `AccountUnlockKey`;
+   - rewrap `EncryptedMtlsPrivateKey` under same canonical `DeviceKEK` if mTLS key existed.
+15. Reconcile must commit atomically and cannot leave mixed old/new key-state.
+
+## Minimal server requirements
+Server must:
+- store challenge sessions with TTL and one-time-use flag;
+- atomically transition challenge states:
+  - `unused -> used` for register
+  - `unused -> authenticated -> completed` for attach
+- reject any repeated request with same `SessionID`;
+- verify `Operation` matches expected RPC;
+- log failed and successful register/attach attempts;
+- rate-limit by IP and `SshFingerprint`;
+- store `AccountBootstrapEnvelope` as the only cloud bootstrap envelope in MVP;
+- store canonical `AccountSalt`;
+- store device registry and mTLS cert statuses;
+- always return canonical account-state in `RegisterFinish`, whether account was just created or already existed;
+- treat `DeviceMasterKeyEnvelope` as opaque client-controlled ciphertext and not cryptographically validate its contents.
+
+## Minimal client requirements
+Client must:
+- self-test deterministic signatures;
+- canonicalize Ed25519 signatures to raw 64 bytes;
+- serialize `DerivationPayload` and `ChallengePayload` deterministically;
+- never use `AuthChallengeSignature` as KDF input;
+- never send `DerivationSignature` to server;
+- derive `DeviceKEK` only from `AccountUnlockKey` + `DeviceID`;
+- use `DeviceMasterKeyEnvelope` as normal local working envelope;
+- locally erase critical secrets after use;
+- support autonomous `gophkeeper init`;
+- during registration always compare local vs canonical account-state even if expecting to be first container;
+- reconcile on any mismatch;
+- guarantee reconcile atomicity.
+
+## Security summary
+Provides:
+- zero-knowledge storage;
+- passwordless SSH-agent-based access;
+- safe local init without server;
+- safe registration and device attach;
+- cryptographically justified replay defense for critical control messages;
+- transport confidentiality/integrity;
+- local cryptographic isolation of containers via `DeviceKEK`;
+- server-canonical account-state alignment after registration;
+- isolated network identities per device via separate mTLS certs and separate local wrapping of `MtlsPrivateKey`.
+
+Does not provide:
+- multi-key access matrix;
+- SSH key rotation in MVP;
+- disaster recovery.
+
+## Future post-MVP migration path
+Future version should support:
+- >1 SSH key per account,
+- backup SSH key,
+- old-key revocation,
+- planned access-key rotation without changing `AccountMasterKey`,
+- keeping existing local `DeviceMasterKeyEnvelope` and `DeviceID`.
+
+Migration principle:
+Do not re-encrypt all account records. Only add new bootstrap envelopes to existing `AccountMasterKey`.
+So:
+- `AccountMasterKey` stays same;
+- local `DeviceMasterKeyEnvelope`s stay same;
+- all `RecordEnvelope`s stay same;
+- only server bootstrap layer changes.
+
+Minimal server evolution:
+replace single `account_bootstrap_envelope` with set:
+`account_bootstrap_envelopes(user_id, ssh_fingerprint, envelope, created_at, revoked_at)`
+
+Migration is easy because:
+- `AccountMasterKey` is already separated from SSH key;
+- local `DeviceMasterKeyEnvelope` is already separated from cloud bootstrap envelope;
+- user records already share one `AccountMasterKey`;
+- adding new SSH key only requires additional bootstrap envelope, not recreating containers or mass data re-encryption.
+
+Still, key add/revoke/rotation are out of MVP scope.
+
+## Recommended RPC sequences
+### Local init
+`gophkeeper init`
+Client:
+- `DerivationSignature = Sign(DerivationPayload)`
+- `AccountSalt = random(32)`
+- `AccountUnlockKey = HKDF(DerivationSignature, AccountSalt, ...)`
+- `AccountMasterKey = random(32)`
+- `DeviceID = random(UUID)`
+- `AccountBootstrapEnvelope = Encrypt(AccountMasterKey, AccountUnlockKey)`
+- `DeviceKEK = HKDF(AccountUnlockKey, DeviceID, ...)`
+- `DeviceMasterKeyEnvelope = Encrypt(AccountMasterKey, DeviceKEK)`
+- optional `MtlsPrivateKey = random/generated`
+- optional `EncryptedMtlsPrivateKey = Encrypt(MtlsPrivateKey, DeviceKEK)`
+
+### Registration
+1. `RegisterBegin(Username, SshPublicKey)`
+2. Server returns `UserID`,`SessionID`,`ServerNonce`
+3. Client computes `AuthChallengeSignature = Sign(ChallengePayload(register))`
+4. Client sends `RegisterFinish(UserID, SessionID, AuthChallengeSignature, AccountSalt, DeviceID, AccountBootstrapEnvelope, DeviceMasterKeyEnvelope, CSR)`
+5. Server returns `CanonicalAccountSalt`,`CanonicalAccountBootstrapEnvelope`,`ClientCertificate`, status `account_created|account_joined`
+6. Client compares local vs canonical, reconciles if needed, stores `UserID`,`ClientCertificate`
+
+### Attach new device
+1. `AttachDeviceBegin(SshPublicKey)`
+2. Server returns `UserID`,`SessionID`,`ServerNonce`
+3. Client computes `AuthChallengeSignature = Sign(ChallengePayload(attach-device))`
+4. Client sends `AttachDeviceAuth(UserID, SessionID, AuthChallengeSignature)`
+5. After success server returns `AccountSalt`,`AccountBootstrapEnvelope`
+6. Client computes:
+   - `DerivationSignature = Sign(DerivationPayload)`
+   - `AccountUnlockKey = HKDF(DerivationSignature, AccountSalt, ...)`
+   - `AccountMasterKey = Decrypt(AccountBootstrapEnvelope, AccountUnlockKey)`
+   - `DeviceID = random(UUID)`
+   - `DeviceKEK = HKDF(AccountUnlockKey, DeviceID, ...)`
+   - `DeviceMasterKeyEnvelope = Encrypt(AccountMasterKey, DeviceKEK)`
+7. Client sends `AttachDeviceFinish(UserID, SessionID, DeviceID, DeviceMasterKeyEnvelope, CSR)`
+
+### Sync
+1. Client derives `AccountUnlockKey`
+2. derives `DeviceKEK`
+3. unwraps `AccountMasterKey` via `DeviceMasterKeyEnvelope`
+4. opens mTLS with device cert
+5. server validates cert + `DeviceID`
+6. encrypted delta exchange
+
+## Challenge state machine
+States:
+- `Unused`
+- `Authenticated`
+- `Used`
+- `Expired`
+- `Completed`
+
+Transitions:
+- `Unused -> Authenticated` on valid `AttachDeviceAuth`
+- `Unused -> Used` on valid `RegisterFinish`
+- `Unused -> Expired` on TTL
+- `Authenticated -> Completed` on valid `AttachDeviceFinish`
+- `Authenticated -> Expired` on TTL
+
+## Trust boundaries
+Client host contains:
+- `gophkeeper client`
+- `ssh-agent`
+- `SQLite vault`
+
+Network:
+- TLS 1.3 / mTLS protected transport
+
+Server:
+- gRPC API
+- PostgreSQL
+- CA / Device Registry
+
+## Two-layer key protection summary
+`SSH key -> DerivationSignature -> AccountUnlockKey -> AccountBootstrapEnvelope -> AccountMasterKey`
+and
+`AccountUnlockKey + DeviceID -> DeviceKEK -> DeviceMasterKeyEnvelope -> AccountMasterKey`
+plus
+`DeviceKEK -> EncryptedMtlsPrivateKey`
+
+## Replay sufficiency note
+Replay protection is considered sufficient because:
+1. completed challenge cannot be reused due to one-time `SessionID` and states `used/authenticated/completed`;
+2. challenge contents cannot be modified without invalidating SSH signature;
+3. transport messages cannot be silently altered inside TLS 1.3 / mTLS;
+4. replaying old encrypted sync packets still does not reveal secret content because server lacks decryption key and only accepts data in authenticated device channel.
+This statement concerns transport confidentiality/integrity; it does not replace sync-layer idempotency/conflict resolution.
+
+## ADR / RFC v4.1
+Status Accepted, Date 2025-08-21. This is the normative MVP security architecture.
+Main decision: autonomous local init, local generation of `AccountSalt` and `AccountMasterKey`, stable `DerivationPayload` without `UserID`, server stores one canonical account-state per SSH identity (`AccountSalt` + `AccountBootstrapEnvelope`), registration is unified register-or-join, client always submits local pre-canonical state then compares against returned canonical state and reconciles if needed. Reconcile means obtaining canonical `AccountMasterKey`, re-encrypting local records under it, re-deriving canonical `DeviceKEK`, rewrapping `DeviceMasterKeyEnvelope`, rewrapping `EncryptedMtlsPrivateKey` if present, atomically committing migrated local state. Any deviation affecting derivation inputs, signature roles, challenge transitions, AAD composition, canonical state handling, reconcile semantics, or release conditions for `AccountSalt`/`AccountBootstrapEnvelope` is security-breaking and requires new ADR/RFC revision.
+
+## Cryptographic/industry assessment of the scheme
+Overall assessment: cryptographically reasonable, architecturally coherent, stronger than typical ad-hoc secure storage designs, but below maturity of heavily audited industry systems like Signal/1Password/age-class ecosystems. Strong points:
+- true client-side zero-knowledge storage;
+- clear key-role separation;
+- domain separation;
+- strict split between derivation signature and auth signature;
+- AEAD + AAD;
+- one-time challenge sessions with TTL/state machine;
+- local container binding through `DeviceKEK`;
+- explicit canonical account-state + reconcile;
+- atomic migration requirement;
+- mTLS device identity separated from data-encryption hierarchy.
+
+Important non-fatal but serious caveats:
+- using deterministic SSH signature output as HKDF input is unusual/non-mainstream; it may work in this model but is not standard practice;
+- signature is not a KEM or PAKE; this is a nonstandard use of Ed25519 signatures;
+- design depends on exact `ssh-agent` behavior; deterministic self-test mitigates but narrows compatibility;
+- only deterministic software OpenSSH `Ed25519` is supported; FIDO/hardware tokens/non-deterministic signers excluded;
+- security collapses to access to `ssh-agent`; anyone who can make the agent sign effectively gains full vault access, can derive `AccountUnlockKey`, decrypt `AccountMasterKey`, and attach devices;
+- no memory-hard password KDF exists because there is no password; security rests entirely on SSH private key/signing capability;
+- no forward secrecy/post-compromise recovery for stored vault data; compromise of SSH signing access reveals whole account history until rotation, and MVP has no rotation;
+- no recovery path, no hardware-backed first-class story, limited operational hardening compared to mature industry products.
+
+Compared with industry:
+- Versus 1Password/Bitwarden/Proton/Standard Notes: similar zero-knowledge direction, sometimes stronger than password-only systems against server DB brute-force because there is no low-entropy human secret, but worse in ecosystem maturity, recovery, rotation, portability, mobile/web/hardware integration, and operational hardening.
+- Versus age/minisign/SSH-based encryption workflows: philosophically closer; this is more like an SSH-rooted encrypted sync system than a classic password manager.
+- Versus Signal-like systems: much simpler, not trying to provide forward secrecy / post-compromise security ratchets; acceptable for storage but should not be overstated.
+
+No obvious fatal cryptographic mistakes are visible in the text: no nonce-reuse issue, no obvious AEAD misuse, no key-role confusion, no cleartext master key leak, no obvious replay flaw. But the following deserve extra review:
+1. formal justification for using deterministic signature bytes as HKDF input;
+2. exact binary serialization rules for payloads/AAD/envelopes to avoid ambiguity;
+3. implementation-level assumptions around `ssh-agent` determinism and forwarding;
+4. careful cert renewal / SAN / `DeviceID` / account binding logic.
+
+Industry would often do differently:
+- use master-password + Argon2id, or platform keystore/device secret, or PAKE/OPAQUE, or app-specific asymmetric unwrap/KEM;
+- add rotation + recovery;
+- add hardware-backed options;
+- reduce reliance on `ssh-agent` as a universal unlock oracle.
+
+Practical rating from the review:
+- cryptographic idea: 8/10
+- architectural coherence: 9/10
+- industry maturity: 5/10
+- operational security: 6/10
+- MVP feasibility: 8/10
+- production readiness without further work: 4/10
+
+Bottom-line assessment: the scheme is cryptographically sane, notably better than most homemade designs, close in spirit to zero-knowledge password managers and SSH-based encrypted storage, but weaker than mature industry products in standardization, ecosystem fit, recovery, rotation, hardware support, and operational hardening.

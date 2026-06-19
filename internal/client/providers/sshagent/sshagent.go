@@ -162,15 +162,25 @@ func (c *Client) ListED25519() ([]SignerInfo, error) {
 		return nil, err
 	}
 
+	// Фиксированный тестовый payload для проверки детерминированности на этапе фильтрации
+	testPayload := []byte("gophkeeper-crypto-determinism-pre-filter-v1")
+
 	out := make([]SignerInfo, 0, len(keys))
 	for _, k := range keys {
 		if k.Algorithm == KeyAlgoED25519 {
+			// Проверяем ключ на детерминированность прямо в цикле (Инвариант №3)
+			// Если ключ не детерминирован, SelfTest вернет ошибку ErrNonDeterministicSignature
+			if err := c.SelfTestDeterministicED25519(k.Fingerprint, testPayload); err != nil {
+				// Пропускаем аппаратные/несовместимые токены
+				continue
+			}
+
 			out = append(out, k)
 		}
 	}
 
 	if len(out) == 0 {
-		return nil, ErrKeyNotFound
+		return nil, fmt.Errorf("%w: no deterministic software ed25519 keys found in agent", ErrKeyNotFound)
 	}
 
 	return out, nil

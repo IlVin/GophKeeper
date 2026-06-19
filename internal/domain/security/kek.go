@@ -2,6 +2,7 @@ package security
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 
@@ -9,28 +10,47 @@ import (
 )
 
 const (
-	infoAccountUnlockKey = "gophkeeper-account-unlock-v1"
-	infoDeviceKEK        = "gophkeeper-device-kek-v1"
+	ContextDeviceKEK = "gophkeeper-device-kek-v1"
 )
 
-func DeriveAccountUnlockKey(signature DerivationSignature, accountSalt AccountSalt) (AccountUnlockKey, error) {
-	reader := hkdf.New(sha256.New, signature[:], accountSalt[:], []byte(infoAccountUnlockKey))
+var (
+	ErrInvalidKeySize = errors.New("key material size must be exactly 32 bytes")
+	ErrInvalidSalt    = errors.New("account salt cannot be empty")
+	ErrInvalidDevice  = errors.New("device id raw material cannot be empty")
+)
 
-	var key AccountUnlockKey
-	if _, err := io.ReadFull(reader, key[:]); err != nil {
-		return AccountUnlockKey{}, fmt.Errorf("derive account unlock key: %w", err)
+// DeriveAccountUnlockKey вычисляет AccountUnlockKey = HKDF_SHA256(signature, salt, info, 32)
+func DeriveAccountUnlockKey(rawSignature64 []byte, salt []byte) (SecretBytes, error) {
+	if len(rawSignature64) != 64 {
+		return nil, fmt.Errorf("invalid ed25519 signature size: got %d bytes, want 64", len(rawSignature64))
+	}
+	if len(salt) == 0 {
+		return nil, ErrInvalidSalt
 	}
 
-	return key, nil
+	unlockKey := make([]byte, 32)
+	hkdfReader := hkdf.New(sha256.New, rawSignature64, salt, []byte(ContextAccountUnlock))
+	if _, err := io.ReadFull(hkdfReader, unlockKey); err != nil {
+		return nil, fmt.Errorf("hkdf derive unlock key failed: %w", err)
+	}
+
+	return SecretBytes(unlockKey), nil
 }
 
-func DeriveDeviceKEK(accountUnlockKey AccountUnlockKey, deviceID DeviceID) (DeviceKEK, error) {
-	reader := hkdf.New(sha256.New, accountUnlockKey[:], deviceID[:], []byte(infoDeviceKEK))
-
-	var kek DeviceKEK
-	if _, err := io.ReadFull(reader, kek[:]); err != nil {
-		return DeviceKEK{}, fmt.Errorf("derive device kek: %w", err)
+// DeriveDeviceKEK вычисляет DeviceKEK = HKDF_SHA256(AccountUnlockKey, DeviceID, info, 32)
+func DeriveDeviceKEK(accountUnlockKey SecretBytes, rawDeviceID16 []byte) (SecretBytes, error) {
+	if len(accountUnlockKey) != 32 {
+		return nil, ErrInvalidKeySize
+	}
+	if len(rawDeviceID16) == 0 {
+		return nil, ErrInvalidDevice
 	}
 
-	return kek, nil
+	deviceKek := make([]byte, 32)
+	hkdfReader := hkdf.New(sha256.New, accountUnlockKey, rawDeviceID16, []byte(ContextDeviceKEK))
+	if _, err := io.ReadFull(hkdfReader, deviceKek); err != nil {
+		return nil, fmt.Errorf("hkdf derive device kek failed: %w", err)
+	}
+
+	return SecretBytes(deviceKek), nil
 }
