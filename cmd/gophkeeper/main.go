@@ -16,7 +16,10 @@ func main() {
 
 // run инкапсулирует инициализацию и запуск CLI для обеспечения тестируемости
 func run() error {
-	v := config.NewViper()
+	v, err := config.NewViper()
+	if err != nil {
+		return fmt.Errorf("create config viper: %w", err)
+	}
 
 	cmd, err := commands.NewRootCommand(v)
 	if err != nil {

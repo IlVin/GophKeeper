@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/adrg/xdg"
@@ -11,29 +10,49 @@ import (
 
 const defaultSQLiteRelativePath = "gophkeeper/goph_keeper.db"
 
-func NewViper() *viper.Viper {
+func NewViper() (*viper.Viper, error) {
 	v := viper.New()
 
 	v.SetEnvPrefix("GOPHKEEPER")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	v.SetDefault("app.config_file", "")
-	v.SetDefault("ssh_agent.socket_path", "")
+	if err := v.BindEnv("ssh.auth_sock", "SSH_AUTH_SOCK"); err != nil {
+		return nil, fmt.Errorf("bind env ssh.auth_sock: %w", err)
+	}
+
+	v.SetConfigName("gophkeeper")
+	v.SetConfigType("yaml")
+
+	v.AddConfigPath(xdg.ConfigHome + "/gophkeeper")
+	v.AddConfigPath(".")
+
+	for _, dir := range xdg.ConfigDirs {
+		v.AddConfigPath(dir + "/gophkeeper")
+	}
+
 	v.SetDefault("storage.sqlite_path", defaultSQLitePath())
 
-	return v
+	return v, nil
 }
 
 func ReadConfigFile(v *viper.Viper) error {
 	configFile := strings.TrimSpace(v.GetString("app.config_file"))
-	if configFile == "" {
+	if configFile != "" {
+		v.SetConfigFile(configFile)
+
+		if err := v.ReadInConfig(); err != nil {
+			return fmt.Errorf("read config file %q: %w", configFile, err)
+		}
+
 		return nil
 	}
 
-	v.SetConfigFile(configFile)
-
 	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			return nil
+		}
+
 		return fmt.Errorf("read config file: %w", err)
 	}
 
@@ -45,12 +64,6 @@ func LoadFromViper(v *viper.Viper) (Config, error) {
 
 	if err := v.Unmarshal(&cfg); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
-	}
-
-	// ИСПРАВЛЕНИЕ: Если путь к сокету SSH-агента остался пустым,
-	// пробуем вычитать стандартную системную переменную Linux/macOS.
-	if strings.TrimSpace(cfg.SSHAgent.SocketPath) == "" {
-		cfg.SSHAgent.SocketPath = os.Getenv("SSH_AUTH_SOCK")
 	}
 
 	if err := cfg.Validate(); err != nil {
