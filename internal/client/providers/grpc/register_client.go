@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	pb "gophkeeper/gen/go/gophkeeper/v1" // Путь к автосгенерированным grpc-структурам
-	"gophkeeper/internal/client/providers/sqlite"
 	"gophkeeper/internal/client/providers/sshagent"
 	"gophkeeper/internal/domain/security"
 
@@ -80,17 +79,17 @@ func ExecuteRegistrationFlow(
 	}
 
 	// ПОЛУЧЕНИЕ/ГЕНЕРАЦИЯ DEVICE ID ИЗ SQLITE ===
-	deviceIDStr, err := sqlite.GetOrCreateDeviceID(sqlitePath)
-	if err != nil {
-		return fmt.Errorf("failed to handle database-bound DeviceID: %w", err)
-	}
-	fmt.Printf("Database-bound DeviceID loaded: %s\n", deviceIDStr)
+	//	deviceIDStr, err := sqlite.GetOrCreateDeviceID(sqlitePath)
+	//	if err != nil {
+	//		return fmt.Errorf("failed to handle database-bound DeviceID: %w", err)
+	//	}
+	//	fmt.Printf("Database-bound DeviceID loaded: %s\n", deviceIDStr)
 
 	// === ШАГ 2: RegisterFinish ===
 	_, err = client.RegisterFinish(ctx, &pb.RegisterFinishRequest{
-		UserId:                   userID,
-		SessionId:                sessionID,
-		DeviceId:                 deviceIDStr, // Передаем честный ID контейнера
+		UserId:    userID,
+		SessionId: sessionID,
+		//	DeviceId:                 deviceIDStr, // Передаем честный ID контейнера
 		AuthChallengeSignature:   sshSig.Blob,
 		AccountBootstrapEnvelope: []byte{},
 		DeviceMasterKeyEnvelope:  []byte{},

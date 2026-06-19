@@ -58,7 +58,7 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register",
 		Short: "Register a new passwordless account via SSH key",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: cli.withSSHAgent(func(cmd *cobra.Command, args []string) error {
 			cfg, err := LoadRegisterConfig(cmd)
 			if err != nil {
 				return err
@@ -111,7 +111,7 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 			fmt.Fprintf(out, "Success! User %q successfully registered and verified.\n", cfg.Login)
 
 			return nil
-		},
+		}),
 	}
 
 	cmd.Flags().String("login", "", "unique username/login")

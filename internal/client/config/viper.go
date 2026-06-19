@@ -8,7 +8,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-const defaultSQLiteRelativePath = "gophkeeper/goph_keeper.db"
+const (
+	defaultConfigRelativePath = "gophkeeper/config.yaml"
+	defaultSQLiteRelativePath = "gophkeeper/goph_keeper.db"
+)
 
 func NewViper() (*viper.Viper, error) {
 	v := viper.New()
@@ -16,10 +19,6 @@ func NewViper() (*viper.Viper, error) {
 	v.SetEnvPrefix("GOPHKEEPER")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
-
-	if err := v.BindEnv("ssh.auth_sock", "SSH_AUTH_SOCK"); err != nil {
-		return nil, fmt.Errorf("bind env ssh.auth_sock: %w", err)
-	}
 
 	v.SetConfigName("gophkeeper")
 	v.SetConfigType("yaml")
@@ -31,6 +30,7 @@ func NewViper() (*viper.Viper, error) {
 		v.AddConfigPath(dir + "/gophkeeper")
 	}
 
+	v.SetDefault("app.config_file", defaultConfigPath())
 	v.SetDefault("storage.sqlite_path", defaultSQLitePath())
 
 	return v, nil
@@ -42,6 +42,10 @@ func ReadConfigFile(v *viper.Viper) error {
 		v.SetConfigFile(configFile)
 
 		if err := v.ReadInConfig(); err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+				return nil
+			}
+
 			return fmt.Errorf("read config file %q: %w", configFile, err)
 		}
 
@@ -71,6 +75,19 @@ func LoadFromViper(v *viper.Viper) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultConfigPath() string {
+	return defaultConfigPathFromFunc(xdg.ConfigFile)
+}
+
+func defaultConfigPathFromFunc(configFile func(string) (string, error)) string {
+	path, err := configFile(defaultConfigRelativePath)
+	if err != nil {
+		return ""
+	}
+
+	return path
 }
 
 func defaultSQLitePath() string {

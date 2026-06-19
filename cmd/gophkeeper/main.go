@@ -18,7 +18,7 @@ func main() {
 func run() error {
 	v, err := config.NewViper()
 	if err != nil {
-		return fmt.Errorf("create config viper: %w", err)
+		return fmt.Errorf("create config loader: %w", err)
 	}
 
 	cmd, err := commands.NewRootCommand(v)

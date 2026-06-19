@@ -8,6 +8,7 @@ import (
 
 	clientapp "gophkeeper/internal/client/app"
 	clientconfig "gophkeeper/internal/client/config"
+	"gophkeeper/internal/client/sshcheck"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -150,15 +151,10 @@ func (c *CLI) withApp(
 
 func (c *CLI) bindPersistentFlags(cmd *cobra.Command) error {
 	cmd.PersistentFlags().String("config", "", "path to config file")
-	cmd.PersistentFlags().String("ssh-auth-sock", "", "path to SSH auth socket")
 	cmd.PersistentFlags().String("sqlite-path", "", "path to local SQLite database")
 
 	if err := c.v.BindPFlag("app.config_file", cmd.PersistentFlags().Lookup("config")); err != nil {
 		return fmt.Errorf("bind flag config: %w", err)
-	}
-
-	if err := c.v.BindPFlag("ssh.auth_sock", cmd.PersistentFlags().Lookup("ssh-auth-sock")); err != nil {
-		return fmt.Errorf("bind flag ssh-auth-sock: %w", err)
 	}
 
 	if err := c.v.BindPFlag("storage.sqlite_path", cmd.PersistentFlags().Lookup("sqlite-path")); err != nil {
@@ -170,11 +166,23 @@ func (c *CLI) bindPersistentFlags(cmd *cobra.Command) error {
 
 func (c *CLI) addCommands(cmd *cobra.Command) {
 	cmd.AddCommand(
-		newCreateCommand(c),
+		newInitCommand(c),
 		newRegisterCommand(c),
 	)
 }
 
 func trim(s string) string {
 	return strings.TrimSpace(s)
+}
+
+func (c *CLI) withSSHAgent(
+	run func(cmd *cobra.Command, args []string) error,
+) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := sshcheck.RequireAgent(); err != nil {
+			return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
+		}
+
+		return run(cmd, args)
+	}
 }
