@@ -8,52 +8,71 @@ import (
 
 	"gophkeeper/internal/client/config"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBootstrap_TemporaryFileWorkflow(t *testing.T) {
-	t.Parallel()
-
+// TestNew_WhenFileDoesNotExist_ShouldReturnDatabaseMissing Error проверяет барьер
+// инициализации, если пользователь пытается запустить рантайм без вызова gophkeeper init.
+func TestNew_WhenFileDoesNotExist_ShouldReturnDatabaseMissingError(t *testing.T) {
+	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	// ЯВНОЕ ИСПРАВЛЕНИЕ: Принудительно перезаписываем маску ОС,
-	// выставляя на родительскую папку строгие 0700, требуемые валидатором.
-	err := os.Chmod(tmpDir, 0700)
-	require.NoError(t, err, "Failed to enforce secure 0700 permissions on temp directory")
+	cfg := config.Config{
+		Storage: config.StorageConfig{
+			SQLitePath: filepath.Join(tmpDir, "non_existent_vault.db"),
+		},
+	}
 
-	secureDBPath := filepath.Join(tmpDir, "goph_keeper.db")
+	application, err := New(ctx, cfg)
 
-	v := viper.New()
-	v.Set("storage.sqlite_path", secureDBPath)
-	v.Set("ssh_agent.socket_path", "/mock/ssh.sock")
-
-	// Запуск бутстрапа поверх изолированного и теперь гарантированно безопасного файла
-	ctx, application, err := Bootstrap(context.Background(), v)
-	require.NoError(t, err, "Bootstrap must succeed when files are created inside an explicitly secure 0700 folder")
-	require.NotNil(t, application)
-	assert.NotNil(t, application.DB)
-
-	// Проверяем связь рантайма и бутстрапа через контекст
-	extracted, err := AppFromContext(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, application, extracted)
-
-	// Корректное завершение жизненного цикла
-	err = Shutdown(application)
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, ErrDatabaseMissing, "Должна вернуться каноничная ошибка отсутствия файла БД")
+	assert.Nil(t, application, "Контейнер приложения должен быть nil")
 }
 
-func TestShutdown_SafeWithNilAppAndDB(t *testing.T) {
-	t.Parallel()
-
-	// Инвариант: Shutdown не должен падать, если контейнер nil
+// TestShutdown_WithNilApplication_ShouldNotPanic проверяет устойчивость
+// деструктора к передаче пустой ссылки.
+func TestShutdown_WithNilApplication_ShouldNotPanic(t *testing.T) {
 	err := Shutdown(nil)
-	assert.NoError(t, err)
+	assert.NoError(t, err, "Вызов Shutdown(nil) не должен приводить к панике или ошибкам")
+}
 
-	// Инвариант: Shutdown не должен падать, если дескриптор базы nil
-	appWithoutDB := NewApp(config.Config{}, nil)
-	err = Shutdown(appWithoutDB)
-	assert.NoError(t, err)
+// TestShutdown_WithValidApplication_ShouldClearResources проверяет, что
+// деструктор честно стирает данные конфигурации и закрывает указатели.
+func TestShutdown_WithValidApplication_ShouldClearResources(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Обязательный ИБ-шаг для тестов GophKeeper: принудительно выставляем
+	// жесткие права 0700 на временную папку, чтобы пройти валидацию СУБД.
+	err := os.Chmod(tmpDir, 0o700)
+	require.NoError(t, err)
+
+	dbPath := filepath.Join(tmpDir, "test_shutdown.db")
+
+	// Создаем пустой файл, имитирующий БД, выставляя права 0600
+	f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0o600)
+	require.NoError(t, err)
+	_ = f.Close()
+
+	cfg := config.Config{
+		Storage: config.StorageConfig{
+			SQLitePath: dbPath,
+		},
+		Logging: config.LoggingConfig{
+			Level: "debug",
+		},
+	}
+
+	// Инициализируем живое приложение
+	application, err := New(context.Background(), cfg)
+	require.NoError(t, err, "Приложение должно успешно собраться")
+	require.NotNil(t, application)
+
+	// Вызываем очистку ресурсов
+	err = Shutdown(application)
+	assert.NoError(t, err, "Остановка рантайма должна пройти успешно")
+
+	// Проверяем зануление структуры рантайма
+	assert.Nil(t, application.DB(), "Указатель на пул соединений СУБД должен быть стерт")
+	assert.Empty(t, application.Config().Logging.Level, "Поля структуры конфигурации должны быть очищены")
 }

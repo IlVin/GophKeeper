@@ -1,7 +1,7 @@
 package app
 
 import (
-	"context"
+	"database/sql"
 	"testing"
 
 	"gophkeeper/internal/client/config"
@@ -10,20 +10,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApp_ContextHelpersAndRuntime(t *testing.T) {
-	t.Parallel()
+// TestNewApp_WithValidParams_ShouldSuccess проверяет корректную сборку контейнера
+// при передаче всех обязательных валидных зависимостей.
+func TestNewApp_WithValidParams_ShouldSuccess(t *testing.T) {
+	// Создаем фейковый инициализированный пул sql.DB (без реального подключения)
+	fakeDB := &sql.DB{}
+	fakeCfg := config.Config{
+		Logging: config.LoggingConfig{
+			Level: "debug",
+		},
+	}
 
-	cfg := config.Config{}
-	application := NewApp(cfg, nil)
-	require.NotNil(t, application)
+	appContainer, err := NewApp(fakeCfg, fakeDB)
 
-	// Инвариант: чистый контекст не должен содержать контейнер
-	_, err := AppFromContext(context.Background())
-	assert.Error(t, err, "Should return an error if application is missing from context")
+	require.NoError(t, err, "Конструктор не должен возвращать ошибку при валидных параметрах")
+	require.NotNil(t, appContainer, "Контейнер приложения должен быть успешно создан")
 
-	// Инвариант: извлечение инжектированного контейнера из контекста
-	ctx := WithApp(context.Background(), application)
-	extracted, err := AppFromContext(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, application, extracted, "Extracted application must match the injected instance")
+	// Проверяем работу инкапсулированных геттеров
+	assert.Equal(t, fakeDB, appContainer.DB(), "Геттер DB() должен возвращать тот же указатель")
+	assert.Equal(t, "debug", appContainer.Config().Logging.Level, "Геттер Config() должен возвращать корректную структуру данных")
+}
+
+// TestNewApp_WithNilDB_ShouldReturnError проверяет срабатывание барьера fail-fast
+// валидации при попытке прокинуть пустую ссылку на пул СУБД.
+func TestNewApp_WithNilDB_ShouldReturnError(t *testing.T) {
+	fakeCfg := config.Config{}
+
+	appContainer, err := NewApp(fakeCfg, nil)
+
+	assert.ErrorIs(t, err, ErrNilDatabase, "Конструктор должен вернуть специфичную ошибку ErrNilDatabase")
+	assert.Nil(t, appContainer, "При ошибке валидации контейнер приложения должен быть nil")
 }

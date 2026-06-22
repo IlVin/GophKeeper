@@ -1,53 +1,89 @@
+// Package app предоставляет механизмы инициализации (bootstrap) и корректной
+// остановки рантайм-контейнера ресурсов GophKeeper.
 package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"gophkeeper/internal/client/config"
 	"gophkeeper/internal/client/providers/sqlite"
 )
 
-// New собирает runtime-контейнер только для уже инициализированного окружения
+var (
+	// ErrDatabaseMissing возвращается, если файл контейнера SQLite отсутствует на диске.
+	ErrDatabaseMissing = errors.New("файл базы данных не найден: пожалуйста, выполните сначала команду 'gophkeeper init'")
+)
+
+// New инициализирует, проверяет права и собирает рантайм-контейнер для уже созданного окружения.
+//
+// Функция выполняет fail-fast проверку наличия файла на диске, открывает безопасное
+// WAL-соединение с СУБД SQLite и верифицирует его через PingContext.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
+	slog.Debug("Запуск проверки окружения и инициализации контейнера базы данных")
+
 	// Проверяем физическое наличие файла БД перед открытием.
-	// Если файла нет — значит пользователь не запускал 'gophkeeper init'.
 	if _, err := os.Stat(cfg.Storage.SQLitePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("database file missing: please run 'gophkeeper init' first")
+		slog.Error("инициализация рантайма отклонена: контейнер SQLite не создан")
+		return nil, fmt.Errorf("%w (путь: %s)", ErrDatabaseMissing, cfg.Storage.SQLitePath)
 	}
 
-	// Открываем существующую БД. Open() сам проверит права доступа 0600/0700.
+	// Открываем существующую БД. Внутренний метод sqlite.Open проверит права доступа 0600/0700.
 	db, err := sqlite.Open(cfg.Storage.SQLitePath)
 	if err != nil {
-		return nil, fmt.Errorf("open client sqlite: %w", err)
+		slog.Error("не удалось открыть локальный контейнер хранения", "error", err)
+		return nil, fmt.Errorf("открытие sqlite контейнера: %w", err)
 	}
 
-	// Проверяем живое соединение с учетом контекста прерывания
+	// Проверяем живое соединение с учетом контекста прерывания сессии (Ctrl+C)
 	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("ping client sqlite: %w", err)
+		slog.Error("верификация соединения с SQLite провалилась", "error", err)
+		if closeErr := db.Close(); closeErr != nil {
+			slog.Error("не удалось закрыть дескриптор БД после неудачного пинга", "close_error", closeErr)
+			return nil, fmt.Errorf("пинг базы данных (%w), закрытие дескриптора: %w", err, closeErr)
+		}
+		return nil, fmt.Errorf("проверка соединения с sqlite: %w", err)
 	}
 
-	// Миграции отсюда УБРАНЫ. Они выполняются строго один раз внутри 'gophkeeper init'.
+	slog.Debug("Локальный контейнер хранения успешно верифицирован и подключен")
 
-	return NewApp(cfg, db), nil
+	// Собираем валидированный инкапсулированный объект приложения
+	application, err := NewApp(cfg, db)
+	if err != nil {
+		slog.Error("ошибка фабричной сборки контейнера приложения", "error", err)
+		_ = db.Close()
+		return nil, fmt.Errorf("сборка рантайма: %w", err)
+	}
+
+	return application, nil
 }
 
-// Shutdown гарантирует безопасное закрытие ресурсов и зануление ссылок
+// Shutdown гарантирует безопасное закрытие файловых ресурсов СУБД и очистку RAM.
+//
+// Затирает ссылки на пул соединений и очищает структуру конфигурации,
+// предотвращая возможность повторного использования или утечки данных из кучи.
 func Shutdown(application *App) error {
 	if application == nil {
 		return nil
 	}
 
+	slog.Debug("Инициирован процесс остановки рантайма и очистки памяти контейнера")
+
 	var dbErr error
-	if application.DB != nil {
-		dbErr = application.DB.Close()
-		application.DB = nil // Очищаем указатель
+	if application.db != nil {
+		dbErr = application.db.Close()
+		if dbErr != nil {
+			slog.Error("деструктор СУБД завершился с ошибкой", "error", dbErr)
+		}
+		application.db = nil // Принудительно очищаем указатель на пул соединений
 	}
 
-	// Зануляем конфигурацию для предотвращения утечек данных в RAM
-	application.Config = config.Config{}
+	// Зануляем конфигурацию для предотвращения утечек путей и метаданных в оперативной памяти
+	application.config = config.Config{}
 
+	slog.Debug("Ресурсы контейнера успешно освобождены, оперативная память зачищена")
 	return dbErr
 }
