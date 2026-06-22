@@ -35,6 +35,12 @@ jobs:
         sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE gophkeeper TO gophkeeper;"
         sudo -u postgres psql -c "ALTER DATABASE gophkeeper OWNER TO gophkeeper;"
 
+    - name: Run Database Migrations on Test DB
+      run: |
+         go run github.com/pressly/goose/v3 \
+          -dir=${{ github.workspace }}/internal/server/providers/postgres/migrations \
+          postgres "user=gophkeeper password=gophkeeper_pswd dbname=gophkeeper host=127.0.0.1 sslmode=disable" up
+
     - name: Start Ephemeral SSH Agent and Generate Test Key
       run: |
         # Запускаем локальный демон ssh-agent и экспортируем его переменные в окружение шага
@@ -61,10 +67,6 @@ jobs:
         CGO_ENABLED=0 go build -o ./cmd/gophkeeper/gophkeeper ./cmd/gophkeeper/main.go
         CGO_ENABLED=0 go build -o ./cmd/gophkeeper-server/gophkeeper-server ./cmd/gophkeeper-server/main.go
 
-    # Накатываем миграции на поднятый тестовый Postgres (через голый sql или goose)
-    - name: Run Database Migrations on Test DB
-      run: |
-        goose -dir=${{ github.workspace }}/internal/server/providers/postgres/migrations postgres "user=gophkeeper password=gophkeeper_pswd dbname=gophkeeper sslmode=disable" up
 
     # ЗАПУСКАЕМ СЕТЕВЫЕ И ЛОКАЛЬНЫЕ E2E ТЕСТЫ ОДНОЙ КОМАНДОЙ
     - name: Run All Dedicated E2E Network Tests
