@@ -156,44 +156,42 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 		// 1. Синхронизируем Клиента 2 (Заливает промежуточное значение в Postgres)
 		_, _, _ = runClient(dbClient2, "sync")
 
-		// 2. Синхронизируем Клиента 3 (Заливает САМОЕ СВЕЖЕЕ значение — оно должно стать истиной в облаке)
+		// 2. Синхронизируем Клиента 3 (Заливает САМОЕ СВЕЖЕЕ значение — оно становится истиной)
 		_, _, _ = runClient(dbClient3, "sync")
 
-		// 3. Синхронизируем Клиента 1 (Доставляет САМЫЙ СТАРЫЙ пакет ПОСЛЕДНИМ по времени доставки)
-		// Сервер Stateful Blind Storage обязан увидеть, что в СУБД уже лежитupdated_at новее,
-		// проигнорировать этот Push, но выполнить Pull, отдав Клиенту 1 свежую истину!
-		stdout, _, _ := runClient(dbClient1, "sync")
+		// 3. Синхронизируем Клиента 1 (Доставляет САМЫЙ СТАРЫЙ пакет ПОСЛЕДНИМ)
+		// Сервер отбросит его Push, но в рамках Pull отдаст ему канон от Клиента 3.
+		_, _, _ = runClient(dbClient1, "sync") // ИСПРАВЛЕНО: Убран хрупкий ассерт счетчика pulled
 
-		var resp CLIResponse
-		_ = json.Unmarshal([]byte(stdout), &resp)
+		// ПРОВЕРЯЕМ ЛОКАЛЬНЫЙ КЭШ КЛИЕНТА 1: Он должен был бесшовно всосать истину через LWW!
+		getStdout1, _, _ := runClient(dbClient1, "get", "--name", "shared_secret")
+		var getResp1 CLIResponse
+		_ = json.Unmarshal([]byte(getStdout1), &getResp1)
 
-		dataBytes, _ := json.Marshal(resp.Data)
-		var syncData SyncResponse
-		_ = json.Unmarshal(dataBytes, &syncData)
+		getDataBytes1, _ := json.Marshal(getResp1.Data)
+		var getData1 GetResponse
+		_ = json.Unmarshal(getDataBytes1, &getData1)
 
-		// Клиент 1 должен был скачать 1 запись из облака (потому что его локальная запись устарела)
-		if syncData.Pulled != 1 {
-			t.Errorf("Expected Client 1 to pull the latest update from cloud, got pulled: %d", syncData.Pulled)
+		expectedPayload := "pobednyi_payload_client_3"
+		if getData1.Payload != expectedPayload {
+			t.Errorf("LWW FAILURE ON CLIENT 1: Expected payload %q, but database holds %q",
+				expectedPayload, getData1.Payload)
 		}
 
-		// 4. ФИНАЛЬНАЯ ПРОВЕРКА КОНСЕНСУСА: Делаем sync для всех, чтобы выровнять стейт
+		// 4. ФИНАЛЬНАЯ ПРОВЕРКА КОНСЕНСУСА КЛИЕНТА 2
 		_, _, _ = runClient(dbClient2, "sync")
 
-		// Проверяем, что теперь лежит в кэше Клиента 2 при чтении
-		getStdout, _, _ := runClient(dbClient2, "get", "--name", "shared_secret")
+		getStdout2, _, _ := runClient(dbClient2, "get", "--name", "shared_secret")
+		var getResp2 CLIResponse
+		_ = json.Unmarshal([]byte(getStdout2), &getResp2)
 
-		var getResp CLIResponse
-		_ = json.Unmarshal([]byte(getStdout), &getResp)
+		getDataBytes2, _ := json.Marshal(getResp2.Data)
+		var getData2 GetResponse
+		_ = json.Unmarshal(getDataBytes2, &getData2)
 
-		getDataBytes, _ := json.Marshal(getResp.Data)
-		var getData GetResponse
-		_ = json.Unmarshal(getDataBytes, &getData)
-
-		// ГЛАВНЫЙ КРИПТОГРАФИЧЕСКИЙ АССЕРТ: Победить должен был payload от Клиента 3!
-		expectedPayload := "pobednyi_payload_client_3"
-		if getData.Payload != expectedPayload {
-			t.Errorf("CRITICAL LWW FAILURE: Conflict resolution collapsed. Expected payload %q, but database holds %q",
-				expectedPayload, getData.Payload)
+		if getData2.Payload != expectedPayload {
+			t.Errorf("CRITICAL LWW FAILURE ON CLIENT 2: Expected payload %q, but database holds %q",
+				expectedPayload, getData2.Payload)
 		}
 	})
 }
