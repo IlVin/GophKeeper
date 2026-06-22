@@ -27,7 +27,7 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, u *repository.User)
 	INSERT INTO users (id, ssh_fingerprint, ssh_public_key, canonical_account_salt, canonical_bootstrap_envelope)
 	VALUES ($1, $2, $3, $4, $5);`
 
-	_, err := r.pool.Exec(ctx, query, u.ID, u.SshFingerprint, u.SshPublicKey, u.CanonicalAccountSalt, u.CanonicalBootstrapEnvelope)
+	_, err := r.pool.Exec(ctx, query, u.ID, u.SshFingerprint, []byte(u.SshPublicKey), u.CanonicalAccountSalt, u.CanonicalBootstrapEnvelope)
 	return err
 }
 
