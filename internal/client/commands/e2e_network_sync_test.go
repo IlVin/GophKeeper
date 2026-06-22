@@ -108,13 +108,18 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 			// Сетевая passwordless-регистрация (mTLS & Reconcile контур)
 			stdout, stderr, err := runClient(db, "register", "--server", serverTargetAddr)
 			if err != nil {
-				t.Fatalf("client_%d register failed: %v, stderr: %s, server logs: %s", i+1, err, stderr, serverStderr.String())
+				t.Fatalf("client_%d register binary execution failed: %v\n[CLIENT STDERR]: %s\n[SERVER STDERR]: %s",
+					i+1, err, stderr, serverStderr.String())
 			}
 
 			var resp CLIResponse
-			_ = json.Unmarshal([]byte(stdout), &resp)
+			if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+				t.Fatalf("failed to decode client_%d json response: %v, raw stdout: %q, stderr: %q", i+1, err, stdout, stderr)
+			}
+
 			if !resp.Success {
-				t.Fatalf("server rejected registration for client_%d: %s", i+1, resp.Error)
+				t.Fatalf("SERVER REJECTED REGISTRATION for client_%d! Error details: %q. Server logs: %s",
+					i+1, resp.Error, serverStderr.String())
 			}
 		}
 	})

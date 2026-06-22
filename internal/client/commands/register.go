@@ -142,6 +142,13 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 
 			err = regService.RunRegistration(cmd.Context(), serverAddr)
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{
+						Success: false,
+						Error:   fmt.Sprintf("registration pipeline crashed: %v", err),
+					})
+					return nil
+				}
 				return fmt.Errorf("registration workflow failed: %w", err)
 			}
 

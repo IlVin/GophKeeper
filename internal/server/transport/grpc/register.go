@@ -148,18 +148,26 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	challengePayload := security.NewChallengePayload(session.UserID, session.ID, session.ServerNonce, "register")
 	marshaledChallenge := challengePayload.Marshal()
 
-	// Извлекаем публичный ключ пользователя, сохраненный на шаге RegisterBegin.
-	// TODO: Интегрировать h.repo.GetUserSshPublicKey(session.UserID) после финализации репозиториев.
-	// Для прохождения текущей компиляции MVP инициализируем корректный тип ключа-заглушки:
-	mockEd25519PubKeyBytes := make([]byte, ed25519.PublicKeySize)
-	ed25519PubKey := ed25519.PublicKey(mockEd25519PubKeyBytes)
+	// ИСПРАВЛЕНО: Достаем реальный публичный ключ из SSH Wire-формата, присланного клиентом
+	clientPubKey, err := ssh.ParsePublicKey(req.GetSshPublicKey())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse client public key wire format: %v", err)
+	}
+
+	// Извлекаем сырые байты ed25519.PublicKey для проверки из структуры ssh.PublicKey
+	cryptoPubKey, ok := clientPubKey.(ssh.CryptoPublicKey)
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "provided key is not a cryptographic public key")
+	}
+	ed25519PubKey, ok := cryptoPubKey.CryptoPublicKey().(ed25519.PublicKey)
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "the operational root key must be strictly of type Ed25519")
+	}
 
 	// Выполняем строгую проверку подписи Ed25519
 	// Если подпись невалидна — возвращаем codes.Unauthenticated (Инвариант №3)
 	if !ed25519.Verify(ed25519PubKey, marshaledChallenge, req.GetAuthChallengeSignature()) {
-		// В рамках MVP тестирования без живой БД временно глушим ошибку, чтобы не падать на моках
-		// В проде здесь строго: return nil, status.Error(codes.Unauthenticated, "challenge signature verification failed")
-		_ = marshaledChallenge // Подавляем ошибку "declared and not used" для компилятора
+		return nil, status.Error(codes.Unauthenticated, "cryptographic challenge signature verification failed (tampering or key mismatch)")
 	}
 
 	// 3. УНИФИЦИРОВАННАЯ РЕГИСТРАЦИЯ И СВЕРКА КАНОНА (Инвариант №5, №11)
@@ -167,18 +175,12 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	var canonicalBootstrap []byte
 	var statusType string
 
-	// Считаем реальный фингерпринт из присланного клиентом ключа
-	clientPubKey, err := ssh.ParsePublicKey(req.GetSshPublicKey())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse client public key: %v", err)
-	}
 	currentFingerprint := sshagent.FingerprintSHA256(clientPubKey)
 
-	// Ищем существующего пользователя в СУБД, чтобы определить сценарий Register-or-Join
-	// (Для демонстрации: если пользователя еще нет, это первая регистрация)
+	// Ищем существующего пользователя в СУБД
 	existingUser, err := h.repo.GetByFingerprint(ctx, currentFingerprint)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to query user records: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to query user records from postgres: %v", err)
 	}
 
 	if existingUser == nil {
@@ -197,7 +199,7 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 		}
 
 		if err = h.repo.CreateUser(ctx, newUser); err != nil {
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "critical: failed to save new user to postgres table: %v", err)
 		}
 	} else {
 		// Сценарий Б: Аккаунт уже существует.
