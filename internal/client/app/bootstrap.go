@@ -25,14 +25,17 @@ var (
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	slog.Debug("Запуск проверки окружения и инициализации контейнера базы данных")
 
+	// Извлекаем путь к базе данных через каноническую цепочку иммутабельных геттеров
+	sqlitePath := cfg.Storage().SQLitePath()
+
 	// Проверяем физическое наличие файла БД перед открытием.
-	if _, err := os.Stat(cfg.Storage.SQLitePath); os.IsNotExist(err) {
-		slog.Error("инициализация рантайма отклонена: контейнер SQLite не создан")
-		return nil, fmt.Errorf("%w (путь: %s)", ErrDatabaseMissing, cfg.Storage.SQLitePath)
+	if _, err := os.Stat(sqlitePath); os.IsNotExist(err) {
+		slog.Error("инициализация рантайма отклонена: контейнер SQLite не создан", "path", sqlitePath)
+		return nil, fmt.Errorf("%w (путь: %s)", ErrDatabaseMissing, sqlitePath)
 	}
 
 	// Открываем существующую БД. Внутренний метод sqlite.Open проверит права доступа 0600/0700.
-	db, err := sqlite.Open(cfg.Storage.SQLitePath)
+	db, err := sqlite.Open(sqlitePath)
 	if err != nil {
 		slog.Error("не удалось открыть локальный контейнер хранения", "error", err)
 		return nil, fmt.Errorf("открытие sqlite контейнера: %w", err)

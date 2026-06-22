@@ -13,13 +13,15 @@ import (
 // TestNewApp_WithValidParams_ShouldSuccess проверяет корректную сборку контейнера
 // при передаче всех обязательных валидных зависимостей.
 func TestNewApp_WithValidParams_ShouldSuccess(t *testing.T) {
-	// Создаем фейковый инициализированный пул sql.DB (без реального подключения)
+	// Создаем фейковый инициализированный пул sql.DB
 	fakeDB := &sql.DB{}
-	fakeCfg := config.Config{
-		Logging: config.LoggingConfig{
-			Level: "debug",
-		},
-	}
+
+	// Конструируем подструктуры строго через фабричные функции пакета config
+	appCfg := config.NewAppConfig("", "")
+	storageCfg := config.NewStorageConfig("")
+	loggingCfg := config.NewLoggingConfig("", "debug", "")
+
+	fakeCfg := config.NewConfig(appCfg, storageCfg, loggingCfg)
 
 	appContainer, err := NewApp(fakeCfg, fakeDB)
 
@@ -28,13 +30,17 @@ func TestNewApp_WithValidParams_ShouldSuccess(t *testing.T) {
 
 	// Проверяем работу инкапсулированных геттеров
 	assert.Equal(t, fakeDB, appContainer.DB(), "Геттер DB() должен возвращать тот же указатель")
-	assert.Equal(t, "debug", appContainer.Config().Logging.Level, "Геттер Config() должен возвращать корректную структуру данных")
+	assert.Equal(t, "debug", appContainer.Config().Logging().Level(), "Геттер Config() должен возвращать корректную структуру данных")
 }
 
 // TestNewApp_WithNilDB_ShouldReturnError проверяет срабатывание барьера fail-fast
 // валидации при попытке прокинуть пустую ссылку на пул СУБД.
 func TestNewApp_WithNilDB_ShouldReturnError(t *testing.T) {
-	fakeCfg := config.Config{}
+	// Конструируем пустую конфигурацию с соблюдением инкапсуляции через фабрики
+	appCfg := config.NewAppConfig("", "")
+	storageCfg := config.NewStorageConfig("")
+	loggingCfg := config.NewLoggingConfig("", "", "")
+	fakeCfg := config.NewConfig(appCfg, storageCfg, loggingCfg)
 
 	appContainer, err := NewApp(fakeCfg, nil)
 

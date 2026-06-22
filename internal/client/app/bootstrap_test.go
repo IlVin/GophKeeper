@@ -12,17 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNew_WhenFileDoesNotExist_ShouldReturnDatabaseMissing Error проверяет барьер
+// TestNew_WhenFileDoesNotExist_ShouldReturnDatabaseMissingError проверяет барьер
 // инициализации, если пользователь пытается запустить рантайм без вызова gophkeeper init.
 func TestNew_WhenFileDoesNotExist_ShouldReturnDatabaseMissingError(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	cfg := config.Config{
-		Storage: config.StorageConfig{
-			SQLitePath: filepath.Join(tmpDir, "non_existent_vault.db"),
-		},
-	}
+	// Принудительно выставляем права 0700 для папки, чтобы пройти проверки sqlite.Open
+	err := os.Chmod(tmpDir, 0o700)
+	require.NoError(t, err)
+
+	// Наполняем подструктуры через фабричный метод пакета config
+	appCfg := config.NewAppConfig("", "")
+	storageCfg := config.NewStorageConfig(filepath.Join(tmpDir, "non_existent_vault.db"))
+	loggingCfg := config.NewLoggingConfig("", "", "")
+	cfg := config.NewConfig(appCfg, storageCfg, loggingCfg)
 
 	application, err := New(ctx, cfg)
 
@@ -54,14 +58,11 @@ func TestShutdown_WithValidApplication_ShouldClearResources(t *testing.T) {
 	require.NoError(t, err)
 	_ = f.Close()
 
-	cfg := config.Config{
-		Storage: config.StorageConfig{
-			SQLitePath: dbPath,
-		},
-		Logging: config.LoggingConfig{
-			Level: "debug",
-		},
-	}
+	// Собираем валидную конфигурацию через конструктор NewConfig
+	appCfg := config.NewAppConfig("", "")
+	storageCfg := config.NewStorageConfig(dbPath)
+	loggingCfg := config.NewLoggingConfig("", "debug", "")
+	cfg := config.NewConfig(appCfg, storageCfg, loggingCfg)
 
 	// Инициализируем живое приложение
 	application, err := New(context.Background(), cfg)
@@ -72,7 +73,7 @@ func TestShutdown_WithValidApplication_ShouldClearResources(t *testing.T) {
 	err = Shutdown(application)
 	assert.NoError(t, err, "Остановка рантайма должна пройти успешно")
 
-	// Проверяем зануление структуры рантайма
+	// Проверяем зануление структуры рантайма с помощью геттеров
 	assert.Nil(t, application.DB(), "Указатель на пул соединений СУБД должен быть стерт")
-	assert.Empty(t, application.Config().Logging.Level, "Поля структуры конфигурации должны быть очищены")
+	assert.Empty(t, application.Config().Logging().Level(), "Поля структуры конфигурации должны быть очищены")
 }
