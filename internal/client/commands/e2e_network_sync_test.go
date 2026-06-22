@@ -37,7 +37,11 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 	// 2. АВТОНОМНЫЙ ЗАПУСК СЕРВЕРА В ФОНЕ (Spin-up)
 	// Сервер использует нативный PostgreSQL, поднятый в GitHub Actions, через DATABASE_DSN
 	serverTargetAddr := "127.0.0.1:9553"
-	serverCmd := exec.Command(serverBinary, "--listen", serverTargetAddr)
+	serverCmd := exec.Command(serverBinary, "start",
+		"--bind-grpc", serverTargetAddr,
+		"--server-ca-key", "../../../.certs_private/server-ca.key",
+		"--device-ca-key", "../../../.certs_private/device-ca.key",
+	)
 	serverCmd.Env = os.Environ()
 
 	var serverStderr bytes.Buffer
