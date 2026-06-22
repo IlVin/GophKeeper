@@ -61,15 +61,13 @@ jobs:
         # Дебаг-проверка для логов CI/CD: выводим список активных фингерпринтов в агенте
         ssh-add -l
 
-    # Компилируем ОБА бинарника (и клиента, и сервер), так как тест будет дергать их оба!
-    - name: Compile Client and Server Binaries
-      run: |
-        CGO_ENABLED=0 go build -o ./cmd/gophkeeper/gophkeeper ./cmd/gophkeeper/main.go
-        CGO_ENABLED=0 go build -o ./cmd/gophkeeper-server/gophkeeper-server ./cmd/gophkeeper-server/main.go
-
     # ГЕНЕРИРУЕМ СИСТЕМНЫЕ СЕРТИФИКАТЫ PKI (Критический шаг для mTLS)
     - name: Generate Ephemeral PKI Certificates
       run: make certs # Вызывает ваш таргет, создавая .certs_private/ на диске Runner!
+
+    # Компилируем ОБА бинарника (и клиента, и сервер), так как тест будет дергать их оба!
+    - name: Compile Client and Server Binaries
+      run: make build-linux
 
     # ЗАПУСКАЕМ СЕТЕВЫЕ И ЛОКАЛЬНЫЕ E2E ТЕСТЫ ОДНОЙ КОМАНДОЙ
     - name: Run All Dedicated E2E Network Tests
