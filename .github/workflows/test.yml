@@ -64,7 +64,7 @@ jobs:
     # Накатываем миграции на поднятый тестовый Postgres (через голый sql или goose)
     - name: Run Database Migrations on Test DB
       run: |
-        cd infra/postgres/migrations && goose postgres "user=gophkeeper password=gophkeeper_pswd dbname=gophkeeper sslmode=disable" up
+        goose -dir=${{ github.workspace }}/internal/server/providers/postgres/migrations postgres "user=gophkeeper password=gophkeeper_pswd dbname=gophkeeper sslmode=disable" up
 
     # ЗАПУСКАЕМ СЕТЕВЫЕ И ЛОКАЛЬНЫЕ E2E ТЕСТЫ ОДНОЙ КОМАНДОЙ
     - name: Run All Dedicated E2E Network Tests
