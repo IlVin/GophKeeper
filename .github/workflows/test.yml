@@ -67,6 +67,9 @@ jobs:
         CGO_ENABLED=0 go build -o ./cmd/gophkeeper/gophkeeper ./cmd/gophkeeper/main.go
         CGO_ENABLED=0 go build -o ./cmd/gophkeeper-server/gophkeeper-server ./cmd/gophkeeper-server/main.go
 
+    # ГЕНЕРИРУЕМ СИСТЕМНЫЕ СЕРТИФИКАТЫ PKI (Критический шаг для mTLS)
+    - name: Generate Ephemeral PKI Certificates
+      run: make certs # Вызывает ваш таргет, создавая .certs_private/ на диске Runner!
 
     # ЗАПУСКАЕМ СЕТЕВЫЕ И ЛОКАЛЬНЫЕ E2E ТЕСТЫ ОДНОЙ КОМАНДОЙ
     - name: Run All Dedicated E2E Network Tests
