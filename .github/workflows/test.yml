@@ -37,7 +37,7 @@ jobs:
 
     - name: Run Database Migrations on Test DB
       run: |
-         go run github.com/pressly/goose/v3 \
+         go run github.com/pressly/goose/v3/cmd/goose@latest \
           -dir=${{ github.workspace }}/internal/server/providers/postgres/migrations \
           postgres "user=gophkeeper password=gophkeeper_pswd dbname=gophkeeper host=127.0.0.1 sslmode=disable" up
 
