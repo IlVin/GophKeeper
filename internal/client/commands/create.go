@@ -112,7 +112,9 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			secretService := service.NewSecretService(secretStore, deviceStore, agentClient)
 
 			// 5. Запускаем криптографический конвейер шифрования записи
-			fmt.Fprintf(out, "Unlocking master key via ssh-agent and encrypting record %q...\n", name)
+			if !cli.JSONOutput {
+				fmt.Fprintf(out, "Unlocking master key via ssh-agent and encrypting record %q...\n", name)
+			}
 
 			// Передаем монолитный сериализованный JSON-блок в сервис шифрования
 			err = secretService.CreateSecret(cmd.Context(), name, secretType, plainBytes)
