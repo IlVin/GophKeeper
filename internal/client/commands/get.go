@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"gophkeeper/internal/client/providers/sqlite"
 	"gophkeeper/internal/client/providers/sshagent"
 	"gophkeeper/internal/client/service"
 	"gophkeeper/internal/client/sshcheck"
+	"gophkeeper/internal/domain/security"
 
 	"github.com/spf13/cobra"
 )
@@ -63,22 +65,56 @@ func newGetCommand(cli *CLI) *cobra.Command {
 				fmt.Fprintf(out, "Unlocking vault and fetching record by name %q...\n", name)
 			}
 
-			recordName, plaintext, err := secretService.UnsealSecret(cmd.Context(), targetKey, isFindByID)
+			// Вызов конвейера дешифрования (Возвращает монолитный расшифрованный JSON-блок)
+			recordName, plainBytes, err := secretService.UnsealSecret(cmd.Context(), targetKey, isFindByID)
 			if err != nil {
 				return fmt.Errorf("failed to decrypt secret: %w", err)
 			}
 
-			// Гарантируем очистку расшифрованного payload из памяти после вывода на экран
+			// Гарантируем очистку расшифрованного монолитного блока из памяти после вывода
 			defer func() {
-				for i := range plaintext {
-					plaintext[i] = 0
+				for i := range plainBytes {
+					plainBytes[i] = 0
 				}
 			}()
 
-			// 5. Выводим результат пользователю
+			// 5. РАСПАКОВКА СТРУКТУРЫ: Разделяем payload и metadata
+			var plain security.RecordPlaintext
+			if err := json.Unmarshal(plainBytes, &plain); err != nil {
+				return fmt.Errorf("failed to parse decrypted secret payload layout: %w", err)
+			}
+
+			// Гарантируем зануление полей структуры в куче (RAM Hygiene)
+			defer func() {
+				for i := range plain.Payload {
+					plain.Payload[i] = 0
+				}
+				for k, v := range plain.Metadata {
+					_ = k
+					_ = v
+					// Текстовые строки неизменяемы в Go, но очистка ссылок
+					// ускоряет работу GC по уничтожению метаданных в куче
+					delete(plain.Metadata, k)
+				}
+			}()
+
+			// 6. Выводим структурированный результат пользователю
 			fmt.Fprintln(out, "\n✔ Decryption successful!")
-			fmt.Fprintf(out, "Secret Name: %s\n", recordName)
-			fmt.Fprintf(out, "Secret Plaintext Payload: %s\n", string(plaintext))
+			fmt.Fprintln(out, "================================================================================")
+			fmt.Fprintf(out, "  Secret Name: %s\n", recordName)
+			fmt.Fprintln(out, "================================================================================")
+			fmt.Fprintf(out, "  Secret Plaintext Payload: %s\n", string(plain.Payload))
+			fmt.Fprintln(out, "================================================================================")
+
+			if len(plain.Metadata) > 0 {
+				fmt.Fprintln(out, "  Decrypted Metadata:")
+				for key, val := range plain.Metadata {
+					fmt.Fprintf(out, "    [+] %s : %s\n", key, val)
+				}
+			} else {
+				fmt.Fprintln(out, "  Metadata: <none>")
+			}
+			fmt.Fprintln(out, "================================================================================")
 
 			return nil
 		}),

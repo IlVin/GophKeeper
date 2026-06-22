@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"gophkeeper/internal/client/providers/sshagent"
 	"gophkeeper/internal/client/service"
 	"gophkeeper/internal/client/sshcheck"
+	"gophkeeper/internal/domain/security"
 
 	"github.com/spf13/cobra"
 )
@@ -33,6 +35,13 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			secretType, _ := flags.GetString("type")
 			payloadStr, _ := flags.GetString("payload")
 			filePath, _ := flags.GetString("file")
+			metaStr, _ := flags.GetString("meta")
+
+			// Валидируем и парсим JSON-строку метаданных в map[string]string (Скрытие метаданных)
+			var metadataMap map[string]string
+			if err := json.Unmarshal([]byte(metaStr), &metadataMap); err != nil {
+				return fmt.Errorf("invalid --meta format: parameter must be a valid flat JSON object '{\"key\": \"value\"}': %w", err)
+			}
 
 			name = strings.TrimSpace(name)
 			secretType = strings.ToLower(strings.TrimSpace(secretType))
@@ -49,7 +58,7 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 				if filePath == "" {
 					return fmt.Errorf("--file path is required when --type is set to 'binary'")
 				}
-				// Проверяем MVP лимит на размер файла перед чтением в память
+				// Проверяем MVP лимит на размер файла перед чтением в память (Защита СУБД)
 				fileInfo, err := os.Stat(filePath)
 				if err != nil {
 					return fmt.Errorf("failed to stat file %q: %w", filePath, err)
@@ -68,6 +77,22 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 				}
 				finalPayload = []byte(payloadStr)
 			}
+
+			// Упаковываем payload и metadata в единый plaintext JSON-блок (Защита от Metadata Leakage)
+			plainBytes, err := security.PackRecordPlaintext(finalPayload, metadataMap)
+			if err != nil {
+				return fmt.Errorf("failed to pack plaintext layout: %w", err)
+			}
+
+			// Гарантируем зануление промежуточных байт структуры в куче
+			defer func() {
+				for i := range plainBytes {
+					plainBytes[i] = 0
+				}
+				for i := range finalPayload {
+					finalPayload[i] = 0
+				}
+			}()
 
 			// 3. Открываем существующее runtime окружение приложения
 			app, err := cli.App(cmd.Context())
@@ -89,7 +114,8 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			// 5. Запускаем криптографический конвейер шифрования записи
 			fmt.Fprintf(out, "Unlocking master key via ssh-agent and encrypting record %q...\n", name)
 
-			err = secretService.CreateSecret(cmd.Context(), name, secretType, finalPayload)
+			// Передаем монолитный сериализованный JSON-блок в сервис шифрования
+			err = secretService.CreateSecret(cmd.Context(), name, secretType, plainBytes)
 			if err != nil {
 				return fmt.Errorf("failed to encrypt and save record: %w", err)
 			}
@@ -104,6 +130,9 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 	cmd.Flags().String("type", "", "Type of secret (credentials, text, binary, card)")
 	cmd.Flags().String("payload", "", "Secret payload content (password, text data)")
 	cmd.Flags().String("file", "", "Path to a binary file (only for --type=binary)")
+
+	// ЛОКАЛЬНАЯ ОПЦИЯ КОМАНДЫ CREATE: Защищенный контекст метаинформации
+	cmd.Flags().String("meta", "{}", "Optional metadata in flat JSON format object '{\"key\":\"value\"}'")
 
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("type")

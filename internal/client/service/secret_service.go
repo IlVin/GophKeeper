@@ -40,8 +40,6 @@ func (s *SecretService) CreateSecret(ctx context.Context, name, secretType strin
 	}
 
 	// 1. Извлекаем текущее состояние устройства из БД для получения метаданных ключа
-	// Примечание: Для полноценной работы добавим метод ReadDeviceState в интерфейс DeviceStore,
-	// либо приведем к конкретной реализации sqlite. В рамках MVP приводим к интерфейсу:
 	state, err := s.deviceStore.ReadDeviceState(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to read device state: %w", err)
@@ -117,7 +115,7 @@ func (s *SecretService) UnsealSecret(ctx context.Context, idOrName string, isFin
 	// 3. Вычисление контекста защиты AAD для верификации целостности тега Poly1305
 	recordAAD := security.BuildRecordAAD(state.UserID, record.ID)
 
-	// 4. Расшифрование конверта
+	// 4. Расширение конверта
 	plaintext, err := security.OpenEnvelope(masterKey, record.Envelope, recordAAD)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to open secret envelope (tampering or key mismatch): %w", err)

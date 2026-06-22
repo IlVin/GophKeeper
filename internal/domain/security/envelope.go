@@ -30,6 +30,33 @@ type Envelope struct {
 	Ciphertext []byte `json:"ciphertext"` // Содержит зашифрованные данные + 16 байт Poly1305 tag
 }
 
+// RecordPlaintext представляет собой структуру данных, которая шифруется в Envelope.
+// Она объединяет payload и метаданные, защищая их от Metadata Leakage.
+type RecordPlaintext struct {
+	Payload  []byte            `json:"payload"`
+	Metadata map[string]string `json:"metadata"`
+}
+
+// PackRecordPlaintext собирает plaintext-структуру в байты для шифрования
+func PackRecordPlaintext(payload []byte, metadata map[string]string) ([]byte, error) {
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+	return json.Marshal(RecordPlaintext{
+		Payload:  payload,
+		Metadata: metadata,
+	})
+}
+
+// UnpackRecordPlaintext извлекает payload и metadata из расшифрованных байт
+func UnpackRecordPlaintext(decrypted []byte) ([]byte, map[string]string, error) {
+	var plain RecordPlaintext
+	if err := json.Unmarshal(decrypted, &plain); err != nil {
+		return nil, nil, err
+	}
+	return plain.Payload, plain.Metadata, nil
+}
+
 // BuildAccountBootstrapAAD собирает Big-Endian контекст AAD для Bootstrap конверта
 func BuildAccountBootstrapAAD(sshFingerprint string) []byte {
 	ctxBytes := []byte(AADSchemaAccountBootstrap)

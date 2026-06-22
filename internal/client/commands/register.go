@@ -56,8 +56,12 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 
 			// Если UserID уже присутствует на диске — повторная регистрация блокируется
 			if localState.UserID != nil && *localState.UserID != "" {
+				serverURLStr := "unknown"
+				if localState.ServerURL != nil {
+					serverURLStr = *localState.ServerURL
+				}
 				return fmt.Errorf("client container is already registered (Server URL: %s, UserID: %s)",
-					*localState.ServerURL, *localState.UserID)
+					serverURLStr, *localState.UserID)
 			}
 
 			// 3. РАБОТА С SSH КЛЮЧОМ И АГЕНТОМ (ИСПРАВЛЕНО: Достаем ключ напрямую из локальной БД)
