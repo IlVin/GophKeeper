@@ -130,9 +130,13 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 	// Симулируем ситуацию: три клиента в оффлайне одновременно создают/изменяют
 	// запись с ОДНИМ И ТЕМ ЖЕ ИМЕНЕМ 'shared_secret', но с разным payload.
 	t.Run("Generate Competitive Offline State Mutations", func(t *testing.T) {
+		// Три клиента в оффлайне создают запись с ОДНИМ И ТЕМ ЖЕ ИМЕНЕМ 'shared_secret'.
+		// Благодаря UUID v5, рантайм GophKeeper выведет для них абсолютно идентичный ID,
+		// и СУБД PostgreSQL на сервере применит транзакционный фильтр LWW!
+
 		// Клиент 1: Создает запись первым (Самая ранняя метка времени)
 		_, _, _ = runClient(dbClient1, "create", "--name", "shared_secret", "--type", "text", "--payload", "value_from_client_1")
-		time.Sleep(1 * time.Second) // Искусственная задержка для разделения временных меток updated_at
+		time.Sleep(1 * time.Second) // Задержка для разделения временных меток updated_at
 
 		// Клиент 2: Изменяет запись вторым (Промежуточная метка времени)
 		_, _, _ = runClient(dbClient2, "create", "--name", "shared_secret", "--type", "text", "--payload", "value_from_client_2")

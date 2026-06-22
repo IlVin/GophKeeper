@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 
 	pb "gophkeeper/gen/go/gophkeeper/v1" // Путь сгенерированных Go-заглушек
 	"gophkeeper/internal/client/providers/device"
@@ -108,7 +109,7 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 	if !bytes.Equal(state.AccountSalt, canonicalSalt) || !bytes.Equal(state.AccountBootstrapEnvelope, canonicalBootstrap) {
 		// Обнаружено несовпадение: контейнер был создан оффлайн со своей солью, но сервер вернул каноничную соль!
 		// Запускаем криптографический конвейер Reconcile Migration для перешифрования базы под каноничные ключи (Инвариант №14)
-		fmt.Println("[Lifecycle] Mismatch with server canonical state detected! Launching local Reconcile Migration...")
+		_, _ = fmt.Fprintln(os.Stderr, "[Lifecycle] Mismatch with server canonical state detected! Launching local Reconcile Migration...")
 
 		err = s.initService.ReconcileContainer(
 			ctx,

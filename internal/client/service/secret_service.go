@@ -11,7 +11,6 @@ import (
 	"gophkeeper/internal/client/repository"
 	"gophkeeper/internal/domain/security"
 
-	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -53,7 +52,7 @@ func (s *SecretService) CreateSecret(ctx context.Context, name, secretType strin
 	defer masterKey.Destroy() // Гарантированная очистка памяти по выходу
 
 	// 3. Генерируем UUID для новой записи
-	recordID := uuid.New().String()
+	recordID := security.DeriveRecordID(name)
 
 	// 4. Сборка контекста защиты AAD для записи (Инвариант №6)
 	recordAAD := security.BuildRecordAAD(state.UserID, recordID)
