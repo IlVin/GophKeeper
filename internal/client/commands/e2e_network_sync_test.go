@@ -37,8 +37,17 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 	// 2. АВТОНОМНЫЙ ЗАПУСК СЕРВЕРА В ФОНЕ (Spin-up)
 	// Сервер использует нативный PostgreSQL, поднятый в GitHub Actions, через DATABASE_DSN
 	serverTargetAddr := "127.0.0.1:9553"
+
+	// Вытаскиваем DSN-строку подключения из окружения GitHub Actions (она там объявлена как DATABASE_DSN)
+	postgresDSN := os.Getenv("DATABASE_DSN")
+	if postgresDSN == "" {
+		// Дефолтный fallback-вариант для локального тестирования разработчика, если переменная пуста
+		postgresDSN = "postgres://gophkeeper:gophkeeper_pswd@127.0.0.1:5432/gophkeeper?sslmode=disable"
+	}
+
 	serverCmd := exec.Command(serverBinary, "start",
 		"--bind-grpc", serverTargetAddr,
+		"--database", postgresDSN,
 		"--server-ca-key", "../../../.certs_private/server-ca.key",
 		"--device-ca-key", "../../../.certs_private/device-ca.key",
 	)
