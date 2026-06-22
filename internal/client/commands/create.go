@@ -1,8 +1,12 @@
+// Package commands предоставляет реализации консольных команд Cobra для
+// криптографического взаимодействия с хранилищем GophKeeper.
 package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -15,21 +19,31 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const maxBinarySize = 10 * 1024 * 1024 // 10 MB MVP Limit
+// Максимальный лимит размера файла (10 Мегабайт) для MVP-защиты оперативной памяти.
+const maxBinarySize = 10 * 1024 * 1024
 
+var (
+	// ErrInvalidSecretType возвращается, если указан неподдерживаемый тип записи.
+	ErrInvalidSecretType = errors.New("неподдерживаемый тип секрета: допустимы credentials, text, binary, card")
+)
+
+// newCreateCommand конструирует CLI-команду "create" для запечатывания
+// и сохранения новой приватной записи в локальном сейфе.
 func newCreateCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create and encrypt a new private record inside the vault",
+		Short: "Запечатать и сохранить новую секретную запись в хранилище",
+		Long:  `Шифрует данные алгоритмом XChaCha20-Poly1305 под управлением AccountMasterKey и защищает метаданные от утечек.`,
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			ctx := cmd.Context()
+			slog.Info("Старт выполнения команды создания и шифрования записи")
 
-			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
 			if err := sshcheck.RequireAgent(); err != nil {
-				return cli.PrintError(out, err, "ssh agent error")
+				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
 			}
 
-			// Разбираем эфемерные флаги
+			// Разбор и валидация входящих аргументов
 			flags := cmd.Flags()
 			name, _ := flags.GetString("name")
 			secretType, _ := flags.GetString("type")
@@ -37,112 +51,150 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			filePath, _ := flags.GetString("file")
 			metaStr, _ := flags.GetString("meta")
 
-			// Валидируем и парсим JSON-строку метаданных в map[string]string (Скрытие метаданных)
-			var metadataMap map[string]string
-			if err := json.Unmarshal([]byte(metaStr), &metadataMap); err != nil {
-				return cli.PrintError(out, err, "invalid --meta format: parameter must be a valid flat JSON object '{\"key\": \"value\"}'")
-			}
-
 			name = strings.TrimSpace(name)
 			secretType = strings.ToLower(strings.TrimSpace(secretType))
 
 			if name == "" || secretType == "" {
-				return cli.PrintError(out, fmt.Errorf("parameters --name and --type are mandatory and cannot be empty"), "validation failed")
+				return cli.PrintError(out, errors.New("параметры --name и --type обязательны и не могут быть пустыми"), "валидация флагов")
 			}
 
-			// 2. Валидация входных данных по типу секрета
-			var finalPayload []byte
-			var err error
-
-			if secretType == "binary" {
-				if filePath == "" {
-					return cli.PrintError(out, fmt.Errorf("--file path is required when --type is set to 'binary'"), "validation failed")
-				}
-				// Проверяем MVP лимит на размер файла перед чтением в память (Защита СУБД)
-				fileInfo, err := os.Stat(filePath)
-				if err != nil {
-					return cli.PrintError(out, err, fmt.Sprintf("failed to stat file %q", filePath))
-				}
-				if fileInfo.Size() > maxBinarySize {
-					return cli.PrintError(out, fmt.Errorf("file size exceeds MVP limit of 10 Megabytes (got %d bytes)", fileInfo.Size()), "file error")
-				}
-
-				finalPayload, err = os.ReadFile(filePath)
-				if err != nil {
-					return cli.PrintError(out, err, "failed to read binary file")
-				}
-			} else {
-				if payloadStr == "" {
-					return cli.PrintError(out, fmt.Errorf("--payload content is required for type '%s'", secretType), "validation failed")
-				}
-				finalPayload = []byte(payloadStr)
+			// Проверка доменного инварианта типов секретов
+			switch secretType {
+			case "credentials", "text", "binary", "card":
+				// Тип валиден
+			default:
+				return cli.PrintError(out, fmt.Errorf("%w: %q", ErrInvalidSecretType, secretType), "валидация флагов")
 			}
 
-			// Упаковываем payload и metadata в единый plaintext JSON-блок (Защита от Metadata Leakage)
+			// Извлечение метаданных
+			metadataMap, err := parseMetadata(metaStr)
+			if err != nil {
+				return cli.PrintError(out, err, "параметры метаданных")
+			}
+
+			// Извлечение полезной нагрузки (внутри происходит RAM-контроль размера файла)
+			finalPayload, err := resolvePayload(secretType, payloadStr, filePath)
+			if err != nil {
+				return cli.PrintError(out, err, "чтение контента записи")
+			}
+
+			// Упаковываем payload и metadata в единый монолитный блок (Защита от Metadata Leakage)
 			plainBytes, err := security.PackRecordPlaintext(finalPayload, metadataMap)
 			if err != nil {
-				return cli.PrintError(out, err, "crypto error: failed to pack plaintext layout")
+				security.SecretBytes(finalPayload).Destroy() // Очищаем RAM при сбое
+				return cli.PrintError(out, err, "криптографическая упаковка plaintext")
 			}
 
-			// Гарантируем зануление промежуточных байт структуры в куче
+			// Гарантируем уничтожение сырых данных в памяти по выходу из конвейера
 			defer func() {
-				for i := range plainBytes {
-					plainBytes[i] = 0
-				}
-				for i := range finalPayload {
-					finalPayload[i] = 0
+				security.SecretBytes(plainBytes).Destroy()
+				security.SecretBytes(finalPayload).Destroy()
+				slog.Debug("Сырые байты секрета успешно затерты в оперативной памяти (RAM Hygiene)")
+			}()
+
+			// Открываем существующее изолированное рантайм окружение приложения
+			app, err := cli.App(ctx)
+			if err != nil {
+				return cli.PrintError(out, err, "запуск контекста приложения")
+			}
+
+			// Сборка зависимостей внутри Composition Root команды
+			agentClient, err := sshagent.NewFromEnv()
+			if err != nil {
+				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+			}
+
+			agentClosedChecked := false
+			defer func() {
+				if !agentClosedChecked {
+					if closeErr := agentClient.Close(); closeErr != nil {
+						slog.Error("Не удалось закрыть UNIX-сокет агента в defer create", "error", closeErr)
+					}
 				}
 			}()
 
-			// 3. Открываем существующее runtime окружение приложения
-			app, err := cli.App(cmd.Context())
-			if err != nil {
-				return cli.PrintError(out, err, "failed to open application runtime")
-			}
-
-			// 4. Инициализируем провайдеры и сервис «на лету» внутри Composition Root
-			agentClient, err := sshagent.NewFromEnv()
-			if err != nil {
-				return cli.PrintError(out, err, "connect to ssh-agent")
-			}
-			defer agentClient.Close()
-
-			secretStore := sqlite.NewSQLiteSecretStore(app.DB)
-			deviceStore := sqlite.NewSQLiteDeviceStore(app.DB)
+			secretStore := sqlite.NewSQLiteSecretStore(app.DB())
+			deviceStore := sqlite.NewSQLiteDeviceStore(app.DB())
 			secretService := service.NewSecretService(secretStore, deviceStore, agentClient)
 
-			// 5. Запускаем криптографический конвейер шифрования записи
-			err = secretService.CreateSecret(cmd.Context(), name, secretType, plainBytes)
+			// Запускаем криптографический конвейер шифрования записи XChaCha20-Poly1305
+			slog.Info("Передача монолитного пакета в криптографический сервис шифрования")
+			err = secretService.CreateSecret(ctx, name, secretType, plainBytes)
 			if err != nil {
-				return cli.PrintError(out, err, "crypto error: failed to encrypt and save record")
+				return cli.PrintError(out, err, "криптографический сбой сохранения записи")
 			}
 
-			// Выводим финальный результат работы команды через общий билдер
-			payload := CreateResponse{
+			// Безопасно финализируем соединение с агентом до вывода результатов
+			if closeErr := agentClient.Close(); closeErr != nil {
+				slog.Error("Не удалось закрыть дескриптор сокета агента при успешном выходе", "error", closeErr)
+			}
+			agentClosedChecked = true
+
+			payloadOut := CreateResponse{
 				Name: name,
 				Type: secretType,
 			}
 
-			cli.PrintResult(out, payload, func() {
-				fmt.Fprintf(out, "Unlocking master key via ssh-agent and encrypting record %q...\n", name)
-				fmt.Fprintf(out, "✔ Success! Record %q [%s] securely saved and protected under AccountMasterKey.\n", name, secretType)
+			cli.PrintResult(out, payloadOut, func() {
+				fmt.Fprintf(out, "Вскрытие мастер-конверта через ssh-agent и запечатывание записи %q...\n", name)
+				fmt.Fprintf(out, "✔ Успех! Запись %q [%s] надежно зашифрована и сохранена под AccountMasterKey.\n", name, secretType)
 			})
 
 			return nil
 		}),
 	}
 
-	// Регистрируем эфемерные флаги
-	cmd.Flags().String("name", "", "Human-readable unique identifier for searching")
-	cmd.Flags().String("type", "", "Type of secret (credentials, text, binary, card)")
-	cmd.Flags().String("payload", "", "Secret payload content (password, text data)")
-	cmd.Flags().String("file", "", "Path to a binary file (only for --type=binary)")
-
-	// ЛОКАЛЬНАЯ ОПЦИЯ КОМАНДЫ CREATE: Защищенный контекст метаинформации
-	cmd.Flags().String("meta", "{}", "Optional metadata in flat JSON format object '{\"key\":\"value\"}'")
+	// Регистрация эфемерных флагов
+	cmd.Flags().String("name", "", "Уникальное человекочитаемое имя записи для поиска")
+	cmd.Flags().String("type", "", "Тип шифруемого секрета (credentials, text, binary, card)")
+	cmd.Flags().String("payload", "", "Текстовое содержимое секрета (пароль, токен, строка)")
+	cmd.Flags().String("file", "", "Абсолютный путь к бинарному файлу на диске (только для --type=binary)")
+	cmd.Flags().String("meta", "{}", "Дополнительные метаданные в плоском JSON-формате '{\"ключ\":\"значение\"}'")
 
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("type")
 
 	return cmd
+}
+
+// parseMetadata парсит и изолирует валидацию строки метаданных
+func parseMetadata(metaStr string) (map[string]string, error) {
+	var metadataMap map[string]string
+	if err := json.Unmarshal([]byte(metaStr), &metadataMap); err != nil {
+		slog.Error("Парсинг флага --meta завершился ошибкой синтаксиса", "error", err)
+		return nil, fmt.Errorf("неверный формат --meta: параметр обязан быть валидным плоским JSON-объектом вида '{\"ключ\": \"значение\"}'")
+	}
+	return metadataMap, nil
+}
+
+// resolvePayload изолирует чтение и RAM-контроль входящих данных по типу секрета
+func resolvePayload(secretType, payloadStr, filePath string) ([]byte, error) {
+	if secretType == "binary" {
+		if strings.TrimSpace(filePath) == "" {
+			return nil, errors.New("флаг --file обязателен, если тип секрета установлен в 'binary'")
+		}
+
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			slog.Error("Не удалось выполнить stat для указанного бинарного файла", "path", filePath, "error", err)
+			return nil, fmt.Errorf("файл %q не найден или недоступен", filePath)
+		}
+
+		if fileInfo.Size() > maxBinarySize {
+			slog.Warn("Заблокирована попытка загрузить файл, превышающий лимиты MVP", "size", fileInfo.Size())
+			return nil, fmt.Errorf("размер файла превышает лимит безопасности в 10 Мегабайт (передано: %d байт)", fileInfo.Size())
+		}
+
+		finalPayload, err := os.ReadFile(filePath)
+		if err != nil {
+			slog.Error("Сбой чтения бинарного файла с диска в кучу", "path", filePath, "error", err)
+			return nil, fmt.Errorf("ошибка чтения бинарного файла")
+		}
+		return finalPayload, nil
+	}
+
+	if strings.TrimSpace(payloadStr) == "" {
+		return nil, fmt.Errorf("флаг --payload не может быть пустым для типа секрета '%s'", secretType)
+	}
+	return []byte(payloadStr), nil
 }
