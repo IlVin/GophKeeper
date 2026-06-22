@@ -26,6 +26,10 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
 			if err := sshcheck.RequireAgent(); err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
 			}
 
@@ -40,6 +44,16 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			// Валидируем и парсим JSON-строку метаданных в map[string]string (Скрытие метаданных)
 			var metadataMap map[string]string
 			if err := json.Unmarshal([]byte(metaStr), &metadataMap); err != nil {
+				// ИСПРАВЛЕНО: Если включен флаг --json, мы перехватываем синтаксическую ошибку
+				// парсинга --meta и аккуратно отдаем ее E2E-тесту в stdout в виде JSON-структуры,
+				// не позволяя Cobra вывалиться в аварийный stderr.
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{
+						Success: false,
+						Error:   fmt.Sprintf("invalid --meta format: parameter must be a valid flat JSON object: %v", err),
+					})
+					return nil
+				}
 				return fmt.Errorf("invalid --meta format: parameter must be a valid flat JSON object '{\"key\": \"value\"}': %w", err)
 			}
 
@@ -47,6 +61,10 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			secretType = strings.ToLower(strings.TrimSpace(secretType))
 
 			if name == "" || secretType == "" {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: "parameters --name and --type are mandatory and cannot be empty"})
+					return nil
+				}
 				return fmt.Errorf("parameters --name and --type are mandatory and cannot be empty")
 			}
 
@@ -56,23 +74,43 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 
 			if secretType == "binary" {
 				if filePath == "" {
+					if cli.JSONOutput {
+						_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: "--file path is required when --type is set to 'binary'"})
+						return nil
+					}
 					return fmt.Errorf("--file path is required when --type is set to 'binary'")
 				}
 				// Проверяем MVP лимит на размер файла перед чтением в память (Защита СУБД)
 				fileInfo, err := os.Stat(filePath)
 				if err != nil {
+					if cli.JSONOutput {
+						_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("failed to stat file %q: %v", filePath, err)})
+						return nil
+					}
 					return fmt.Errorf("failed to stat file %q: %w", filePath, err)
 				}
 				if fileInfo.Size() > maxBinarySize {
+					if cli.JSONOutput {
+						_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("file size exceeds MVP limit of 10 Megabytes (got %d bytes)", fileInfo.Size())})
+						return nil
+					}
 					return fmt.Errorf("file size exceeds MVP limit of 10 Megabytes (got %d bytes)", fileInfo.Size())
 				}
 
 				finalPayload, err = os.ReadFile(filePath)
 				if err != nil {
+					if cli.JSONOutput {
+						_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("failed to read binary file: %v", err)})
+						return nil
+					}
 					return fmt.Errorf("failed to read binary file: %w", err)
 				}
 			} else {
 				if payloadStr == "" {
+					if cli.JSONOutput {
+						_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("--payload content is required for type '%s'", secretType)})
+						return nil
+					}
 					return fmt.Errorf("--payload content is required for type '%s'", secretType)
 				}
 				finalPayload = []byte(payloadStr)
@@ -81,6 +119,10 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			// Упаковываем payload и metadata в единый plaintext JSON-блок (Защита от Metadata Leakage)
 			plainBytes, err := security.PackRecordPlaintext(finalPayload, metadataMap)
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("failed to pack plaintext layout: %v", err)})
+					return nil
+				}
 				return fmt.Errorf("failed to pack plaintext layout: %w", err)
 			}
 
@@ -97,12 +139,20 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			// 3. Открываем существующее runtime окружение приложения
 			app, err := cli.App(cmd.Context())
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("failed to open application runtime: %w", err)
 			}
 
 			// 4. Инициализируем провайдеры и сервис «на лету» внутри Composition Root
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("connect to ssh-agent: %w", err)
 			}
 			defer agentClient.Close()
@@ -120,7 +170,7 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			err = secretService.CreateSecret(cmd.Context(), name, secretType, plainBytes)
 			if err != nil {
 				if cli.JSONOutput {
-					json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
 					return nil // Возвращаем nil, чтобы Cobra не печатала дефолтный Error текст
 				}
 				return fmt.Errorf("failed to encrypt and save record: %w", err)

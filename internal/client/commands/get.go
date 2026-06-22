@@ -22,6 +22,10 @@ func newGetCommand(cli *CLI) *cobra.Command {
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
 			if err := sshcheck.RequireAgent(); err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
 			}
 
@@ -31,18 +35,30 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			name, _ := flags.GetString("name")
 
 			if id == "" && name == "" {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: "you must provide either --name or --id flag to lookup a secret"})
+					return nil
+				}
 				return fmt.Errorf("you must provide either --name or --id flag to lookup a secret")
 			}
 
 			// 2. Открываем существующее runtime окружение приложения
 			app, err := cli.App(cmd.Context())
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("failed to open application runtime: %w", err)
 			}
 
 			// 3. Сборка зависимостей «на лету» внутри Composition Root
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("connect to ssh-agent: %w", err)
 			}
 			defer agentClient.Close()
@@ -72,6 +88,13 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			// Вызов конвейера дешифрования (Возвращает монолитный расшифрованный JSON-блок)
 			recordName, plainBytes, err := secretService.UnsealSecret(cmd.Context(), targetKey, isFindByID)
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{
+						Success: false,
+						Error:   fmt.Sprintf("failed to decrypt secret: %v", err),
+					})
+					return nil // ИСПРАВЛЕНО: Добавлен обязательный return nil, чтобы прервать рантайм!
+				}
 				return fmt.Errorf("failed to decrypt secret: %w", err)
 			}
 

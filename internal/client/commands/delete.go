@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -21,6 +22,10 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
 			if err := sshcheck.RequireAgent(); err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
 			}
 
@@ -30,18 +35,30 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 			id = strings.TrimSpace(id)
 
 			if id == "" {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: "parameter --id is mandatory and cannot be empty"})
+					return nil
+				}
 				return fmt.Errorf("parameter --id is mandatory and cannot be empty")
 			}
 
 			// 2. Открываем существующее runtime окружение приложения
 			app, err := cli.App(cmd.Context())
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("failed to open application runtime: %w", err)
 			}
 
 			// 3. Сборка зависимостей «на лету» внутри Composition Root
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil
+				}
 				return fmt.Errorf("connect to ssh-agent: %w", err)
 			}
 			defer agentClient.Close()
@@ -52,22 +69,50 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 
 			// Криптографический барьер проверки владельца
 			if err := secretService.VerifyOwner(cmd.Context()); err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("access denied: %v", err)})
+					return nil
+				}
 				return err
 			}
 
 			// 4. Проверяем существование записи перед удалением для вменяемого UX
 			record, err := secretStore.GetByID(cmd.Context(), id)
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("failed to check record existence: %v", err)})
+					return nil
+				}
 				return fmt.Errorf("failed to check record existence: %w", err)
 			}
 			if record == nil {
+				// ИСПРАВЛЕНО: Убираем падение в stderr. Если записи нет, отдаем красивую ошибку в stdout JSON-пакетом
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{
+						Success: false,
+						Error:   fmt.Sprintf("record with ID %q not found in the vault", id),
+					})
+					return nil
+				}
 				return fmt.Errorf("record with ID %q not found in the vault", id)
 			}
 
 			// 5. Вызываем удаление в сервисе
 			err = secretService.DeleteSecret(cmd.Context(), id)
 			if err != nil {
+				if cli.JSONOutput {
+					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fmt.Sprintf("failed to delete record: %v", err)})
+					return nil
+				}
 				return fmt.Errorf("failed to delete record: %w", err)
+			}
+
+			if cli.JSONOutput {
+				resp := CLIResponse{
+					Success: true,
+					Data:    map[string]string{"id": id, "status": "DELETED"},
+				}
+				return json.NewEncoder(out).Encode(resp)
 			}
 
 			fmt.Fprintf(out, "✔ Success! Record %q (ID: %s) has been permanently removed from the vault.\n", record.Name, id)
