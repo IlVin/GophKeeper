@@ -12,27 +12,28 @@ jobs:
   
   tests-e2e:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:alpine
-        env:
-          POSTGRES_USER: gophkeeper
-          POSTGRES_PASSWORD: gophkeeper_pswd
-          POSTGRES_DB: gophkeeper
-        ports:
-          - 5432:5432
-        # Ждем, пока Postgres станет доступен для приема подключений (Healthcheck)
-        options: >-
-          --health-cmd "pg_isready -U gophkeeper"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-go@v5
       with:
         go-version: '1.26'
+
+    - name: Start Native Ubuntu PostgreSQL Service
+      run: |
+        # Запускаем системную службу postgresql, предустановленную в Ubuntu Runner
+        sudo systemctl start postgresql.service
+        
+        # Меняем пароль дефолтного пользователя postgres на наш тестовый канон
+        sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'gophkeeper_pswd';"
+        
+        # Создаем целевую пустую базу данных для миграций gRPC сервера
+        sudo -u postgres psql -c "CREATE DATABASE gophkeeper;"
+        
+        # Создаем пользователя gophkeeper с нужными правами
+        sudo -u postgres psql -c "CREATE USER gophkeeper WITH PASSWORD 'gophkeeper_pswd';"
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE gophkeeper TO gophkeeper;"
+        sudo -u postgres psql -c "ALTER DATABASE gophkeeper OWNER TO gophkeeper;"
 
     - name: Start Ephemeral SSH Agent and Generate Test Key
       run: |
