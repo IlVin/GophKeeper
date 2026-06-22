@@ -181,11 +181,15 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 	query := `
 		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT(id) DO UPDATE SET
-			name = EXCLUDED.name,
-			type = EXCLUDED.type,
-			envelope = EXCLUDED.envelope,
-			updated_at = EXCLUDED.updated_at;`
+		ON CONFLICT(id) DO
+			UPDATE SET
+				user_id = EXCLUDED.user_id,
+				name = EXCLUDED.name,
+				type = EXCLUDED.type,
+				envelope = EXCLUDED.envelope,
+				created_at = EXCLUDED.created_at,
+				updated_at = EXCLUDED.updated_at
+			WHERE EXCLUDED.updated_at > records.updated_at;` // СТРОГИЙ КРИТЕРИЙ LWW: Обновляем только если пакет из облака СВЕЖЕЕ локального!
 
 	var userIDStr sql.NullString
 	if r.UserID != nil {

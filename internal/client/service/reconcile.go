@@ -227,7 +227,6 @@ func (s *InitService) ReconcileContainer(
 	}
 
 	if dbTx, ok := s.deviceStore.(transactedReconciler); ok {
-		fmt.Println("[DEBUG Reconcile] transactedReconciler interface matched. Invoking ExecuteReconcileTransaction...")
 		return dbTx.ExecuteReconcileTransaction(ctx, updatedState, migratedRecords)
 	}
 
