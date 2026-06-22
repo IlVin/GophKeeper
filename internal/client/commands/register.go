@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -34,7 +33,7 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 
 			// 1. ПРОВЕРКА МАТРИЦЫ PRECONDITIONS (SSH Agent обязателен)
 			if err := sshcheck.RequireAgent(); err != nil {
-				return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
+				return cli.PrintError(out, err, "ssh agent error")
 			}
 
 			// Разбираем эфемерные параметры вызова (УБРАН флаг --pub-key)
@@ -46,13 +45,13 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 			// 2. ПРОВЕРКА СОСТОЯНИЯ КОНТЕЙНЕРА (Жесткий барьер конечного автомата жизненного цикла)
 			app, err := cli.App(cmd.Context())
 			if err != nil {
-				return fmt.Errorf("client environment is not initialized: run 'gophkeeper init' first: %w", err)
+				return cli.PrintError(out, err, "client environment is not initialized: run 'gophkeeper init' first")
 			}
 
 			deviceStore := sqlite.NewSQLiteDeviceStore(app.DB)
 			localState, err := deviceStore.ReadDeviceState(cmd.Context())
 			if err != nil {
-				return fmt.Errorf("failed to read local device state: %w", err)
+				return cli.PrintError(out, err, "failed to read local device state")
 			}
 
 			// Настоящим критерием успешной сетевой регистрации является наличие mTLS паспорта устройства
@@ -61,27 +60,27 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 				if localState.ServerURL != nil {
 					serverURLStr = *localState.ServerURL
 				}
-				return fmt.Errorf("client container is already registered and issued an mTLS passport (Server URL: %s, UserID: %s)",
-					serverURLStr, *localState.UserID)
+				statusErr := fmt.Errorf("client container is already registered and issued an mTLS passport (Server URL: %s, UserID: %s)", serverURLStr, *localState.UserID)
+				return cli.PrintError(out, statusErr, "validation failed")
 			}
 
 			// 3. РАБОТА С SSH КЛЮЧОМ И АГЕНТОМ (ИСПРАВЛЕНО: Достаем ключ напрямую из локальной БД)
 			dbPubKey, err := ssh.ParsePublicKey(localState.SshPublicKey)
 			if err != nil {
-				return fmt.Errorf("failed to parse public key saved in local database: %w", err)
+				return cli.PrintError(out, err, "failed to parse public key saved in local database")
 			}
 			expectedFingerprint := sshagent.FingerprintSHA256(dbPubKey)
 
 			// Проверяем реальное наличие в ssh-agent ключа, с которым делали init
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return fmt.Errorf("failed to connect to ssh-agent: %w", err)
+				return cli.PrintError(out, err, "failed to connect to ssh-agent")
 			}
 			defer agentClient.Close()
 
 			if _, err = agentClient.FindED25519ByFingerprint(expectedFingerprint); err != nil {
-				return fmt.Errorf("the root cryptographic key used during 'init' (%s) must be active in your ssh-agent. Please run 'ssh-add'",
-					expectedFingerprint)
+				agentErr := fmt.Errorf("the root cryptographic key used during 'init' (%s) must be active in your ssh-agent. Please run 'ssh-add'", expectedFingerprint)
+				return cli.PrintError(out, agentErr, "access denied")
 			}
 
 			// 4. НАСТРОЙКА СЕТЕВОГО ТРАНСПОРТА (Строго изолированный TLS 1.3 с динамическим Hostname)
@@ -90,14 +89,10 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 				targetHost = serverAddr
 			}
 
-			if !cli.JSONOutput {
-				fmt.Fprintf(out, "Opening secure TLS 1.3 channel to %s [TLS SNI: %s]...\n", serverAddr, targetHost)
-			}
-
 			// ИСПРАВЛЕНО: Вызываем ваш канонический загрузчик встроенного пула доверия
 			serverCAPool, err := certs.LoadServerCAPool()
 			if err != nil {
-				return fmt.Errorf("failed to initialize embedded trust store: %w", err)
+				return cli.PrintError(out, err, "failed to initialize embedded trust store")
 			}
 
 			tlsCfg := &tls.Config{
@@ -111,7 +106,7 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 				grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 			)
 			if err != nil {
-				return fmt.Errorf("failed to create gRPC client instance: %w", err)
+				return cli.PrintError(out, err, "failed to create gRPC client instance")
 			}
 			defer conn.Close()
 
@@ -129,47 +124,37 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 					break
 				}
 				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
-					return fmt.Errorf("gRPC secure transport connection failed (state: %s)", state)
+					connErr := fmt.Errorf("gRPC secure transport connection failed (state: %s)", state)
+					return cli.PrintError(out, connErr, "network error")
 				}
 				if !conn.WaitForStateChange(ctx, state) {
-					return fmt.Errorf("timeout waiting for secure TLS 1.3 handshake to complete")
+					timeoutErr := fmt.Errorf("timeout waiting for secure TLS 1.3 handshake to complete")
+					return cli.PrintError(out, timeoutErr, "network error")
 				}
 			}
 
 			// 5. ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ И ЗАПУСК КРИПТОГРАФИЧЕСКОГО КОНВЕЙЕРА (Composition Root)
-			if !cli.JSONOutput {
-				fmt.Fprintln(out, "Initiating two-step passwordless registration protocol...")
-			}
-
 			initService := service.NewInitService(deviceStore, agentClient)
 			regService := service.NewRegisterService(deviceStore, initService, agentClient, conn)
 
 			err = regService.RunRegistration(cmd.Context(), serverAddr)
 			if err != nil {
-				if cli.JSONOutput {
-					_ = json.NewEncoder(out).Encode(CLIResponse{
-						Success: false,
-						Error:   fmt.Sprintf("registration pipeline crashed: %v", err),
-					})
-					return nil
-				}
-				return fmt.Errorf("registration workflow failed: %w", err)
+				return cli.PrintError(out, err, "registration pipeline crashed")
 			}
 
-			if cli.JSONOutput {
-				resp := CLIResponse{
-					Success: true,
-					Data: RegisterResponse{
-						UserID:    expectedFingerprint,
-						ServerURL: serverAddr,
-						Status:    "REGISTERED",
-					},
-				}
-				return json.NewEncoder(out).Encode(resp)
+			// Выводим финальный результат работы команды
+			payload := RegisterResponse{
+				UserID:    expectedFingerprint,
+				ServerURL: serverAddr,
+				Status:    "REGISTERED",
 			}
 
-			fmt.Fprintf(out, "\n✔ Success! Device securely bound to account %q on the server.\n", expectedFingerprint)
-			fmt.Fprintln(out, "mTLS container certificate received and database status shifted to: REGISTERED")
+			cli.PrintResult(out, payload, func() {
+				fmt.Fprintf(out, "Opening secure TLS 1.3 channel to %s [TLS SNI: %s]...\n", serverAddr, targetHost)
+				fmt.Fprintln(out, "Initiating two-step passwordless registration protocol...")
+				fmt.Fprintf(out, "\n✔ Success! Device securely bound to account %q on the server.\n", expectedFingerprint)
+				fmt.Fprintln(out, "mTLS container certificate received and database status shifted to: REGISTERED")
+			})
 
 			return nil
 		},

@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -261,4 +263,40 @@ func (c *CLI) deviceStoreReader(ctx context.Context) (*repository.LocalDeviceSta
 
 	deviceStore := sqlite.NewSQLiteDeviceStore(db)
 	return deviceStore.ReadDeviceState(ctx)
+}
+
+// PrintResult автоматически определяет формат (JSON API или текст) для успешного вывода.
+// Если включен JSON, он заворачивает payload в CLIResponse{Success: true, Data: payload}.
+// Если выключен — вызывает пользовательскую функцию textRender для человекочитаемой печати.
+func (c *CLI) PrintResult(out io.Writer, payload interface{}, textRender func()) {
+	if c.JSONOutput {
+		_ = json.NewEncoder(out).Encode(CLIResponse{
+			Success: true,
+			Data:    payload,
+		})
+		return
+	}
+	// Если флага --json нет, запускаем красивый псевдографический вывод для человека
+	textRender()
+}
+
+// PrintError централизованно обрабатывает любые сбои рантайма.
+// Если включен JSON, он выплевывает в stdout структуру CLIResponse{Success: false, Error: ...} и возвращает nil, гася панику Cobra.
+// Если выключен — возвращает оригинальную ошибку для стандартного вывода Cobra в stderr.
+func (c *CLI) PrintError(out io.Writer, err error, contextMessage string) error {
+	if err == nil {
+		return nil
+	}
+
+	fullErr := fmt.Errorf("%s: %w", contextMessage, err)
+
+	if c.JSONOutput {
+		_ = json.NewEncoder(out).Encode(CLIResponse{
+			Success: false,
+			Error:   fullErr.Error(),
+		})
+		return nil // Возвращаем nil, чтобы Cobra не дублировала текст ошибки в stderr
+	}
+
+	return fullErr
 }

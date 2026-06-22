@@ -3,7 +3,6 @@ package commands
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"time"
@@ -25,48 +24,47 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Synchronize local encrypted vault container with GophKeeper cloud",
-		//withOwnerCheck middleware гарантирует, что чужой ключ не вызовет команду
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
 
 			app, err := cli.App(ctx)
 			if err != nil {
-				return fmt.Errorf("runtime error: %w", err)
+				return cli.PrintError(out, err, "runtime error")
 			}
 
 			deviceStore := sqlite.NewSQLiteDeviceStore(app.DB)
 			state, err := deviceStore.ReadDeviceState(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to read state: %w", err)
+				return cli.PrintError(out, err, "failed to read state")
 			}
 
-			// Для выполнения sync достаточно иметь валидный адрес сервера, UUID пользователя и mTLS сертификат!
+			// Для выполнения sync достаточно иметь валидный адрес сервера, UUID пользователя и mTLS сертификат
 			if state.ServerURL == nil || *state.ServerURL == "" || state.ClientCertificate == nil {
-				return fmt.Errorf("container is not registered: please run 'gophkeeper register' first")
+				return cli.PrintError(out, fmt.Errorf("container is not registered: please run 'gophkeeper register' first"), "validation failed")
 			}
 
 			// =================================================================
-			// КРИПТОГРАФИЧЕСКИЙ ВЫВОД КЛЮЧЕЙ И ВСКРЫТИЕ mTLS КЛЮЧА (Инвариант №9)
+			// КРИПТОГРАФИЧЕСКИЙ ВЫВОД КЛЮЧЕЙ И ВСКРЫТИЕ mTLS КЛЮЧА
 			// =================================================================
 
 			// 1. Подключаемся к ssh-agent для получения деривационной подписи
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return fmt.Errorf("connect to ssh-agent: %w", err)
+				return cli.PrintError(out, err, "connect to ssh-agent")
 			}
 			defer agentClient.Close()
 
 			dbPubKey, err := ssh.ParsePublicKey(state.SshPublicKey)
 			if err != nil {
-				return fmt.Errorf("failed to parse key wire: %w", err)
+				return cli.PrintError(out, err, "failed to parse key wire")
 			}
 			fingerprint := sshagent.FingerprintSHA256(dbPubKey)
 
 			derivationPayload := security.NewDerivationPayload(fingerprint)
 			rawDerivationSig, err := agentClient.SignED25519Raw(fingerprint, derivationPayload.Marshal())
 			if err != nil {
-				return fmt.Errorf("ssh-agent failed to sign derivation payload: %w", err)
+				return cli.PrintError(out, err, "ssh-agent failed to sign derivation payload")
 			}
 			derivationSignature := security.SecretBytes(rawDerivationSig)
 			defer derivationSignature.Destroy()
@@ -74,55 +72,54 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 			// 2. Выводим AccountUnlockKey
 			unlockKey, err := security.DeriveAccountUnlockKey(derivationSignature, state.AccountSalt)
 			if err != nil {
-				return fmt.Errorf("failed to derive unlock key: %w", err)
+				return cli.PrintError(out, err, "failed to derive unlock key")
 			}
 			defer unlockKey.Destroy()
 
 			// 3. Выводим DeviceKEK на базе DeviceID контейнера
 			deviceKEK, err := security.DeriveDeviceKEK(unlockKey, []byte(state.DeviceID))
 			if err != nil {
-				return fmt.Errorf("failed to derive device kek: %w", err)
+				return cli.PrintError(out, err, "failed to derive device kek")
 			}
 			defer deviceKEK.Destroy()
 
-			// 4. Расшифровываем MtlsPrivateKey с помощью DeviceKEK (Слепое вскрытие пакета)
+			// 4. Расшифровываем MtlsPrivateKey с помощью DeviceKEK
 			deviceAAD := security.BuildDeviceMasterKeyAAD(state.UserID, state.DeviceID)
 
-			// ИСПРАВЛЕНО: Удален лишний четвертый строковый аргумент, мешавший компиляции
 			rawMtlsKeyBytes, err := security.OpenEnvelope(deviceKEK, *state.EncryptedMtlsPrivateKey, deviceAAD)
 			if err != nil {
-				return fmt.Errorf("failed to unlock container mTLS private key envelope: %w", err)
+				return cli.PrintError(out, err, "failed to unlock container mTLS private key envelope")
 			}
 			mtlsSecret := security.SecretBytes(rawMtlsKeyBytes)
 			defer mtlsSecret.Destroy()
 
-			// 5. Десериализуем и восстанавливаем ecdsa.PrivateKey из стандарта PKCS#8
+			// 5. Десериализуем и восстанавливаем ecdsa.PrivateKey
 			mtlsPrivKey, err := x509.ParsePKCS8PrivateKey(mtlsSecret)
 			if err != nil {
-				return fmt.Errorf("failed to parse decrypted mtls private key: %w", err)
+				return cli.PrintError(out, err, "failed to parse decrypted mtls private key")
 			}
 
 			// 6. Парсим бинарный x509 DER-сертификат
 			x509Cert, err := x509.ParseCertificate(*state.ClientCertificate)
 			if err != nil {
-				return fmt.Errorf("failed to parse cached mTLS certificate: %w", err)
+				return cli.PrintError(out, err, "failed to parse cached mTLS certificate")
 			}
 
-			// Декодируем текстовый PEM встроенного Device CA в сырые бинарные байты ASN.1 DER
+			// Декодируем текстовый PEM встроенного Device CA
 			block, _ := pem.Decode(certs.DeviceCAPEM())
 			if block == nil || block.Type != "CERTIFICATE" {
-				return fmt.Errorf("failed to decode embedded device ca PEM for mTLS chain")
+				return cli.PrintError(out, fmt.Errorf("failed to decode embedded device ca PEM for mTLS chain"), "crypto error")
 			}
 			embeddedDeviceCaDER := block.Bytes
 
-			// Конструируем полноценный mTLS паспорт для рантайма сетевого TLS Go
+			// Конструируем полноценный mTLS паспорт
 			clientCert := tls.Certificate{
 				Certificate: [][]byte{
 					*state.ClientCertificate,
 					embeddedDeviceCaDER,
 				},
 				Leaf:       x509Cert,
-				PrivateKey: mtlsPrivKey, // Теперь приватный ключ на месте!
+				PrivateKey: mtlsPrivKey,
 			}
 
 			// =================================================================
@@ -131,31 +128,29 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 
 			serverCAPool, err := certs.LoadServerCAPool()
 			if err != nil {
-				return err
+				return cli.PrintError(out, err, "failed to load server ca pool")
 			}
 
 			tlsCfg := &tls.Config{
 				MinVersion:   tls.VersionTLS13,
 				RootCAs:      serverCAPool,
 				Certificates: []tls.Certificate{clientCert},
-				ServerName:   "localhost", // SNI валидация хоста
+				ServerName:   "localhost",
 			}
 
 			conn, err := grpc.NewClient(*state.ServerURL, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
 			if err != nil {
-				return fmt.Errorf("network error: %w", err)
+				return cli.PrintError(out, err, "network error")
 			}
 			defer conn.Close()
 
 			syncClient := pb.NewSyncServiceClient(conn)
 			secretStore := sqlite.NewSQLiteSecretStore(app.DB)
 
-			fmt.Fprintln(out, "Establishing secure mTLS channel and fetching sync map...")
-
 			// Получаем локальные версии
 			localMeta, err := secretStore.GetSyncMetadata(ctx)
 			if err != nil {
-				return fmt.Errorf("local store read failed: %w", err)
+				return cli.PrintError(out, err, "local store read failed")
 			}
 
 			var protoVersions []*pb.RecordVersion
@@ -166,10 +161,10 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 				})
 			}
 
-			// RPC вызов SyncCheck (LWW верификация)
+			// RPC вызов SyncCheck
 			checkResp, err := syncClient.SyncCheck(ctx, &pb.SyncCheckRequest{LocalVersions: protoVersions})
 			if err != nil {
-				return fmt.Errorf("sync check failed: %w", err)
+				return cli.PrintError(out, err, "sync check failed")
 			}
 
 			// Исполняем фазу PULL
@@ -177,7 +172,7 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 			if len(checkResp.GetIdsToPull()) > 0 {
 				pullResp, err := syncClient.PullRecords(ctx, &pb.PullRecordsRequest{RecordIds: checkResp.GetIdsToPull()})
 				if err != nil {
-					return fmt.Errorf("pull failed: %w", err)
+					return cli.PrintError(out, err, "pull failed")
 				}
 
 				for _, r := range pullResp.GetRecords() {
@@ -193,7 +188,7 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 						UpdatedAt: uTime,
 					})
 					if err != nil {
-						return fmt.Errorf("failed to save pulled record: %w", err)
+						return cli.PrintError(out, err, "failed to save pulled record")
 					}
 					pulledCount++
 				}
@@ -221,26 +216,24 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 				if len(recordsToPush) > 0 {
 					_, err = syncClient.PushRecords(ctx, &pb.PushRecordsRequest{Records: recordsToPush})
 					if err != nil {
-						return fmt.Errorf("push failed: %w", err)
+						return cli.PrintError(out, err, "push failed")
 					}
 					pushedCount = len(recordsToPush)
 				}
 			}
 
-			if cli.JSONOutput {
-				resp := CLIResponse{
-					Success: true,
-					Data: SyncResponse{
-						Pulled: pulledCount,
-						Pushed: pushedCount,
-					},
-				}
-				return json.NewEncoder(out).Encode(resp)
+			// Выводим финальный результат работы команды
+			payload := SyncResponse{
+				Pulled: pulledCount,
+				Pushed: pushedCount,
 			}
 
-			fmt.Fprintln(out, "\n✔ Synchronization successful!")
-			fmt.Fprintf(out, "  Downloaded from cloud (Pull): %d\n", pulledCount)
-			fmt.Fprintf(out, "  Uploaded to cloud     (Push): %d\n", pushedCount)
+			cli.PrintResult(out, payload, func() {
+				fmt.Fprintln(out, "Establishing secure mTLS channel and fetching sync map...")
+				fmt.Fprintln(out, "\n✔ Synchronization successful!")
+				fmt.Fprintf(out, "  Downloaded from cloud (Pull): %d\n", pulledCount)
+				fmt.Fprintf(out, "  Uploaded to cloud     (Push): %d\n", pushedCount)
+			})
 
 			return nil
 		}),

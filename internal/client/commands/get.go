@@ -22,11 +22,7 @@ func newGetCommand(cli *CLI) *cobra.Command {
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
 			if err := sshcheck.RequireAgent(); err != nil {
-				if cli.JSONOutput {
-					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
-					return nil
-				}
-				return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
+				return cli.PrintError(out, err, "ssh agent error")
 			}
 
 			// Читаем эфемерные флаги поиска
@@ -35,31 +31,19 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			name, _ := flags.GetString("name")
 
 			if id == "" && name == "" {
-				if cli.JSONOutput {
-					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: "you must provide either --name or --id flag to lookup a secret"})
-					return nil
-				}
-				return fmt.Errorf("you must provide either --name or --id flag to lookup a secret")
+				return cli.PrintError(out, fmt.Errorf("you must provide either --name or --id flag to lookup a secret"), "validation failed")
 			}
 
 			// 2. Открываем существующее runtime окружение приложения
 			app, err := cli.App(cmd.Context())
 			if err != nil {
-				if cli.JSONOutput {
-					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
-					return nil
-				}
-				return fmt.Errorf("failed to open application runtime: %w", err)
+				return cli.PrintError(out, err, "failed to open application runtime")
 			}
 
 			// 3. Сборка зависимостей «на лету» внутри Composition Root
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				if cli.JSONOutput {
-					_ = json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
-					return nil
-				}
-				return fmt.Errorf("connect to ssh-agent: %w", err)
+				return cli.PrintError(out, err, "connect to ssh-agent")
 			}
 			defer agentClient.Close()
 
@@ -74,28 +58,15 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			if id != "" {
 				targetKey = id
 				isFindByID = true
-				if !cli.JSONOutput {
-					fmt.Fprintf(out, "Unlocking vault and fetching record by ID %q...\n", id)
-				}
 			} else {
 				targetKey = name
 				isFindByID = false
-				if !cli.JSONOutput {
-					fmt.Fprintf(out, "Unlocking vault and fetching record by name %q...\n", name)
-				}
 			}
 
 			// Вызов конвейера дешифрования (Возвращает монолитный расшифрованный JSON-блок)
 			recordName, plainBytes, err := secretService.UnsealSecret(cmd.Context(), targetKey, isFindByID)
 			if err != nil {
-				if cli.JSONOutput {
-					_ = json.NewEncoder(out).Encode(CLIResponse{
-						Success: false,
-						Error:   fmt.Sprintf("failed to decrypt secret: %v", err),
-					})
-					return nil // ИСПРАВЛЕНО: Добавлен обязательный return nil, чтобы прервать рантайм!
-				}
-				return fmt.Errorf("failed to decrypt secret: %w", err)
+				return cli.PrintError(out, err, "failed to decrypt secret")
 			}
 
 			// Гарантируем очистку расшифрованного монолитного блока из памяти после вывода
@@ -108,7 +79,7 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			// 5. РАСПАКОВКА СТРУКТУРЫ: Разделяем payload и metadata
 			var plain security.RecordPlaintext
 			if err := json.Unmarshal(plainBytes, &plain); err != nil {
-				return fmt.Errorf("failed to parse decrypted secret payload layout: %w", err)
+				return cli.PrintError(out, err, "failed to parse decrypted secret payload layout")
 			}
 
 			// Гарантируем зануление полей структуры в куче (RAM Hygiene)
@@ -125,35 +96,38 @@ func newGetCommand(cli *CLI) *cobra.Command {
 				}
 			}()
 
-			if cli.JSONOutput {
-				resp := CLIResponse{
-					Success: true,
-					Data: GetResponse{
-						Name:     recordName,
-						Payload:  string(plain.Payload),
-						Metadata: plain.Metadata,
-					},
-				}
-				return json.NewEncoder(out).Encode(resp)
+			// Выводим финальный результат работы команды
+			payload := GetResponse{
+				Name:     recordName,
+				Payload:  string(plain.Payload),
+				Metadata: plain.Metadata,
 			}
 
-			// 6. Выводим структурированный результат пользователю
-			fmt.Fprintln(out, "\n✔ Decryption successful!")
-			fmt.Fprintln(out, "================================================================================")
-			fmt.Fprintf(out, "  Secret Name: %s\n", recordName)
-			fmt.Fprintln(out, "================================================================================")
-			fmt.Fprintf(out, "  Secret Plaintext Payload: %s\n", string(plain.Payload))
-			fmt.Fprintln(out, "================================================================================")
-
-			if len(plain.Metadata) > 0 {
-				fmt.Fprintln(out, "  Decrypted Metadata:")
-				for key, val := range plain.Metadata {
-					fmt.Fprintf(out, "    [+] %s : %s\n", key, val)
+			cli.PrintResult(out, payload, func() {
+				if id != "" {
+					fmt.Fprintf(out, "Unlocking vault and fetching record by ID %q...\n", id)
+				} else {
+					fmt.Fprintf(out, "Unlocking vault and fetching record by name %q...\n", name)
 				}
-			} else {
-				fmt.Fprintln(out, "  Metadata: <none>")
-			}
-			fmt.Fprintln(out, "================================================================================")
+
+				// 6. Выводим структурированный результат пользователю
+				fmt.Fprintln(out, "\n✔ Decryption successful!")
+				fmt.Fprintln(out, "================================================================================")
+				fmt.Fprintf(out, "  Secret Name: %s\n", recordName)
+				fmt.Fprintln(out, "================================================================================")
+				fmt.Fprintf(out, "  Secret Plaintext Payload: %s\n", string(plain.Payload))
+				fmt.Fprintln(out, "================================================================================")
+
+				if len(plain.Metadata) > 0 {
+					fmt.Fprintln(out, "  Decrypted Metadata:")
+					for key, val := range plain.Metadata {
+						fmt.Fprintf(out, "    [+] %s : %s\n", key, val)
+					}
+				} else {
+					fmt.Fprintln(out, "  Metadata: <none>")
+				}
+				fmt.Fprintln(out, "================================================================================")
+			})
 
 			return nil
 		}),
