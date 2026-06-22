@@ -23,15 +23,15 @@ DOCKER_IMG=gophkeeper:latest
 
 COMPOSE_FILE=infra/compose.yml
 
+# --- Переменные окружения для путей по умолчанию ---
+# Разворачиваем переменные путей, куда Go-рантайм пишет оффлайн-контейнеры
+HOME_DIR := $(shell echo $$HOME)
+CLIENT_STATE_DIR := $(HOME_DIR)/.local/state/gophkeeper
+CLIENT_CONFIG_DIR := $(HOME_DIR)/.config/gophkeeper
+
 .PHONY: up down logs ps certs clean-certs
 
-## up: Старт сервисов проекта
-up:
-	docker compose -f $(COMPOSE_FILE) up -d --build
 
-## down: Погасить сервис
-down:
-	docker compose -f $(COMPOSE_FILE) down
 
 ## logs: Вывод логов
 logs:
@@ -60,6 +60,9 @@ test-unit:
 test-functional:
 	go test -tags=functional ./internal/adapters/sshagent -run Functional -count=1 -v
 
+test-e2e:
+	go test -tags=e2e ./internal/... -run E2E -count=1 -v
+
 test-race:
 	go test ./... -race -count=1
 
@@ -76,6 +79,10 @@ build-linux: gen-proto
 up: certs build-linux
 	@echo "Starting Docker containers..."
 	docker compose -f $(COMPOSE_FILE) up -d --build
+
+## down: Погасить сервис
+down:
+	docker compose -f $(COMPOSE_FILE) down
 
 .PHONY: certs
 certs:
@@ -126,6 +133,26 @@ proto-clean:
 	@echo "Cleaning generated proto artifacts..."
 	@rm -rf $(GEN_DIR)
 
+.PHONY: clean-vault
+## clean-vault: Принудительное уничтожение локальных криптоконтейнеров SQLite и конфигураций
+clean-vault:
+	@echo "Stopping synchronization processes and wiping local cryptographic storage..."
+	@# Удаляем все файлы баз данных (.db), WAL-журналы (-wal) и разделяемую память (-shm)
+	@rm -rf $(CLIENT_STATE_DIR)/*.db $(CLIENT_STATE_DIR)/*.db-wal $(CLIENT_STATE_DIR)/*.db-shm
+	@# Принудительно очищаем саму директорию состояния контейнеров
+	@rm -rf $(CLIENT_STATE_DIR)
+	@# Очищаем конфигурационный YAML-файл и его директорию
+	@rm -rf $(CLIENT_CONFIG_DIR)
+	@# Удаляем временные тестовые базы данных, если они создавались в корне репозитория
+	@rm -f *.db *.db-wal *.db-shm
+	@echo "✔ Success! All offline SQLite databases, WAL journals, and client configs have been securely deleted."
+
+.PHONY: clean-all
+## clean-all: Полная очистка репозитория (бинарники, protobuf, сертификаты и СУБД)
+clean: down clean-vault proto-clean
+	@echo "Purging compiled binaries..."
+	@rm -rf ./cmd/gophkeeper/gophkeeper ./cmd/gophkeeper-server/gophkeeper-server
+	@echo "✔ Entire local development state has been safely reset."
 
 # ## build: Сборка проекта
 # build:
@@ -168,15 +195,6 @@ proto-clean:
 # 	@echo "Running linter..."
 # 	./bin/golangci-lint run
 # 
-# ## clean: Удаление временных файлов и бинарников
-# clean:
-# 	@echo "Cleaning up..."
-# 	rm -f $(BINARY_NAME)
-# 	rm -f $(COVER_FILE)
-# 	rm -f coverage.html
-# 	rm -f ./storage.json
-# 	@echo "Resetting test cache..."
-# 	go clean -testcache
 # 
 # ## doc: Запуск локального сервера документации (godoc)
 # doc:

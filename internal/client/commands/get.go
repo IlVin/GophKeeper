@@ -58,11 +58,15 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			if id != "" {
 				targetKey = id
 				isFindByID = true
-				fmt.Fprintf(out, "Unlocking vault and fetching record by ID %q...\n", id)
+				if !cli.JSONOutput {
+					fmt.Fprintf(out, "Unlocking vault and fetching record by ID %q...\n", id)
+				}
 			} else {
 				targetKey = name
 				isFindByID = false
-				fmt.Fprintf(out, "Unlocking vault and fetching record by name %q...\n", name)
+				if !cli.JSONOutput {
+					fmt.Fprintf(out, "Unlocking vault and fetching record by name %q...\n", name)
+				}
 			}
 
 			// Вызов конвейера дешифрования (Возвращает монолитный расшифрованный JSON-блок)
@@ -97,6 +101,18 @@ func newGetCommand(cli *CLI) *cobra.Command {
 					delete(plain.Metadata, k)
 				}
 			}()
+
+			if cli.JSONOutput {
+				resp := CLIResponse{
+					Success: true,
+					Data: GetResponse{
+						Name:     recordName,
+						Payload:  string(plain.Payload),
+						Metadata: plain.Metadata,
+					},
+				}
+				return json.NewEncoder(out).Encode(resp)
+			}
 
 			// 6. Выводим структурированный результат пользователю
 			fmt.Fprintln(out, "\n✔ Decryption successful!")

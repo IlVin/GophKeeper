@@ -3,6 +3,7 @@ package commands
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"time"
@@ -40,7 +41,8 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 				return fmt.Errorf("failed to read state: %w", err)
 			}
 
-			if state.ServerURL == nil || *state.ServerURL == "" || state.ClientCertificate == nil || state.EncryptedMtlsPrivateKey == nil {
+			// Для выполнения sync достаточно иметь валидный адрес сервера, UUID пользователя и mTLS сертификат!
+			if state.ServerURL == nil || *state.ServerURL == "" || state.ClientCertificate == nil {
 				return fmt.Errorf("container is not registered: please run 'gophkeeper register' first")
 			}
 
@@ -223,6 +225,17 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 					}
 					pushedCount = len(recordsToPush)
 				}
+			}
+
+			if cli.JSONOutput {
+				resp := CLIResponse{
+					Success: true,
+					Data: SyncResponse{
+						Pulled: pulledCount,
+						Pushed: pushedCount,
+					},
+				}
+				return json.NewEncoder(out).Encode(resp)
 			}
 
 			fmt.Fprintln(out, "\n✔ Synchronization successful!")

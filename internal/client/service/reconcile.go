@@ -20,6 +20,8 @@ func (s *InitService) ReconcileContainer(
 	canonicalBootstrapEnvJSON []byte,
 	serverUserID []byte,
 	serverCert []byte,
+	serverURL string,
+	mtlsSecret security.SecretBytes,
 ) error {
 	// 1. Извлекаем текущее (до-каноническое) состояние из SQLite
 	currentState, err := s.deviceStore.ReadDeviceState(ctx)
@@ -193,9 +195,20 @@ func (s *InitService) ReconcileContainer(
 		}
 	}
 
+	// =========================================================================
+	// 7. ЗАПЕЧАТЫВАНИЕ mTLS PRIV KEY, ПОЛУЧЕННОГО ИЗ ФАЗЫ РЕГИСТРАЦИИ (Инвариант №9)
+	// =========================================================================
+	newMtlsAAD := security.BuildDeviceMasterKeyAAD(&serverUserIDStr, currentState.DeviceID)
+	newMtlsJSON, err = security.SealEnvelope(newDeviceKEK, mtlsSecret, newMtlsAAD, security.AADSchemaDeviceMasterKey)
+	if err != nil {
+		return fmt.Errorf("failed to seal fresh mTLS private key under canonical device kek: %w", err)
+	}
+
 	// 8. СБОРКА ФИНАЛЬНОГО КАНОНИЧЕСКОГО СОСТОЯНИЯ УСТРОЙСТВА
+	serverURLStr := serverURL
+
 	updatedState := &repository.LocalDeviceState{
-		ServerURL:                currentState.ServerURL, // Сохраняем целевой адрес сервера
+		ServerURL:                &serverURLStr,
 		UserID:                   &serverUserIDStr,
 		DeviceID:                 currentState.DeviceID,
 		SshPublicKey:             currentState.SshPublicKey,
@@ -214,6 +227,7 @@ func (s *InitService) ReconcileContainer(
 	}
 
 	if dbTx, ok := s.deviceStore.(transactedReconciler); ok {
+		fmt.Println("[DEBUG Reconcile] transactedReconciler interface matched. Invoking ExecuteReconcileTransaction...")
 		return dbTx.ExecuteReconcileTransaction(ctx, updatedState, migratedRecords)
 	}
 

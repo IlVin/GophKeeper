@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"text/tabwriter"
+	"time"
 
 	"gophkeeper/internal/client/providers/sqlite"
 	"gophkeeper/internal/client/providers/sshagent"
@@ -50,6 +52,20 @@ func newListCommand(cli *CLI) *cobra.Command {
 			metadataList, err := secretService.ListSecrets(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("failed to retrieve records list: %w", err)
+			}
+
+			if cli.JSONOutput {
+				items := make([]ListResponseItem, 0, len(metadataList))
+				for _, s := range metadataList {
+					items = append(items, ListResponseItem{
+						ID:          s.ID,
+						Name:        s.Name,
+						Type:        s.Type,
+						LastUpdated: s.UpdatedAt.Format(time.RFC3339),
+					})
+				}
+				resp := CLIResponse{Success: true, Data: items}
+				return json.NewEncoder(out).Encode(resp)
 			}
 
 			if len(metadataList) == 0 {

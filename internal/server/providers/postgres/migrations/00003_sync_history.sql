@@ -4,7 +4,7 @@
 -- Основная таблица актуальных версий секретов
 CREATE TABLE IF NOT EXISTS records (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     type VARCHAR(64) NOT NULL,
     envelope BYTEA NOT NULL,
@@ -18,7 +18,7 @@ CREATE INDEX IF NOT EXISTS idx_records_user_id ON records(user_id);
 CREATE TABLE IF NOT EXISTS records_history (
     history_id BIGSERIAL PRIMARY KEY,
     record_id UUID NOT NULL,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     type VARCHAR(64) NOT NULL,
     envelope BYTEA NOT NULL,

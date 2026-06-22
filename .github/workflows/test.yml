@@ -8,6 +8,58 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+
+  
+  tests-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:alpine
+        env:
+          POSTGRES_USER: gophkeeper
+          POSTGRES_PASSWORD: gophkeeper_pswd
+          POSTGRES_DB: gophkeeper
+        ports:
+          - 5432:5432
+        # Ждем, пока Postgres станет доступен для приема подключений (Healthcheck)
+        options: >-
+          --health-cmd "pg_isready -U gophkeeper"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: Setup SSH Agent
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: 'dummy'
+        name: id_ed25519
+        type: ed25519
+
+    # Компилируем ОБА бинарника (и клиента, и сервер), так как тест будет дергать их оба!
+    - name: Compile Client and Server Binaries
+      run: |
+        CGO_ENABLED=0 go build -o ./cmd/gophkeeper/gophkeeper ./cmd/gophkeeper/main.go
+        CGO_ENABLED=0 go build -o ./cmd/gophkeeper-server/gophkeeper-server ./cmd/gophkeeper-server/main.go
+
+    # Накатываем миграции на поднятый тестовый Postgres (через голый sql или goose)
+    - name: Run Database Migrations on Test DB
+      run: |
+        cd infra/postgres/migrations && goose postgres "user=gophkeeper password=gophkeeper_pswd dbname=gophkeeper sslmode=disable" up
+
+    # ЗАПУСКАЕМ СЕТЕВЫЕ И ЛОКАЛЬНЫЕ E2E ТЕСТЫ ОДНОЙ КОМАНДОЙ
+    - name: Run All Dedicated E2E Network Tests
+      env:
+        # Передаем серверу строку подключения к поднятому GitHub сервису Postgres
+        DATABASE_DSN: "postgres://gophkeeper:gophkeeper_pswd@localhost:5432/gophkeeper?sslmode=disable"
+      run: |
+        go test -tags=e2e ./internal/client/commands... -run E2E -count=1 -v
+
   unit:
     runs-on: ubuntu-latest
 
@@ -49,3 +101,6 @@ jobs:
 
       - name: Run functional ssh-agent tests
         run: go test -tags=functional ./internal/adapters/sshagent -count=1 -v
+
+      - name: Run Dedicated Client E2E Tests
+        run: go test -tags=e2e ./internal/... -run E2E -count=1 -v

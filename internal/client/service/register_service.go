@@ -110,7 +110,15 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 		// Запускаем криптографический конвейер Reconcile Migration для перешифрования базы под каноничные ключи (Инвариант №14)
 		fmt.Println("[Lifecycle] Mismatch with server canonical state detected! Launching local Reconcile Migration...")
 
-		err = s.initService.ReconcileContainer(ctx, canonicalSalt, canonicalBootstrap, []byte(beginResp.GetUserId()), finishResp.GetClientCertificate())
+		err = s.initService.ReconcileContainer(
+			ctx,
+			canonicalSalt,
+			canonicalBootstrap,
+			[]byte(beginResp.GetUserId()),
+			finishResp.GetClientCertificate(),
+			serverURL,
+			mtlsSecret,
+		)
 		if err != nil {
 			return fmt.Errorf("local reconcile migration failed: %w", err)
 		}

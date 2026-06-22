@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -54,13 +55,13 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 				return fmt.Errorf("failed to read local device state: %w", err)
 			}
 
-			// Если UserID уже присутствует на диске — повторная регистрация блокируется
-			if localState.UserID != nil && *localState.UserID != "" {
+			// Настоящим критерием успешной сетевой регистрации является наличие mTLS паспорта устройства
+			if localState.ClientCertificate != nil && len(*localState.ClientCertificate) > 0 {
 				serverURLStr := "unknown"
 				if localState.ServerURL != nil {
 					serverURLStr = *localState.ServerURL
 				}
-				return fmt.Errorf("client container is already registered (Server URL: %s, UserID: %s)",
+				return fmt.Errorf("client container is already registered and issued an mTLS passport (Server URL: %s, UserID: %s)",
 					serverURLStr, *localState.UserID)
 			}
 
@@ -142,6 +143,18 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 			err = regService.RunRegistration(cmd.Context(), serverAddr)
 			if err != nil {
 				return fmt.Errorf("registration workflow failed: %w", err)
+			}
+
+			if cli.JSONOutput {
+				resp := CLIResponse{
+					Success: true,
+					Data: RegisterResponse{
+						UserID:    expectedFingerprint,
+						ServerURL: serverAddr,
+						Status:    "REGISTERED",
+					},
+				}
+				return json.NewEncoder(out).Encode(resp)
 			}
 
 			fmt.Fprintf(out, "\n✔ Success! Device securely bound to account %q on the server.\n", expectedFingerprint)

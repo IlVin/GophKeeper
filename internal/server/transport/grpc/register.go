@@ -63,7 +63,7 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 		userID = existingUser.ID
 	} else {
 		// Аккаунта нет. Резервируем новый UserID под этот фингерпринт
-		userID = uuid.New().String()
+		userID = fingerprint
 	}
 
 	sessionID := uuid.New().String()

@@ -41,7 +41,7 @@ func (s *InitService) ExecuteLocalInit(ctx context.Context, serverURL string, fi
 	derivationSignature := security.SecretBytes(rawSig)
 	defer derivationSignature.Destroy()
 
-	// 3. Генерация AccountSalt (32 байта)
+	// 3.  Гарантированная генерация стабильной AccountSalt (32 байта) (Инвариант №1)
 	accountSalt := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, accountSalt); err != nil {
 		return fmt.Errorf("generate account salt: %w", err)
@@ -54,17 +54,18 @@ func (s *InitService) ExecuteLocalInit(ctx context.Context, serverURL string, fi
 	}
 	defer unlockKey.Destroy()
 
-	// 5. Генерация случайного AccountMasterKey (32 байта)
+	// 5. Генерация случайного AccountMasterKey (32 байта) (Инвариант №7)
 	masterKey, err := security.GenerateRandomKey(32)
 	if err != nil {
 		return fmt.Errorf("generate master key: %w", err)
 	}
 	defer masterKey.Destroy()
 
-	// 6. Генерация DeviceID (Public UUID)
+	// 6. Доменный сдвиг MVP: Жестко фиксируем идентификаторы (StorageID === DeviceID, UserID === SshFingerprint)
 	devID := uuid.New().String()
+	userIDStr := fingerprint // НАМЕРТВО СВЯЗЫВАЕМ СЕТЕВУЮ И КРИПТОГРАФИЧЕСКУЮ ЛИЧНОСТЬ
 
-	// 7. Вывод DeviceKEK
+	// 7. Вывод DeviceKEK (Инвариант №2)
 	deviceKEK, err := security.DeriveDeviceKEK(unlockKey, []byte(devID))
 	if err != nil {
 		return fmt.Errorf("derive device kek: %w", err)
@@ -86,8 +87,9 @@ func (s *InitService) ExecuteLocalInit(ctx context.Context, serverURL string, fi
 		return fmt.Errorf("failed to seal account bootstrap envelope: %w", err)
 	}
 
-	// Контекст AAD для локального привязанного конверта на базе DeviceID (userID пока nil)
-	deviceAAD := security.BuildDeviceMasterKeyAAD(nil, devID)
+	// ИСПРАВЛЕНО: Контекст AAD для локального привязанного конверта собирается строго
+	// на базе стабильного каноничного userIDStr (фингерпринта), полностью исключая nil!
+	deviceAAD := security.BuildDeviceMasterKeyAAD(&userIDStr, devID)
 	deviceMasterKeyEnvelopeJSON, err := security.SealEnvelope(
 		deviceKEK,
 		masterKey,
@@ -100,14 +102,14 @@ func (s *InitService) ExecuteLocalInit(ctx context.Context, serverURL string, fi
 
 	// 9. Сборка структуры состояния устройства
 	state := &repository.LocalDeviceState{
-		ServerURL:                nil,
-		UserID:                   nil,
+		ServerURL:                nil,        // Выставляется только во время фазы register/sync
+		UserID:                   &userIDStr, // Записано раз и навсегда сразу при инициализации!
 		DeviceID:                 devID,
 		SshPublicKey:             pubKeyBytes,
 		AccountSalt:              accountSalt,
 		AccountBootstrapEnvelope: bootstrapEnvelopeJSON,
 		DeviceMasterKeyEnvelope:  deviceMasterKeyEnvelopeJSON,
-		EncryptedMtlsPrivateKey:  nil,
+		EncryptedMtlsPrivateKey:  nil, // Создается сетевым стеком в фазе register
 		ClientCertificate:        nil,
 		CreatedAt:                time.Now().UTC().Format(time.RFC3339),
 	}

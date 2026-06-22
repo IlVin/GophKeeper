@@ -3,10 +3,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"gophkeeper/internal/client/repository"
 	"time"
+
+	"gophkeeper/internal/client/repository"
 )
 
 type SQLiteDeviceStore struct {
@@ -17,70 +17,33 @@ func NewSQLiteDeviceStore(db *sql.DB) *SQLiteDeviceStore {
 	return &SQLiteDeviceStore{db: db}
 }
 
-func (s *SQLiteDeviceStore) SaveDeviceState(ctx context.Context, state *repository.LocalDeviceState) error {
-	query := `
-	INSERT INTO device_state (
-		id, server_url, user_id, device_id, ssh_public_key, account_salt,
-		device_master_key_envelope, account_bootstrap_envelope, 
-		encrypted_mtls_private_key, client_certificate, created_at
-	) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET
-		server_url=excluded.server_url,
-		user_id=excluded.user_id,
-		device_id=excluded.device_id,
-		ssh_public_key=excluded.ssh_public_key,
-		account_salt=excluded.account_salt,
-		device_master_key_envelope=excluded.device_master_key_envelope,
-		account_bootstrap_envelope=excluded.account_bootstrap_envelope,
-		encrypted_mtls_private_key=excluded.encrypted_mtls_private_key,
-		client_certificate=excluded.client_certificate;`
-
-	_, err := s.db.ExecContext(ctx, query,
-		state.ServerURL,
-		state.UserID,
-		state.DeviceID,
-		state.SshPublicKey,
-		state.AccountSalt, // ДОБАВЛЕНО
-		state.DeviceMasterKeyEnvelope,
-		state.AccountBootstrapEnvelope,
-		state.EncryptedMtlsPrivateKey,
-		state.ClientCertificate,
-		state.CreatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("execute insert device_state: %w", err)
-	}
-	return nil
-}
-
+// ReadDeviceState вычитывает текущую конфигурацию синглтона из device_state (id=1)
 func (s *SQLiteDeviceStore) ReadDeviceState(ctx context.Context) (*repository.LocalDeviceState, error) {
 	query := `
-	SELECT server_url, user_id, device_id, ssh_public_key, account_salt,
-	       device_master_key_envelope, account_bootstrap_envelope, 
-	       encrypted_mtls_private_key, client_certificate, created_at
-	FROM device_state WHERE id = 1;`
+		SELECT server_url, user_id, device_id, ssh_public_key, account_salt, 
+		       device_master_key_envelope, account_bootstrap_envelope, 
+		       encrypted_mtls_private_key, client_certificate, created_at 
+		FROM device_state 
+		WHERE id = 1;`
 
 	var state repository.LocalDeviceState
 	var serverURLNull, userIDNull sql.NullString
-	var mtlsKeyNull, clientCertNull []byte
+	var cStr string
 
 	err := s.db.QueryRowContext(ctx, query).Scan(
 		&serverURLNull,
 		&userIDNull,
 		&state.DeviceID,
 		&state.SshPublicKey,
-		&state.AccountSalt, // ДОБАВЛЕНО
+		&state.AccountSalt,
 		&state.DeviceMasterKeyEnvelope,
 		&state.AccountBootstrapEnvelope,
-		&mtlsKeyNull,
-		&clientCertNull,
-		&state.CreatedAt,
+		&state.EncryptedMtlsPrivateKey,
+		&state.ClientCertificate,
+		&cStr,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("device state is empty, please run init first")
-	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query device_state: %w", err)
+		return nil, err
 	}
 
 	if serverURLNull.Valid {
@@ -89,14 +52,56 @@ func (s *SQLiteDeviceStore) ReadDeviceState(ctx context.Context) (*repository.Lo
 	if userIDNull.Valid {
 		state.UserID = &userIDNull.String
 	}
-	if len(mtlsKeyNull) > 0 {
-		state.EncryptedMtlsPrivateKey = &mtlsKeyNull
-	}
-	if len(clientCertNull) > 0 {
-		state.ClientCertificate = &clientCertNull
-	}
+	state.CreatedAt = cStr
 
 	return &state, nil
+}
+
+// SaveDeviceState выполняет первичное сохранение оффлайн-конфигурации или её перезапись
+func (s *SQLiteDeviceStore) SaveDeviceState(ctx context.Context, state *repository.LocalDeviceState) error {
+	query := `
+		INSERT INTO device_state (
+			id, server_url, user_id, device_id, ssh_public_key, account_salt, 
+			device_master_key_envelope, account_bootstrap_envelope, 
+			encrypted_mtls_private_key, client_certificate, created_at
+		) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT(id) DO UPDATE SET
+			server_url = EXCLUDED.server_url,
+			user_id = EXCLUDED.user_id,
+			device_id = EXCLUDED.device_id,
+			ssh_public_key = EXCLUDED.ssh_public_key,
+			account_salt = EXCLUDED.account_salt,
+			device_master_key_envelope = EXCLUDED.device_master_key_envelope,
+			account_bootstrap_envelope = EXCLUDED.account_bootstrap_envelope,
+			encrypted_mtls_private_key = EXCLUDED.encrypted_mtls_private_key,
+			client_certificate = EXCLUDED.client_certificate,
+			created_at = EXCLUDED.created_at;`
+
+	var serverURLNull sql.NullString
+	if state.ServerURL != nil {
+		serverURLNull.String = *state.ServerURL
+		serverURLNull.Valid = true
+	}
+
+	var userIDNull sql.NullString
+	if state.UserID != nil {
+		userIDNull.String = *state.UserID
+		userIDNull.Valid = true
+	}
+
+	_, err := s.db.ExecContext(ctx, query,
+		serverURLNull,
+		userIDNull,
+		state.DeviceID,
+		state.SshPublicKey,
+		state.AccountSalt,
+		state.DeviceMasterKeyEnvelope,
+		state.AccountBootstrapEnvelope,
+		state.EncryptedMtlsPrivateKey,
+		state.ClientCertificate,
+		state.CreatedAt,
+	)
+	return err
 }
 
 // ExecuteReconcileTransaction атомарно обновляет конфигурацию синглтона и всю таблицу records
@@ -106,24 +111,32 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 	state *repository.LocalDeviceState,
 	records []repository.EncryptedRecord,
 ) error {
-	// Открываем нативную транзакцию SQLite через пул s.db
+	// Открываем нативную изолированную транзакцию SQLite через пул s.db
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin reconciliation sqlite tx: %w", err)
 	}
-	// В случае паники или ошибки рантайма гарантируем откат состояния назад (Fail-Safe)
+	// В случае паники или непредвиденного сбоя рантайма гарантируем откат состояния назад (Fail-Safe)
 	defer func() { _ = tx.Rollback() }()
 
 	// 1. Обновляем глобальное состояние устройства в device_state (id = 1)
+	// ЖЕСТКИЙ ИБ-КОНТРОЛЬ: Все 7 критических колонок выстроены строго по порядку параметров $1 - $7
 	stateQuery := `
 		UPDATE device_state SET
-			user_id = $1,
-			account_salt = $2,
-			device_master_key_envelope = $3,
-			account_bootstrap_envelope = $4,
-			encrypted_mtls_private_key = $5,
-			client_certificate = $6
+			server_url = $1,
+			user_id = $2,
+			account_salt = $3,
+			device_master_key_envelope = $4,
+			account_bootstrap_envelope = $5,
+			encrypted_mtls_private_key = $6,
+			client_certificate = $7
 		WHERE id = 1;`
+
+	var serverURLStr sql.NullString
+	if state.ServerURL != nil {
+		serverURLStr.String = *state.ServerURL
+		serverURLStr.Valid = true
+	}
 
 	var userIDStr sql.NullString
 	if state.UserID != nil {
@@ -131,13 +144,15 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 		userIDStr.Valid = true
 	}
 
+	// СВЕРКА ИНДЕКСОВ: Аргументы передаются в идеальном соответствии с SQL-шаблоном ($1 - $7)
 	_, err = tx.ExecContext(ctx, stateQuery,
-		userIDStr,
-		state.AccountSalt,
-		state.DeviceMasterKeyEnvelope,
-		state.AccountBootstrapEnvelope,
-		state.EncryptedMtlsPrivateKey,
-		state.ClientCertificate,
+		serverURLStr,                   // $1 -> server_url
+		userIDStr,                      // $2 -> user_id
+		state.AccountSalt,              // $3 -> account_salt
+		state.DeviceMasterKeyEnvelope,  // $4 -> device_master_key_envelope
+		state.AccountBootstrapEnvelope, // $5 -> account_bootstrap_envelope
+		state.EncryptedMtlsPrivateKey,  // $6 -> encrypted_mtls_private_key
+		state.ClientCertificate,        // $7 -> client_certificate
 	)
 	if err != nil {
 		return fmt.Errorf("reconcile tx: failed to update device_state: %w", err)
@@ -173,8 +188,8 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 				rec.Name,
 				rec.Type,
 				rec.Envelope,
-				rec.CreatedAt,
-				rec.UpdatedAt,
+				rec.CreatedAt.Format(time.RFC3339), // Приведение к текстовому ISO-канону для СУБД SQLite
+				rec.UpdatedAt.Format(time.RFC3339),
 			)
 			if err != nil {
 				return fmt.Errorf("reconcile tx: failed to insert migrated record %s: %w", rec.ID, err)
@@ -182,7 +197,7 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 		}
 	}
 
-	// Фиксируем транзакцию на диске. Теперь изменения применились атомарно!
+	// Фиксируем транзакцию на диске. Теперь изменения применились атомарно и без сдвига данных!
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("reconcile tx: commit failed: %w", err)
 	}
@@ -190,8 +205,8 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 	return nil
 }
 
+// GetAllRecords вычитывает плоский список зашифрованных оффлайн-записей для пакетной ре-энкрипции
 func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.EncryptedRecord, error) {
-	// Вызываем чтение из таблицы records через пул s.db
 	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records;`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -203,7 +218,7 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 	for rows.Next() {
 		var r repository.EncryptedRecord
 		var uNull sql.NullString
-		var cStr, uStr string // ИСПРАВЛЕНО: Считываем даты как строки
+		var cStr, uStr string // Считываем временные метки как строки для защиты от Scan error
 
 		if err := rows.Scan(&r.ID, &uNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr); err != nil {
 			return nil, err
@@ -213,7 +228,7 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 			r.UserID = &uNull.String
 		}
 
-		// ИСПРАВЛЕНО: Явно парсим текстовые строки SQLite в объекты time.Time
+		// Явно парсим текстовые RFC3339-строки SQLite в полноценные объекты time.Time Go-рантайма
 		r.CreatedAt, _ = time.Parse(time.RFC3339, cStr)
 		r.UpdatedAt, _ = time.Parse(time.RFC3339, uStr)
 

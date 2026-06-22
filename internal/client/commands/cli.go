@@ -25,9 +25,10 @@ type CLI struct {
 	config     clientconfig.Config
 	configErr  error
 
-	appMu  sync.Mutex
-	app    *clientapp.App
-	appErr error
+	appMu      sync.Mutex
+	app        *clientapp.App
+	appErr     error
+	JSONOutput bool
 }
 
 func NewCLI(v *viper.Viper) *CLI {
@@ -156,6 +157,7 @@ func (c *CLI) withApp(
 func (c *CLI) bindPersistentFlags(cmd *cobra.Command) error {
 	cmd.PersistentFlags().String("config", "", "path to config file")
 	cmd.PersistentFlags().String("sqlite-path", "", "path to local SQLite database")
+	cmd.PersistentFlags().BoolVar(&c.JSONOutput, "json", false, "Output results as a clean JSON object for automation and E2E testing")
 
 	if err := c.v.BindPFlag("app.config_file", cmd.PersistentFlags().Lookup("config")); err != nil {
 		return fmt.Errorf("bind flag config: %w", err)

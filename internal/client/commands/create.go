@@ -117,7 +117,22 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			// Передаем монолитный сериализованный JSON-блок в сервис шифрования
 			err = secretService.CreateSecret(cmd.Context(), name, secretType, plainBytes)
 			if err != nil {
+				if cli.JSONOutput {
+					json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: err.Error()})
+					return nil // Возвращаем nil, чтобы Cobra не печатала дефолтный Error текст
+				}
 				return fmt.Errorf("failed to encrypt and save record: %w", err)
+			}
+
+			if cli.JSONOutput {
+				resp := CLIResponse{
+					Success: true,
+					Data: CreateResponse{
+						Name: name,
+						Type: secretType,
+					},
+				}
+				return json.NewEncoder(out).Encode(resp)
 			}
 
 			fmt.Fprintf(out, "✔ Success! Record %q [%s] securely saved and protected under AccountMasterKey.\n", name, secretType)

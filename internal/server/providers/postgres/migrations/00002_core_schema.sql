@@ -3,7 +3,7 @@
 
 -- 1. Таблица аккаунтов пользователей (Zero-Knowledge & Passwordless Core)
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY,                          -- Внутренний UserID
+    id VARCHAR(255) PRIMARY KEY,                  -- Внутренний UserID
     ssh_fingerprint VARCHAR(255) NOT NULL UNIQUE, -- Уникальный хэш SHA256 Ed25519 ключа
     ssh_public_key BYTEA NOT NULL,               -- Полный публичный ключ OpenSSH Wire BLOB
     
@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_users_ssh_fingerprint ON users(ssh_fingerprint);
 -- 2. Таблица зарегистрированных контейнеров/устройств (Device Registry & mTLS)
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY,                          -- DeviceID локального контейнера SQLite
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     
     device_master_key_envelope BYTEA NOT NULL,   -- Непрозрачный клиентский конверт под DeviceKEK
     client_certificate BYTEA NOT NULL,           -- Полный выданный mTLS сертификат устройства
@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 -- 3. Таблица одноразовых сессий челленджа (Challenge State Machine)
 CREATE TABLE IF NOT EXISTS challenge_sessions (
     id UUID PRIMARY KEY,                          -- SessionID челленджа
-    user_id UUID NOT NULL,                        -- Целевой UserID (новый или существующий)
+    user_id VARCHAR(255) NOT NULL,                        -- Целевой UserID (новый или существующий)
     server_nonce BYTEA NOT NULL,                  -- Случайный 32-байтный одноразовый нонс сервера
     operation VARCHAR(64) NOT NULL,               -- register | attach-device
     
@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_challenge_sessions_lookup ON challenge_sessions(i
 CREATE TABLE IF NOT EXISTS audit_device_events (
     event_id BIGSERIAL PRIMARY KEY,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    user_id UUID,
+    user_id VARCHAR(255),
     device_id UUID,
     action VARCHAR(255) NOT NULL,                -- register_attempt | register_success | device_revoked
     operator_ip VARCHAR(64) NOT NULL
