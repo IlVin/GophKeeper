@@ -90,7 +90,9 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 				targetHost = serverAddr
 			}
 
-			fmt.Fprintf(out, "Opening secure TLS 1.3 channel to %s [TLS SNI: %s]...\n", serverAddr, targetHost)
+			if !cli.JSONOutput {
+				fmt.Fprintf(out, "Opening secure TLS 1.3 channel to %s [TLS SNI: %s]...\n", serverAddr, targetHost)
+			}
 
 			// ИСПРАВЛЕНО: Вызываем ваш канонический загрузчик встроенного пула доверия
 			serverCAPool, err := certs.LoadServerCAPool()
@@ -135,7 +137,9 @@ publishes the cloud bootstrap envelope, and obtains a container mTLS identity ce
 			}
 
 			// 5. ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ И ЗАПУСК КРИПТОГРАФИЧЕСКОГО КОНВЕЙЕРА (Composition Root)
-			fmt.Fprintln(out, "Initiating two-step passwordless registration protocol...")
+			if !cli.JSONOutput {
+				fmt.Fprintln(out, "Initiating two-step passwordless registration protocol...")
+			}
 
 			initService := service.NewInitService(deviceStore, agentClient)
 			regService := service.NewRegisterService(deviceStore, initService, agentClient, conn)
