@@ -6,49 +6,76 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestConfig_Validate проверяет матрицу условий валидатора конфигурации.
+// Тестирует обязательность пути СУБД, валидность уровней и форматов slog-логов.
 func TestConfig_Validate(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
-		name    string
-		cfg     Config
-		wantErr error
+		name        string
+		app         AppConfig
+		storage     StorageConfig
+		logging     LoggingConfig
+		expectedErr error
 	}{
 		{
-			name: "valid configuration",
-			cfg: Config{
-				SSHAgent: SSHAgentConfig{SocketPath: "/tmp/ssh.sock"},
-				Storage:  StorageConfig{SQLitePath: "/tmp/db.sqlite"},
+			name: "Успешная валидация со всеми корректными параметрами",
+			app: AppConfig{
+				configFile:    "config.yaml",
+				defaultServer: "localhost:443",
 			},
-			wantErr: nil,
+			storage: StorageConfig{
+				sqlitePath: "/tmp/gophkeeper.db",
+			},
+			logging: LoggingConfig{
+				logFile: "/tmp/client.log",
+				level:   "debug",
+				format:  "json",
+			},
+			expectedErr: nil,
 		},
 		{
-			name: "missing ssh agent socket path",
-			cfg: Config{
-				SSHAgent: SSHAgentConfig{SocketPath: "   "},
-				Storage:  StorageConfig{SQLitePath: "/tmp/db.sqlite"},
+			name: "Ошибка валидации при пустом пути к SQLite базе данных",
+			storage: StorageConfig{
+				sqlitePath: "   ", // Пробелы должны триммиться
 			},
-			wantErr: ErrSSHAgentSocketPathNotSet,
+			logging: LoggingConfig{
+				level:  "info",
+				format: "text",
+			},
+			expectedErr: ErrSQLitePathNotSet,
 		},
 		{
-			name: "missing sqlite path",
-			cfg: Config{
-				SSHAgent: SSHAgentConfig{SocketPath: "/tmp/ssh.sock"},
-				Storage:  StorageConfig{SQLitePath: ""},
+			name: "Ошибка валидации при некорректном уровне логирования",
+			storage: StorageConfig{
+				sqlitePath: "/tmp/goph.db",
 			},
-			wantErr: ErrSQLitePathNotSet,
+			logging: LoggingConfig{
+				level:  "trace-invalid",
+				format: "text",
+			},
+			expectedErr: ErrInvalidLogLevel,
+		},
+		{
+			name: "Ошибка валидации при некорректном формате вывода логов",
+			storage: StorageConfig{
+				sqlitePath: "/tmp/goph.db",
+			},
+			logging: LoggingConfig{
+				level:  "info",
+				format: "xml-invalid",
+			},
+			expectedErr: ErrInvalidLogFormat,
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := tt.cfg.Validate()
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
+			cfg := NewConfig(tt.app, tt.storage, tt.logging)
+			err := cfg.Validate()
+
+			if tt.expectedErr == nil {
 				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, tt.expectedErr)
 			}
 		})
 	}

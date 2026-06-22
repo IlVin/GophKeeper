@@ -5,73 +5,68 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewViper_Defaults(t *testing.T) {
-	t.Parallel()
+// TestNewViper_ShouldSetCorrectDefaults проверяет, что конструктор NewViper
+// корректно инициализирует объект Viper и прописывает базовые санитарные дефолты.
+func TestNewViper_ShouldSetCorrectDefaults(t *testing.T) {
+	v, err := NewViper()
+	require.NoError(t, err)
+	require.NotNil(t, v)
 
-	v := NewViper()
-	assert.Equal(t, "", v.GetString("app.config_file"))
-	assert.Equal(t, "", v.GetString("ssh_agent.socket_path"))
-	assert.NotEmpty(t, v.GetString("storage.sqlite_path"))
+	assert.Equal(t, "info", v.GetString("logging.level"))
+	assert.Equal(t, "text", v.GetString("logging.format"))
+	assert.Equal(t, "localhost:443", v.GetString("app.default_server"))
 }
 
-func TestReadConfigFile_Behavior(t *testing.T) {
-	t.Parallel()
+// TestReadConfigFile_WithNonExistentExplicitPath_ShouldNotReturnError проверяет,
+// что утилита не падает, если явно указанный конфигурационный файл физически отсутствует на диске.
+func TestReadConfigFile_WithNonExistentExplicitPath_ShouldNotReturnError(t *testing.T) {
+	v, err := NewViper()
+	require.NoError(t, err)
 
-	t.Run("empty configuration path does nothing", func(t *testing.T) {
-		t.Parallel()
-		v := NewViper()
-		err := ReadConfigFile(v)
-		assert.NoError(t, err)
-	})
+	v.Set("app.config_file", "/non/existent/path/to/config.yaml")
 
-	t.Run("valid configuration file parses successfully", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		cfgPath := filepath.Join(tmpDir, "config.yaml")
-
-		yamlContent := []byte("ssh_agent:\n  socket_path: /custom/ssh.sock\n")
-		err := os.WriteFile(cfgPath, yamlContent, 0600)
-		require.NoError(t, err)
-
-		v := NewViper()
-		v.Set("app.config_file", cfgPath)
-
-		err = ReadConfigFile(v)
-		require.NoError(t, err)
-		assert.Equal(t, "/custom/ssh.sock", v.GetString("ssh_agent.socket_path"))
-	})
+	err = ReadConfigFile(v)
+	assert.NoError(t, err, "Отсутствие файла на диске не должно приводить к ошибкам рантайма")
 }
 
-func TestLoadFromViper_FallbackAndValidation(t *testing.T) {
-	// Очищаем или подменяем env переменные, параллельность отключаем во избежание гонок за os.Environ
-	origSSHAuthSock := os.Getenv("SSH_AUTH_SOCK")
-	defer func() { _ = os.Setenv("SSH_AUTH_SOCK", origSSHAuthSock) }()
+// TestLoadFromViper_WithValidData_ShouldAssembleConfig проверяет сквозную сборку
+// инкапсулированного объекта Config на основе данных из Viper.
+func TestLoadFromViper_WithValidData_ShouldAssembleConfig(t *testing.T) {
+	v, err := NewViper()
+	require.NoError(t, err)
 
-	t.Run("successful fallback to system SSH_AUTH_SOCK", func(t *testing.T) {
-		_ = os.Setenv("SSH_AUTH_SOCK", "/system/env/ssh.sock")
+	tmpDir := t.TempDir()
+	expectedDBPath := filepath.Join(tmpDir, "goph.db")
 
-		v := viper.New()
-		v.Set("storage.sqlite_path", "/tmp/valid.db")
-		v.Set("ssh_agent.socket_path", "") // Оставляем пустым для триггера фолбека
+	v.Set("storage.sqlite_path", expectedDBPath)
+	v.Set("logging.level", "error")
 
-		cfg, err := LoadFromViper(v)
-		require.NoError(t, err)
-		assert.Equal(t, "/system/env/ssh.sock", cfg.SSHAgent.SocketPath)
-	})
+	cfg, err := LoadFromViper(v)
+	require.NoError(t, err, "Сборка валидных параметров должна завершаться успехом")
+
+	assert.Equal(t, expectedDBPath, cfg.Storage().SQLitePath())
+	assert.Equal(t, "error", cfg.Logging().Level())
 }
 
-func TestDefaultSQLitePathFromFunc(t *testing.T) {
-	t.Parallel()
+// TestReadConfigFile_WithCorruptedYaml_ShouldReturnError проверяет генерацию ошибки
+// в случае, если файл конфигурации поврежден или имеет невалидный синтаксис.
+func TestReadConfigFile_WithCorruptedYaml_ShouldReturnError(t *testing.T) {
+	v, err := NewViper()
+	require.NoError(t, err)
 
-	mockFunc := func(rel string) (string, error) {
-		return "/mock/xdg/path/" + rel, nil
-	}
+	tmpDir := t.TempDir()
+	corruptedFile := filepath.Join(tmpDir, "corrupted.yaml")
 
-	path := defaultSQLitePathFromFunc(mockFunc)
-	assert.Equal(t, "/mock/xdg/path/gophkeeper/goph_keeper.db", path)
+	// Пишем ломаный YAML синтаксис
+	err = os.WriteFile(corruptedFile, []byte("app:\n  config_file: [broken json string"), 0o600)
+	require.NoError(t, err)
+
+	v.Set("app.config_file", corruptedFile)
+
+	err = ReadConfigFile(v)
+	assert.Error(t, err, "Чтение поврежденного YAML-файла должно возвращать ошибку парсинга")
 }
