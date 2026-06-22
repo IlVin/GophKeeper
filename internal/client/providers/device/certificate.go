@@ -1,76 +1,50 @@
 package device
 
 import (
-	"crypto/tls"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
-	"encoding/pem"
-	"errors"
+	"crypto/x509/pkix"
 	"fmt"
+	"net/url"
 )
 
-var (
-	ErrNoPrivateKey  = errors.New("no private key found in PEM")
-	ErrNoCertificate = errors.New("no certificate found in PEM")
-)
-
-func LoadDeviceCertificate(certPEM, keyPEM []byte) (tls.Certificate, error) {
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+// GenerateContainerCSR генерирует новую пару ключей ECDSA P-256 для mTLS и создает PKCS#10 CSR blob.
+func GenerateContainerCSR(deviceID string) (rawPrivateKey []byte, csrBytes []byte, err error) {
+	// 1. Генерируем ключ на эллиптической кривой NIST P-256 (вместо медленного RSA)
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("parse X509 key pair: %w", err)
+		return nil, nil, fmt.Errorf("failed to generate ecdsa p-256 key: %w", err)
 	}
 
-	if err := validateClientCertificate(&cert); err != nil {
-		return tls.Certificate{}, err
-	}
-
-	return cert, nil
-}
-
-func validateClientCertificate(cert *tls.Certificate) error {
-	if len(cert.Certificate) == 0 {
-		return ErrNoCertificate
-	}
-
-	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+	// 2. Маршалируем приватный ключ в универсальный стандарт PKCS#8
+	rawPriv, err := x509.MarshalPKCS8PrivateKey(privKey)
 	if err != nil {
-		return fmt.Errorf("parse certificate: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal private key to pkcs8: %w", err)
 	}
 
-	clientAuthFound := false
-	for _, usage := range x509Cert.ExtKeyUsage {
-		if usage == x509.ExtKeyUsageClientAuth {
-			clientAuthFound = true
-			break
-		}
-	}
-	if !clientAuthFound {
-		return fmt.Errorf("certificate missing clientAuth ExtendedKeyUsage")
+	subj := pkix.Name{
+		Organization: []string{"GophKeeper Container Storage Network"},
+		CommonName:   fmt.Sprintf("GophKeeper Client Container %s", deviceID),
 	}
 
-	return nil
-}
-
-func EncapsulateDeviceCertificate(cert tls.Certificate) (certPEM, keyPEM []byte, err error) {
-	for _, certDER := range cert.Certificate {
-		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{
-			Type:  "CERTIFICATE",
-			Bytes: certDER,
-		})...)
+	// 3. Переводим алгоритм подписи запроса на ECDSA-SHA256
+	template := x509.CertificateRequest{
+		Subject:            subj,
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
 	}
 
-	if cert.PrivateKey == nil {
-		return nil, nil, ErrNoPrivateKey
+	// Инвариант mTLS: вшиваем в SAN URI уникальный URN-идентификатор нашего SQLite контейнера
+	if uri, err := url.Parse(fmt.Sprintf("urn:gophkeeper:file:%s", deviceID)); err == nil {
+		template.URIs = []*url.URL{uri}
 	}
 
-	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	// 4. Подписываем CSR сгенерированным ECDSA ключом
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &template, privKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal private key: %w", err)
+		return nil, nil, fmt.Errorf("failed to create certificate request: %w", err)
 	}
 
-	keyPEM = pem.EncodeToMemory(&pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: keyDER,
-	})
-
-	return certPEM, keyPEM, nil
+	return rawPriv, csrDER, nil
 }

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -17,12 +19,11 @@ func NewViper() *viper.Viper {
 	v.SetDefault("server.bind_http", ":80")
 	v.SetDefault("server.bind_grpc", ":443")
 	v.SetDefault("server.lets_encrypt_domain", "")
+	v.SetDefault("server.use_proxy_protocol", false)
 	v.SetDefault("storage.postgres_dsn", "")
 
-	// Дефолтные значения путей PKI (могут переопределяться через флаги, env или yaml)
 	v.SetDefault("pki.server_ca_key_path", "")
 	v.SetDefault("pki.device_ca_key_path", "")
-	v.SetDefault("pki.device_ca_cert_path", "")
 
 	return v
 }
@@ -34,7 +35,17 @@ func ReadConfigFile(v *viper.Viper) error {
 	}
 
 	v.SetConfigFile(configFile)
-	return v.ReadInConfig()
+	if err := v.ReadInConfig(); err != nil {
+		// Если файл не найден, не падаем, а даем серверу запуститься на ENV/флагах
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func LoadFromViper(v *viper.Viper) (Config, error) {

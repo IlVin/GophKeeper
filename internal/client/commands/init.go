@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	clientconfig "gophkeeper/internal/client/config"
 	"gophkeeper/internal/client/providers/sqlite"
@@ -20,7 +21,7 @@ func newInitCommand(cli *CLI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
-			// 1. Проверяем базовое наличие переменной SSH_AUTH_SOCK
+			// 1. Проверяем базовое наличие переменной SSH_AUTH_SOCK и доступность агента
 			if err := sshcheck.RequireAgent(); err != nil {
 				return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
 			}
@@ -31,8 +32,7 @@ func newInitCommand(cli *CLI) *cobra.Command {
 				return fmt.Errorf("load app config: %w", err)
 			}
 
-			// Запрет повторного init
-			// Если файл базы данных уже существует, выбрасываем ошибку и защищаем данные
+			// Запрет повторного init: если файл базы данных уже существует, защищаем данные от перезаписи
 			if _, err := os.Stat(cfg.Storage.SQLitePath); err == nil {
 				return fmt.Errorf(
 					"failed to initialize: GophKeeper environment is already initialized.\n"+
@@ -49,14 +49,18 @@ func newInitCommand(cli *CLI) *cobra.Command {
 			}
 			defer agentClient.Close()
 
-			// Получаем список всех доступных ключей Ed25519
+			// Получаем список всех доступных совместимых ключей Ed25519
 			ed25519Keys, err := agentClient.ListED25519()
 			if err != nil {
 				return fmt.Errorf("failed to find any software ssh-ed25519 keys in ssh-agent: %w", err)
 			}
 
-			// Используем первый доступный детерминированный ключ Ed25519 как Root of Trust
-			targetKeyInfo := ed25519Keys[0]
+			// Вызываем смарт-селектор для выбора ключа инициализации на основе флага или количества ключей
+			targetKeyInfo, err := cli.selectEngineKey(ed25519Keys)
+			if err != nil {
+				return err // Возвращает чистую структурированную ошибку с диагностикой в stderr
+			}
+
 			fmt.Fprintf(out, "Selected root SSH key from agent: %s (%s) [Type: %s]\n",
 				targetKeyInfo.Fingerprint,
 				targetKeyInfo.Comment,
@@ -77,7 +81,7 @@ func newInitCommand(cli *CLI) *cobra.Command {
 				_ = db.Close()
 			}()
 
-			// 6. Сборка зависимостей «на лету» для изоляции от cli.App() контекста
+			// 6. Сборка зависимостей «на лету» для изоляции от общего cli.App() контекста
 			deviceStore := sqlite.NewSQLiteDeviceStore(db)
 			initService := service.NewInitService(deviceStore, agentClient)
 
@@ -108,5 +112,58 @@ func newInitCommand(cli *CLI) *cobra.Command {
 		},
 	}
 
+	// Регистрируем локальный флаг, привязанный исключительно к команде init
+	cmd.Flags().String("ssh-fingerprint", "", "SHA256 fingerprint or comment of the key active in ssh-agent")
+
+	// Явно связываем локальный флаг с внутренним Viper селектором CLI-рантайма
+	_ = cli.Viper().BindPFlag("app.ssh_key_selector", cmd.Flags().Lookup("ssh-fingerprint"))
+
 	return cmd
+}
+
+// selectEngineKey разруливает матрицу условий выбора ключа на основе флага --ssh-fingerprint
+func (c *CLI) selectEngineKey(keys []sshagent.SignerInfo) (sshagent.SignerInfo, error) {
+	if len(keys) == 0 {
+		return sshagent.SignerInfo{}, fmt.Errorf("no software ed25519 keys available in ssh-agent")
+	}
+
+	// Извлекаем значение флага из связанного Viper контекста
+	selector := strings.TrimSpace(c.v.GetString("app.ssh_key_selector"))
+
+	// Сценарий 1: В агенте ровно один совместимый ключ — используем его без лишних вопросов
+	if len(keys) == 1 {
+		// Если пользователь все же передал флаг, но он не совпадает с единственным ключом — выбрасываем ошибку
+		if selector != "" && keys[0].Fingerprint != selector && keys[0].Comment != selector {
+			return sshagent.SignerInfo{}, fmt.Errorf("the specified fingerprint %q was not found in ssh-agent (only %s is available)", selector, keys[0].Fingerprint)
+		}
+		return keys[0], nil
+	}
+
+	// Сценарий 2: В агенте несколько ключей, и пользователь явно указал селектор
+	if selector != "" {
+		for _, k := range keys {
+			if k.Fingerprint == selector || k.Comment == selector {
+				return k, nil
+			}
+		}
+		return sshagent.SignerInfo{}, fmt.Errorf("provided --ssh-fingerprint %q matches no active keys in ssh-agent", selector)
+	}
+
+	// Сценарий 3: В агенте несколько ключей, а флаг не передан — формируем интерактивную диагностическую карту
+	var sb strings.Builder
+	sb.WriteString("Multiple compatible Ed25519 keys detected in your ssh-agent.\n")
+	sb.WriteString("You must explicitly choose which root key to use via the local '--ssh-fingerprint' flag.\n\n")
+	sb.WriteString("Available keys inside agent:\n")
+
+	for _, k := range keys {
+		sb.WriteString(fmt.Sprintf("  - Fingerprint: %s\n", k.Fingerprint))
+		if k.Comment != "" {
+			sb.WriteString(fmt.Sprintf("    Comment:     %s\n", k.Comment))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("Example usage:\n")
+	sb.WriteString(fmt.Sprintf("  gophkeeper init --ssh-fingerprint=%s\n", keys[0].Fingerprint))
+
+	return sshagent.SignerInfo{}, fmt.Errorf("%s", sb.String())
 }

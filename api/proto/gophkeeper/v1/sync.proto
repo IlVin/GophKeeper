@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package gophkeeper.v1;
+
+option go_package = "gophkeeper/api/proto/gophkeeper/v1;v1";
+
+service SyncService {
+  // Дифференциальная проверка: клиент отправляет список своих ID и временных меток,
+  // сервер сравнивает их со своим состоянием и возвращает списки UUID, которые 
+  // нужно скачать (Pull) или загрузить в облако (Push).
+  rpc SyncCheck(SyncCheckRequest) returns (SyncCheckResponse);
+
+  // Скачивание обновленных или новых зашифрованных записей с сервера.
+  rpc PullRecords(PullRecordsRequest) returns (PullRecordsResponse);
+
+  // Загрузка новых локальных зашифрованных записей в облако.
+  rpc PushRecords(PushRecordsRequest) returns (PushRecordsResponse);
+}
+
+message RecordVersion {
+  string record_id = 1; 
+  string updated_at = 2;  // RFC3339 строка для точной сверки времени
+}
+
+message SyncCheckRequest {
+  repeated RecordVersion local_versions = 1;
+}
+
+message SyncCheckResponse {
+  repeated string ids_to_pull = 1;
+  repeated string ids_to_push = 2;
+}
+
+message EncryptedRecordPayload {
+  string record_id = 1;
+  string name = 2;       // Открытое имя для поиска в CLI list
+  string type = 3;       
+  bytes envelope = 4;    // JSON-байты структуры crypto.Envelope
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message PullRecordsRequest {
+  repeated string record_ids = 1;
+}
+
+message PullRecordsResponse {
+  repeated EncryptedRecordPayload records = 1;
+}
+
+message PushRecordsRequest {
+  repeated EncryptedRecordPayload records = 1;
+}
+
+message PushRecordsResponse {
+  bool success = 1;
+}

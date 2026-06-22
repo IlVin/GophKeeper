@@ -8,10 +8,14 @@ import (
 
 	clientapp "gophkeeper/internal/client/app"
 	clientconfig "gophkeeper/internal/client/config"
+	"gophkeeper/internal/client/providers/sqlite"
+	"gophkeeper/internal/client/providers/sshagent"
+	"gophkeeper/internal/client/repository"
 	"gophkeeper/internal/client/sshcheck"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/ssh"
 )
 
 type CLI struct {
@@ -167,11 +171,12 @@ func (c *CLI) bindPersistentFlags(cmd *cobra.Command) error {
 func (c *CLI) addCommands(cmd *cobra.Command) {
 	cmd.AddCommand(
 		newInitCommand(c),
-		// newRegisterCommand(c),
+		newRegisterCommand(c),
 		newCreateCommand(c),
 		newListCommand(c),
 		newGetCommand(c),
 		newDeleteCommand(c),
+		newSyncCommand(c),
 	)
 }
 
@@ -189,4 +194,69 @@ func (c *CLI) withSSHAgent(
 
 		return run(cmd, args)
 	}
+}
+
+// withOwnerCheck проверяет, что контейнер инициализирован и ключ инициализации активен в ssh-agent
+func (c *CLI) withOwnerCheck(
+	run func(cmd *cobra.Command, args []string) error,
+) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		// 1. Проверяем базовую доступность SSH-агента (Инвариант №4)
+		if err := sshcheck.RequireAgent(); err != nil {
+			return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
+		}
+
+		// 2. Читаем локальное состояние из базы данных через App контекст
+		state, err := c.deviceStoreReader(cmd.Context())
+		if err != nil {
+			// Если БД не инициализирована, возвращаем ошибку "run init first"
+			return err
+		}
+
+		// 3. Извлекаем публичный ключ, с которым инитилась БД, и считаем его фингерпринт
+		dbPubKey, err := ssh.ParsePublicKey(state.SshPublicKey)
+		if err != nil {
+			return fmt.Errorf("database corruption: failed to parse saved public key: %w", err)
+		}
+		expectedFingerprint := sshagent.FingerprintSHA256(dbPubKey)
+
+		// 4. Подключаемся к агенту и проверяем, загружен ли этот конкретный ключ
+		agentClient, err := sshagent.NewFromEnv()
+		if err != nil {
+			return fmt.Errorf("connect to ssh-agent: %w", err)
+		}
+		defer agentClient.Close()
+
+		// Ищем ключ по фингерпринту инициализации
+		_, err = agentClient.FindED25519ByFingerprint(expectedFingerprint)
+		if err != nil {
+			return fmt.Errorf(
+				"access denied: root cryptographic key used during 'init' is missing from your ssh-agent.\n"+
+					"Expected fingerprint: %s\n"+
+					"Please load the correct key via 'ssh-add'",
+				expectedFingerprint,
+			)
+		}
+
+		// Если барьер пройден, передаем управление оригинальной логике команды
+		return run(cmd, args)
+	}
+}
+
+// Вспомогательный хелпер для безопасного извлечения состояния до полной сборки cli.App
+func (c *CLI) deviceStoreReader(ctx context.Context) (*repository.LocalDeviceState, error) {
+	cfg, err := c.AppConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Открываем легковесное соединение чисто под чтение статуса
+	db, err := sqlite.Open(cfg.Storage.SQLitePath)
+	if err != nil {
+		return nil, fmt.Errorf("client environment is not initialized: please run 'gophkeeper init' first")
+	}
+	defer db.Close()
+
+	deviceStore := sqlite.NewSQLiteDeviceStore(db)
+	return deviceStore.ReadDeviceState(ctx)
 }

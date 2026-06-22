@@ -16,7 +16,7 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete an encrypted secret from the local vault by its ID",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
@@ -72,7 +72,7 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 
 			fmt.Fprintf(out, "✔ Success! Record %q (ID: %s) has been permanently removed from the vault.\n", record.Name, id)
 			return nil
-		},
+		}),
 	}
 
 	// Регистрируем эфемерный флаг удаления

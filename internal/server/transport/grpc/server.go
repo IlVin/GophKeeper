@@ -4,19 +4,33 @@ import (
 	"crypto/tls"
 
 	"gophkeeper/internal/server/config"
-
 	// СОХРАНЕНО: Оставляем ваш путь генерации protobuf-файлов
 	pb "gophkeeper/gen/go/gophkeeper/v1"
+	"gophkeeper/internal/server/auth"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-// NewGRPCServer принимает конфигурацию, TLS-конверт и пул соединений PostgreSQL.
-func NewGRPCServer(cfg config.Config, tlsConfig *tls.Config, pool *pgxpool.Pool) *grpc.Server {
+// NewGRPCServer принимает конфигурацию, TLS-конверт, пул PostgreSQL и интерцептор безопасности (Инвариант mTLS)
+func NewGRPCServer(
+	cfg config.Config,
+	tlsConfig *tls.Config,
+	pool *pgxpool.Pool,
+	authInterceptor *auth.AuthInterceptor, // ДОБАВЛЕНО
+) *grpc.Server {
 	creds := credentials.NewTLS(tlsConfig)
-	opts := []grpc.ServerOption{grpc.Creds(creds)}
+
+	// Формируем список опций сервера gRPC
+	opts := []grpc.ServerOption{
+		grpc.Creds(creds),
+	}
+
+	// ДОБАВЛЕНО: Регистрируем унарный интерцептор проверки mTLS сертификатов контейнеров
+	if authInterceptor != nil {
+		opts = append(opts, grpc.UnaryInterceptor(authInterceptor.UnaryAuthInterceptor()))
+	}
 
 	server := grpc.NewServer(opts...)
 
@@ -24,13 +38,15 @@ func NewGRPCServer(cfg config.Config, tlsConfig *tls.Config, pool *pgxpool.Pool)
 	infoHandler := NewInfoHandler(cfg, func() bool { return pool != nil })
 	pb.RegisterInfoServiceServer(server, infoHandler)
 
-	regHandler := NewRegistrationHandler(cfg)
+	// ИСПРАВЛЕНО: Передаем pool соединений PostgreSQL для работы Challenge State Machine
+	regHandler := NewRegistrationHandler(cfg, pool)
 	pb.RegisterRegistrationServer(server, regHandler)
 
-	// ДОБАВЛЕНО: Регистрация трехэтапного сервиса привязки устройств из спецификации v4.0
-	// Предполагается, что DeviceAttachmentHandler реализован в файле attach_device.go
-	attachHandler := NewDeviceAttachmentHandler(cfg)
+	attachHandler := NewDeviceAttachmentHandler(cfg, pool)
 	pb.RegisterDeviceAttachmentServer(server, attachHandler)
+
+	syncHandler := NewSyncHandler(cfg, pool)
+	pb.RegisterSyncServiceServer(server, syncHandler)
 
 	return server
 }

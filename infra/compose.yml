@@ -3,9 +3,6 @@ networks:
     name: gophkeepernet
     driver: bridge
 
-volumes:
-  gophkeeper_s3:
-
 # pki:
 #   server_ca_key_path: ".certs_private/server-ca.key"
 #   device_ca_key_path: ".certs_private/device-ca.key"
@@ -13,7 +10,9 @@ volumes:
 
 services:
   gophkeeper-db:
-    image: gophkeeper_postgres:latest
+    build:
+      context: ../infra/database    # Контекстом сборки делаем саму папку с базой
+      dockerfile: Dockerfile        # Dockerfile лежит прямо внутри этого контекста
     container_name: gophkeeper-db
     hostname: gophkeeper-db
     networks:
@@ -24,37 +23,30 @@ services:
       - POSTGRES_USER=gophkeeper
       - POSTGRES_PASSWORD=gophkeeper_pswd
       - POSTGRES_DB=gophkeeper
-  gophkeeper-s3:
-    image: minio/minio:latest
-    networks:
-      - gophkeepernet
-    container_name: gophkeeper-s3
-    hostname: gophkeeper-s3
-    ports:
-      - "9000:9000" # Порт для API (куда будет ходить ваш Go-сервер)
-      - "9001:9001" # Порт для Web-консоли (чтобы зайти глазами в браузере)
-    environment:
-      MINIO_ROOT_USER: gophkeeper          # Логин администратора S3
-      MINIO_ROOT_PASSWORD: gophkeeper_pswd # Пароль администратора (минимум 8 символов)
-    volumes:
-      - gophkeeper_s3:/data                # Локальный Volume для сохранения файлов
-    command: server /data --console-address ":9001"
-    restart: unless-stopped
 
-  # Автоматический инициализатор бакета
-  gophkeeper-s3-init:
-    image: minio/mc:latest
+  gophkeeper-server:
+    build:
+      context: ../                  # Корень проекта, чтобы COPY видела cmd/
+      dockerfile: infra/gophkeeper-server/Dockerfile
+    container_name: gophkeeper-server
+    hostname: gophkeeper-server
     networks:
       - gophkeepernet
-    container_name: gophkeeper-s3-init
-    hostname: gophkeeper-s3-init
+    ports:
+      - "443:443"   # Защищенный gRPC-порт для mTLS клиентов
+
+    volumes:
+      - ../.certs_private:/app/.certs_private:ro
+      - ../internal/shared/certs/assets:/app/certs_public:ro
+
+    environment:
+      - GOPHKEEPER_SERVER_SERVER_BIND_GRPC=:443
+      - GOPHKEEPER_SERVER_STORAGE_POSTGRES_DSN=postgres://gophkeeper:gophkeeper_pswd@gophkeeper-db:5432/gophkeeper?sslmode=disable
+      - GOPHKEEPER_SERVER_PKI_SERVER_CA_KEY_PATH=.certs_private/server-ca.key
+      - GOPHKEEPER_SERVER_PKI_DEVICE_CA_KEY_PATH=.certs_private/device-ca.key
+
+
     depends_on:
-      - gophkeeper-s3 # Ждем, пока запустится основной контейнер S3
-    entrypoint: >
-      /bin/sh -c "
-      sleep 3;
-      until /usr/bin/mc alias set local_s3 http://gophkeeper-s3:9000 gophkeeper gophkeeper_pswd; do echo 'Waiting for MinIO...' && sleep 1; done;
-      /usr/bin/mc mb --ignore-existing local_s3/gophkeeper;
-      echo 'Bucket gophkeeper-vault created successfully!';
-      exit 0;
-      "
+      gophkeeper-db:
+        condition: service_healthy
+    restart: unless-stopped

@@ -16,7 +16,7 @@ func newListCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all encrypted secret metadata stored in the local vault",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен для операционных команд)
@@ -72,7 +72,7 @@ func newListCommand(cli *CLI) *cobra.Command {
 			w.Flush()
 
 			return nil
-		},
+		}),
 	}
 
 	return cmd

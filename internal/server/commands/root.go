@@ -1,72 +1,42 @@
 package commands
 
 import (
-	"fmt"
-
-	serverapp "gophkeeper/internal/server/app"
-
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-func NewServerRootCommand(v *viper.Viper) (*cobra.Command, error) {
-	var configFile string
-
+func (c *ServerCLI) NewServerRootCommand() (*cobra.Command, error) {
 	cmd := &cobra.Command{
-		Use:   "gophkeeper-server",
-		Short: "GophKeeper Server CLI",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			ctx, _, err := serverapp.Bootstrap(cmd.Context(), v)
-			if err != nil {
-				return err
-			}
-
-			cmd.SetContext(ctx)
-			cmd.Root().SetContext(ctx)
-
-			return nil
-		},
+		Use:           "gophkeeper-server",
+		Short:         "GophKeeper Stateful Blind Storage Server v4.1",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
-	cmd.PersistentFlags().StringVar(&configFile, "config", "", "path to server config file")
-	cmd.PersistentFlags().String("bind-http", "", "server HTTP bind address for Let's Encrypt challenges")
-	cmd.PersistentFlags().String("bind-grpc", "", "server gRPC secure listener bind address")
-	cmd.PersistentFlags().String("database", "", "postgres connection dsn")
-	cmd.PersistentFlags().String("lets-encrypt", "", "domain name for automatic Let's Encrypt TLS")
+	// Регистрируем глобальные персистентные флаги рантайма среды сервера
+	pFlags := cmd.PersistentFlags()
+	pFlags.String("config", "", "path to server config file")
+	pFlags.String("bind-http", ":80", "server HTTP bind address for Let's Encrypt challenges")
+	pFlags.String("bind-grpc", ":443", "server gRPC secure listener bind address")
+	pFlags.String("database", "", "postgres connection DSN")
+	pFlags.String("lets-encrypt", "", "domain name for automatic Let's Encrypt TLS")
+	pFlags.Bool("proxy-protocol", false, "enable go-proxyproto listener layer for upstream load-balancers")
 
-	cmd.PersistentFlags().String("server-ca-key", "", "path to Server CA private key file")
-	cmd.PersistentFlags().String("device-ca-key", "", "path to Device Identity CA private key file")
-	cmd.PersistentFlags().String("device-ca-crt", "", "path to Device Identity CA public certificate file")
+	pFlags.String("server-ca-key", "", "path to Server CA private key file")
+	pFlags.String("device-ca-key", "", "path to Device Identity CA private key file")
 
-	if err := v.BindPFlag("server.config_file", cmd.PersistentFlags().Lookup("config")); err != nil {
-		return nil, fmt.Errorf("bind flag config: %w", err)
-	}
-	if err := v.BindPFlag("server.bind_http", cmd.PersistentFlags().Lookup("bind-http")); err != nil {
-		return nil, fmt.Errorf("bind flag bind-http: %w", err)
-	}
-	if err := v.BindPFlag("server.bind_grpc", cmd.PersistentFlags().Lookup("bind-grpc")); err != nil {
-		return nil, fmt.Errorf("bind flag bind-grpc: %w", err)
-	}
-	if err := v.BindPFlag("storage.postgres_dsn", cmd.PersistentFlags().Lookup("database")); err != nil {
-		return nil, fmt.Errorf("bind flag database: %w", err)
-	}
-	if err := v.BindPFlag("server.lets_encrypt_domain", cmd.PersistentFlags().Lookup("lets-encrypt")); err != nil {
-		return nil, fmt.Errorf("bind flag lets-encrypt: %w", err)
-	}
+	// Намертво привязываем флаги CLI к маппингу конфигурации Viper
+	_ = c.v.BindPFlag("server.config_file", pFlags.Lookup("config"))
+	_ = c.v.BindPFlag("server.bind_http", pFlags.Lookup("bind-http"))
+	_ = c.v.BindPFlag("server.bind_grpc", pFlags.Lookup("bind-grpc"))
+	_ = c.v.BindPFlag("storage.postgres_dsn", pFlags.Lookup("database"))
+	_ = c.v.BindPFlag("server.lets_encrypt_domain", pFlags.Lookup("lets-encrypt"))
+	_ = c.v.BindPFlag("server.use_proxy_protocol", pFlags.Lookup("proxy-protocol"))
 
-	// ДОБАВЛЕНО: Связывание флагов PKI путей с конфигурационной мапой Viper
-	if err := v.BindPFlag("pki.server_ca_key_path", cmd.PersistentFlags().Lookup("server-ca-key")); err != nil {
-		return nil, fmt.Errorf("bind flag server-ca-key: %w", err)
-	}
-	if err := v.BindPFlag("pki.device_ca_key_path", cmd.PersistentFlags().Lookup("device-ca-key")); err != nil {
-		return nil, fmt.Errorf("bind flag device-ca-key: %w", err)
-	}
-	if err := v.BindPFlag("pki.device_ca_cert_path", cmd.PersistentFlags().Lookup("device-ca-crt")); err != nil {
-		return nil, fmt.Errorf("bind flag device-ca-crt: %w", err)
-	}
+	_ = c.v.BindPFlag("pki.server_ca_key_path", pFlags.Lookup("server-ca-key"))
+	_ = c.v.BindPFlag("pki.device_ca_key_path", pFlags.Lookup("device-ca-key"))
 
-	cmd.AddCommand(newStartCommand())
-	cmd.AddCommand(newStopCommand())
+	// Регистрируем подкоманды, передавая ссылку на ленивый контекст ServerCLI
+	cmd.AddCommand(c.newStartCommand())
 
 	return cmd, nil
 }

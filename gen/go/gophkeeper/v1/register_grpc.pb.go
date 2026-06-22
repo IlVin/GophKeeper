@@ -27,12 +27,13 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RegistrationClient interface {
-	// Step 1: begin first-account registration over authenticated TLS 1.3.
-	// Server creates UserID, AccountSalt and a one-time challenge session for operation "register".
+	// Шаг 1: Начало регистрации/присоединения через TLS 1.3 с проверкой подлинности сервера.
+	// Сервер проверяет наличие SshFingerprint. Возвращает UserID (существующий или зарезервированный),
+	// SessionID и ServerNonce для одноразового челленджа.
 	RegisterBegin(ctx context.Context, in *RegisterBeginRequest, opts ...grpc.CallOption) (*RegisterBeginResponse, error)
-	// Step 2: client proves possession of the registered SSH key using
-	// AuthChallengeSignature over ChallengePayload(register), then submits
-	// bootstrap/device envelopes and CSR for issuance of the first device certificate.
+	// Шаг 2: Клиент доказывает владение ключом, отправляя AuthChallengeSignature,
+	// и передает свою локальную соль и конверты. Сервер сверяет подпись, фиксирует каноничное
+	// состояние аккаунта и выпускает mTLS сертификат контейнера.
 	RegisterFinish(ctx context.Context, in *RegisterFinishRequest, opts ...grpc.CallOption) (*RegisterFinishResponse, error)
 }
 
@@ -68,12 +69,13 @@ func (c *registrationClient) RegisterFinish(ctx context.Context, in *RegisterFin
 // All implementations must embed UnimplementedRegistrationServer
 // for forward compatibility.
 type RegistrationServer interface {
-	// Step 1: begin first-account registration over authenticated TLS 1.3.
-	// Server creates UserID, AccountSalt and a one-time challenge session for operation "register".
+	// Шаг 1: Начало регистрации/присоединения через TLS 1.3 с проверкой подлинности сервера.
+	// Сервер проверяет наличие SshFingerprint. Возвращает UserID (существующий или зарезервированный),
+	// SessionID и ServerNonce для одноразового челленджа.
 	RegisterBegin(context.Context, *RegisterBeginRequest) (*RegisterBeginResponse, error)
-	// Step 2: client proves possession of the registered SSH key using
-	// AuthChallengeSignature over ChallengePayload(register), then submits
-	// bootstrap/device envelopes and CSR for issuance of the first device certificate.
+	// Шаг 2: Клиент доказывает владение ключом, отправляя AuthChallengeSignature,
+	// и передает свою локальную соль и конверты. Сервер сверяет подпись, фиксирует каноничное
+	// состояние аккаунта и выпускает mTLS сертификат контейнера.
 	RegisterFinish(context.Context, *RegisterFinishRequest) (*RegisterFinishResponse, error)
 	mustEmbedUnimplementedRegistrationServer()
 }

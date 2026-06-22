@@ -15,7 +15,7 @@ func newGetCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Decrypt and read a private secret from the vault by its name or ID",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
@@ -81,7 +81,7 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			fmt.Fprintf(out, "Secret Plaintext Payload: %s\n", string(plaintext))
 
 			return nil
-		},
+		}),
 	}
 
 	// Регистрируем эфемерные флаги

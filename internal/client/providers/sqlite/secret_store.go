@@ -155,3 +155,76 @@ func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 
 	return nil
 }
+
+func (s *SQLiteSecretStore) GetSyncMetadata(ctx context.Context) (map[string]time.Time, error) {
+	query := `SELECT id, updated_at FROM records;`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	meta := make(map[string]time.Time)
+	for rows.Next() {
+		var id, uStr string
+		if err := rows.Scan(&id, &uStr); err != nil {
+			return nil, err
+		}
+		t, _ := time.Parse(time.RFC3339, uStr)
+		meta[id] = t.UTC()
+	}
+	return meta, rows.Err()
+}
+
+// SaveRaw выполняет слепой Upsert зашифрованного конверта, пришедшего с сервера при Pull
+func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.EncryptedRecord) error {
+	query := `
+		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT(id) DO UPDATE SET
+			name = EXCLUDED.name,
+			type = EXCLUDED.type,
+			envelope = EXCLUDED.envelope,
+			updated_at = EXCLUDED.updated_at;`
+
+	var userIDStr sql.NullString
+	if r.UserID != nil {
+		userIDStr.String = *r.UserID
+		userIDStr.Valid = true
+	}
+
+	_, err := s.db.ExecContext(ctx, query,
+		r.ID,
+		userIDStr,
+		r.Name,
+		r.Type,
+		r.Envelope,
+		r.CreatedAt.Format(time.RFC3339),
+		r.UpdatedAt.Format(time.RFC3339),
+	)
+	return err
+}
+
+// GetRawByID вычитывает сырой зашифрованный конверт для отправки на сервер при Push
+func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
+	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records WHERE id = $1;`
+
+	var r repository.EncryptedRecord
+	var userIDNull sql.NullString
+	var cStr, uStr string
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&r.ID, &userIDNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if userIDNull.Valid {
+		r.UserID = &userIDNull.String
+	}
+	r.CreatedAt, _ = time.Parse(time.RFC3339, cStr)
+	r.UpdatedAt, _ = time.Parse(time.RFC3339, uStr)
+
+	return &r, nil
+}

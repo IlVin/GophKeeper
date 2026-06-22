@@ -19,7 +19,7 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create and encrypt a new private record inside the vault",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
 			// 1. Проверяем матрицу Preconditions (Инвариант №4: SSH Agent обязателен)
@@ -96,7 +96,7 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 
 			fmt.Fprintf(out, "✔ Success! Record %q [%s] securely saved and protected under AccountMasterKey.\n", name, secretType)
 			return nil
-		},
+		}),
 	}
 
 	// Регистрируем эфемерные флаги

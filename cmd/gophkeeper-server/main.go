@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
 
 	"gophkeeper/internal/server/commands"
 	"gophkeeper/internal/server/config"
@@ -10,21 +10,36 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("server terminated with error: %v", err)
+		// Выводим чистую критическую ошибку запуска в stderr для системных логов
+		fmt.Fprintf(os.Stderr, "FATAL: server terminated with error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-// run инкапсулирует логику запуска и возвращает ошибку вместо падения бинарника
+// run инкапсулирует логику запуска и возвращает ошибку вместо неконтролируемого падения
 func run() error {
+	// 1. Инициализируем изолированный объект Viper для сбора конфигурации
 	v := config.NewViper()
 
-	rootCmd, err := commands.NewServerRootCommand(v)
+	// 2. Создаем фабрику команд сервера (Composition Root слоя CLI)
+	// Внутри фабрики будет инициализирована структура CLI-контекста сервера
+	serverCLI := commands.NewServerCLI(v)
+
+	// 3. Гарантируем Graceful Shutdown и очистку памяти контейнера приложения (App)
+	// при любом выходе из run() (ошибка валидации флагов, прерывание по сигналу, штатная остановка)
+	defer func() {
+		_ = serverCLI.Close()
+	}()
+
+	// 4. Собираем дерево Cobra команд сервера
+	rootCmd, err := serverCLI.NewServerRootCommand()
 	if err != nil {
 		return fmt.Errorf("failed to initialize server CLI: %w", err)
 	}
 
+	// 5. Запускаем выполнение серверной Cobra-оболочки
 	if err := rootCmd.Execute(); err != nil {
-		return fmt.Errorf("command execution failed: %w", err)
+		return err
 	}
 
 	return nil

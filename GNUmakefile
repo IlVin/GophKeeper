@@ -66,34 +66,44 @@ test-race:
 lint:
 	golangci-lint run
 
-build: certs gen-proto
-	@echo "Building binary..."
-	go generate ./...
-	CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.buildVersion=${VERSION} -X main.buildCommit=$$(git log -1 --format='%H') -X main.buildDate=$$(date +%F)" -o $(BINARY_CLIENT) $(MAIN_CLIENT)
-	CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.buildVersion=${VERSION} -X main.buildCommit=$$(git log -1 --format='%H') -X main.buildDate=$$(date +%F)" -o $(BINARY_SERVER) $(MAIN_SERVER)
+## build-linux: Сборка статических бинарников строго под Linux x86_64 для scratch-контейнера
+build-linux: gen-proto
+	@echo "Compiling static binaries for Linux containers..."
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.buildVersion=${VERSION}" -o $(BINARY_CLIENT) $(MAIN_CLIENT)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.buildVersion=${VERSION}" -o $(BINARY_SERVER) $(MAIN_SERVER)
+
+## up: Сначала собирает Linux-бинарник на хосте, а затем мгновенно поднимает Docker-стек
+up: certs build-linux
+	@echo "Starting Docker containers..."
+	docker compose -f $(COMPOSE_FILE) up -d --build
 
 .PHONY: certs
 certs:
 	@mkdir -p internal/shared/certs/assets
 	@mkdir -p .certs_private
-	@echo "Generating System Root CAs (v4.0 Isolated PKI)..."
+	@echo "Generating System Root CAs (v4.1 Fixed PKI)..."
+	
 	# 1. Серверный корень (Server CA) для TLS транспорта
 	openssl ecparam -name prime256v1 -genkey -noout -out .certs_private/server-ca.key
 	openssl req -new -x509 -sha256 -key .certs_private/server-ca.key \
 		-days 3650 \
 		-subj "/O=GophKeeper Server Network/CN=GophKeeper Server CA" \
 		-out internal/shared/certs/assets/server-ca.crt
+		
 	# 2. Клиентский корень (Device CA) для строгого mTLS авторизации устройств
 	openssl ecparam -name prime256v1 -genkey -noout -out .certs_private/device-ca.key
 	openssl req -new -x509 -sha256 -key .certs_private/device-ca.key \
 		-days 3650 \
 		-subj "/O=GophKeeper Device Trust/CN=GophKeeper Device CA" \
 		-out internal/shared/certs/assets/device-ca.crt
+		
+	@chmod 600 .certs_private/*.key
 	@echo "--------------------------------------------------------"
 	@echo "SUCCESS: Public certificates generated in internal/shared/certs/assets/"
 	@echo "WARNING: Private keys saved OUTSIDE version control in .certs_private/"
-	@echo "Ensure .certs_private/ is added to your .gitignore file!"
-	@echo "Pass these key paths to your server via config file or flags."
+	@echo "Pass these private key paths to your server via compose.yml or flags."
+
+
 
 llm:
 	(cat ./go.mod && find ./ -name '*.llm' -exec sh -c 'echo "\n\n"; cat {}' \;) > ./LLM.txt
