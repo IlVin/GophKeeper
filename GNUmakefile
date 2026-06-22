@@ -69,6 +69,8 @@ test-race:
 lint:
 	golangci-lint run
 
+build: build-linux
+
 ## build-linux: Сборка статических бинарников строго под Linux x86_64 для scratch-контейнера
 build-linux: gen-proto
 	@echo "Compiling static binaries for Linux containers..."
