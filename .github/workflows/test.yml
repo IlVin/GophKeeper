@@ -61,6 +61,22 @@ jobs:
         # Дебаг-проверка для логов CI/CD: выводим список активных фингерпринтов в агенте
         ssh-add -l
 
+    # 3. УСТАНОВКА COMPILER PROTOBUF (protoc) И ПЛАГИНОВ КОДОГЕНЕРАЦИИ
+    - name: Install Protocol Buffers Compiler
+      uses: arduino/setup-protoc@v3
+      with:
+        version: '25.x' # Версия компилятора, совместимая с современным Go-рантаймом
+
+    - name: Install Go Protobuf Plugins
+      run: |
+        # Устанавливаем официальные Go-плагины для генерации структур и gRPC-кода
+        go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+        
+        # Добавляем путь к установленным плагинам ($GOPATH/bin) в системный PATH раннера,
+        # чтобы утилита protoc видела их во время вызова make build!
+        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
     # ГЕНЕРИРУЕМ СИСТЕМНЫЕ СЕРТИФИКАТЫ PKI (Критический шаг для mTLS)
     - name: Generate Ephemeral PKI Certificates
       run: make certs # Вызывает ваш таргет, создавая .certs_private/ на диске Runner!
