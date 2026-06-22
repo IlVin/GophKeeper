@@ -45,11 +45,22 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 		postgresDSN = "postgres://gophkeeper:gophkeeper_pswd@127.0.0.1:5432/gophkeeper?sslmode=disable"
 	}
 
+	// ИСПРАВЛЕНО: Вычисляем абсолютные пути к приватным ключам Серверного CA и Директного CA,
+	// чтобы PKI-слой сервера гарантированно инициализировался в любой среде (CI/CD или локально)
+	serverCAKeyAbs, err := filepath.Abs("../../../.certs_private/server-ca.key")
+	if err != nil {
+		t.Fatalf("failed to resolve absolute path for server-ca.key: %v", err)
+	}
+	deviceCAKeyAbs, err := filepath.Abs("../../../.certs_private/device-ca.key")
+	if err != nil {
+		t.Fatalf("failed to resolve absolute path for device-ca.key: %v", err)
+	}
+
 	serverCmd := exec.Command(serverBinary, "start",
 		"--bind-grpc", serverTargetAddr,
 		"--database", postgresDSN,
-		"--server-ca-key", "../../../.certs_private/server-ca.key",
-		"--device-ca-key", "../../../.certs_private/device-ca.key",
+		"--server-ca-key", serverCAKeyAbs, // Абсолютный путь
+		"--device-ca-key", deviceCAKeyAbs, // Абсолютный путь
 	)
 	serverCmd.Env = os.Environ()
 
