@@ -1,9 +1,0 @@
-File: cmd/gophkeeper/main.go
-Package: main
-Scope: Exported
-Role: Entrypoint
-Purpose: Initializes client configuration and executes the root CLI command tree. Separates execution logic into run function for testability.
-
-Functions:
-func main(). Purpose: Entrypoint flow. Invokes run and logs fatal error on failure.
-func run() error. Purpose: Operational logic. Initializes Viper config via config.NewViper, constructs client root command tree via commands.NewRootCommand, and triggers arguments parsing via cmd.Execute. Errors: returns wrapped initialization or command execution errors.
