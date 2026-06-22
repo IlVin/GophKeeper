@@ -34,12 +34,25 @@ jobs:
       with:
         go-version: '1.26'
 
-    - name: Setup SSH Agent
-      uses: shimataro/ssh-key-action@v2
-      with:
-        key: 'dummy'
-        name: id_ed25519
-        type: ed25519
+    - name: Start Ephemeral SSH Agent and Generate Test Key
+      run: |
+        # Запускаем локальный демон ssh-agent и экспортируем его переменные в окружение шага
+        eval "$(ssh-agent -s)"
+        
+        # Записываем переменные агента в глобальный файл окружения GitHub Actions,
+        # чтобы ВСЕ последующие шаги воркфлоу (включая go test) видели этот сокет!
+        echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+        echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+        
+        # Генерируем абсолютно чистый, беспарольный (-N "") ключ Ed25519 внутри Runner
+        mkdir -p ~/.ssh
+        ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "gophkeeper-ci-test"
+        
+        # Добавляем сгенерированный ключ в память поднятого агента
+        ssh-add ~/.ssh/id_ed25519
+        
+        # Дебаг-проверка для логов CI/CD: выводим список активных фингерпринтов в агенте
+        ssh-add -l
 
     # Компилируем ОБА бинарника (и клиента, и сервер), так как тест будет дергать их оба!
     - name: Compile Client and Server Binaries
