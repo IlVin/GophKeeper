@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+const maxServerMsgSize = 32 * 1024 * 1024 // 32 MB
+
 // NewGRPCServer конструирует и настраивает экземпляр gRPC-сервера GophKeeper.
 //
 // Функция инкапсулирует в себе внедрение пула соединений PostgreSQL,
@@ -35,6 +37,8 @@ func NewGRPCServer(
 	// Формируем список опций сервера gRPC
 	opts := []grpc.ServerOption{
 		grpc.Creds(creds),
+		grpc.MaxRecvMsgSize(maxServerMsgSize),
+		grpc.MaxSendMsgSize(maxServerMsgSize),
 	}
 
 	// Контролируем активность mTLS интерцептора авторизации устройств
