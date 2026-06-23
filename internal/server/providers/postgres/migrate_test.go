@@ -1,14 +1,16 @@
-package postgres_test
+package postgres
 
 import (
 	"testing"
 
-	"gophkeeper/internal/server/providers/postgres"
-
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMigrate_NilPoolError(t *testing.T) {
-	err := postgres.Migrate(nil)
-	assert.ErrorContains(t, err, "database pool is nil")
+// TestMigrate_FailsIfPoolNil проверяет Fail-Fast барьер мигратора
+// на попытку скормить ему неинициализированный пул.
+func TestMigrate_FailsIfPoolNil(t *testing.T) {
+	err := Migrate(nil)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database pool is nil", "Метод обязан отклонить операцию при пустом указателе")
 }

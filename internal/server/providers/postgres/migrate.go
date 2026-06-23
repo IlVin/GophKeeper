@@ -1,7 +1,11 @@
+// Package postgres предоставляет реализации инфраструктурных адаптеров,
+// репозиториев и кэш-провайдеров для взаимодействия с СУБД PostgreSQL.
 package postgres
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -10,30 +14,45 @@ import (
 
 const migrationsDir = "migrations"
 
-// Migrate принимает нативный пул pgxpool.Pool, временно оборачивает его
-// в совместимый stdlib-интерфейс для goose и запускает обновление схемы.
+// Migrate принимает нативный пул pgxpool.Pool, адаптирует его под stdlib-интерфейс
+// и выполняет пошаговый накат встроенных SQL-миграций ядра (Goose Up).
+//
+// Функция полностью автономна и изолирована в рамках виртуальной migrationsFS,
+// гарантируя стабильность разворачивания схем данных в Docker/K8s кластерах.
 func Migrate(pool *pgxpool.Pool) error {
 	if pool == nil {
-		return fmt.Errorf("database pool is nil")
+		slog.Error("Database migration aborted: provided postgres connection pool is nil")
+		return errors.New("database pool is nil")
 	}
 
-	// Переключаем goose на работу со встроенной файловой системой сервера
+	slog.Info("Initiating automated server database schemas evolutionary upgrade phase")
+
+	// Переключаем goose на работу со встроенной виртуальной файловой системой сервера (embed)
 	goose.SetBaseFS(migrationsFS)
 
-	// Явно задаем диалект PostgreSQL
+	// Явно фиксируем диалект PostgreSQL
 	if err := goose.SetDialect("postgres"); err != nil {
+		slog.Error("Failed to set strict goose dialect for postgres engine", "error", err)
 		return fmt.Errorf("failed to set goose dialect for postgres: %w", err)
 	}
 
-	// Получаем обертку *sql.DB поверх существующего пула pgxpool.
-	// Это не открывает новое соединение, а использует текущий пул.
+	// Получаем sql.DB обертку поверх существующего пула без открытия новых TCP-сессий
 	db := stdlib.OpenDBFromPool(pool)
-	defer db.Close() // Высвобождает только дескриптор обертки, сам пул остается открытым
 
-	// Запускаем процесс миграции
+	defer func() {
+		slog.Debug("Closing virtual stdlib sql.DB wrap layer descriptor")
+		if closeErr := db.Close(); closeErr != nil {
+			slog.Error("Failed to cleanly dispose virtual stdlib sql.DB wrap layer", "error", closeErr)
+		}
+	}()
+
+	// Запускаем процесс миграции (накатывает все новые *.sql файлы до актуальной версии)
+	slog.Debug("Executing goose.Up migration path sequence mapping", "dir", migrationsDir)
 	if err := goose.Up(db, migrationsDir); err != nil {
+		slog.Error("Critical database migrations apply collapse tracked", "error", err)
 		return fmt.Errorf("failed to run postgres server migrations: %w", err)
 	}
 
+	slog.Info("Server database schemas evolutionary upgrade successfully synchronized and finalized")
 	return nil
 }

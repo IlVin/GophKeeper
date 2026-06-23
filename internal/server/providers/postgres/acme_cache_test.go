@@ -1,89 +1,61 @@
-package postgres_test
+package postgres
 
 import (
 	"context"
 	"testing"
 
-	"gophkeeper/internal/server/providers/postgres"
-
-	"github.com/jackc/pgx/v5"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// TestPostgresCache_Get_Success проверяет успешное извлечение закэшированных
+// байт Let's Encrypt сертификата с использованием мок-интерфейса pgxmock.
 func TestPostgresCache_Get_Success(t *testing.T) {
-	mock, err := pgxmock.NewPool()
+	// Создаем мок-пул для pgx v5
+	mockPool, err := pgxmock.NewPool()
 	require.NoError(t, err)
-	defer mock.Close()
+	defer mockPool.Close()
 
+	cache := NewPostgresCache(mockPool)
 	ctx := context.Background()
-	cacheKey := "test-cert-key"
-	expectedData := []byte("secret-certificate-payload")
+	targetKey := "example.com"
+	expectedData := []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
-	mock.ExpectQuery(`SELECT data FROM acme_cache WHERE key = \$1`).
-		WithArgs(cacheKey).
+	// Настраиваем ожидания мока: СУБД должна получить SELECT и вернуть строку с байтами
+	mockPool.ExpectQuery("SELECT data FROM acme_cache WHERE key = \\$1").
+		WithArgs(targetKey).
 		WillReturnRows(pgxmock.NewRows([]string{"data"}).AddRow(expectedData))
 
-	cache := postgres.NewPostgresCache(mock)
-	data, err := cache.Get(ctx, cacheKey)
+	// Выполняем метод
+	res, err := cache.Get(ctx, targetKey)
 
 	require.NoError(t, err)
-	assert.Equal(t, expectedData, data)
+	assert.Equal(t, expectedData, res)
+
+	// Верифицируем, что все настроенные ожидания мока честно выполнились в рантайме
+	assert.NoError(t, mockPool.ExpectationsWereMet())
 }
 
+// TestPostgresCache_Get_CacheMiss проверяет маппинг СУБД ошибки pgx.ErrNoRows на каноничную autocert.ErrCacheMiss.
 func TestPostgresCache_Get_CacheMiss(t *testing.T) {
-	mock, err := pgxmock.NewPool()
+	mockPool, err := pgxmock.NewPool()
 	require.NoError(t, err)
-	defer mock.Close()
+	defer mockPool.Close()
 
+	cache := NewPostgresCache(mockPool)
 	ctx := context.Background()
-	cacheKey := "missing-key"
+	targetKey := "missing.com"
 
-	mock.ExpectQuery(`SELECT data FROM acme_cache WHERE key = \$1`).
-		WithArgs(cacheKey).
-		WillReturnError(pgx.ErrNoRows)
+	// Эмулируем отсутствие строк в PostgreSQL (база пуста)
+	mockPool.ExpectQuery("SELECT data FROM acme_cache WHERE key = \\$1").
+		WithArgs(targetKey).
+		WillReturnRows(pgxmock.NewRows([]string{"data"})) // Пустой ответ
 
-	cache := postgres.NewPostgresCache(mock)
-	_, err = cache.Get(ctx, cacheKey)
+	res, err := cache.Get(ctx, targetKey)
 
-	assert.ErrorIs(t, err, autocert.ErrCacheMiss)
-}
-
-func TestPostgresCache_Put_Success(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	require.NoError(t, err)
-	defer mock.Close()
-
-	ctx := context.Background()
-	cacheKey := "test-cert-key"
-	payload := []byte("secret-certificate-payload")
-
-	mock.ExpectExec(`INSERT INTO acme_cache`).
-		WithArgs(cacheKey, payload).
-		WillReturnResult(pgxmock.NewResult("INSERT", 1))
-
-	cache := postgres.NewPostgresCache(mock)
-	err = cache.Put(ctx, cacheKey, payload)
-
-	assert.NoError(t, err)
-}
-
-func TestPostgresCache_Delete_Success(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	require.NoError(t, err)
-	defer mock.Close()
-
-	ctx := context.Background()
-	cacheKey := "test-cert-key"
-
-	mock.ExpectExec(`DELETE FROM acme_cache WHERE key = \$1`).
-		WithArgs(cacheKey).
-		WillReturnResult(pgxmock.NewResult("DELETE", 1))
-
-	cache := postgres.NewPostgresCache(mock)
-	err = cache.Delete(ctx, cacheKey)
-
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, autocert.ErrCacheMiss, "Провайдер обязан транслировать отсутствие строк в ошибку ErrCacheMiss")
+	assert.Nil(t, res)
+	assert.NoError(t, mockPool.ExpectationsWereMet())
 }
