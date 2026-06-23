@@ -4,11 +4,15 @@
 // 	protoc        v7.35.0
 // source: gophkeeper/v1/sync.proto
 
-package v1
+// Пакет gophkeeper.v1 определяет сетевой контракт первой версии gRPC-сервисов
+// авторизации, регистрации и обмена данными крипто-сейфа GophKeeper.
+
+package gophkeeperv1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -22,9 +26,11 @@ const (
 )
 
 type RecordVersion struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RecordId      string                 `protobuf:"bytes,1,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"` // RFC3339 строка для точной сверки времени
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Уникальный UUID v5 зашифрованной записи.
+	RecordId string `protobuf:"bytes,1,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
+	// Строгая временная метка модификации для детерминированного LWW-сравнения.
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,16 +72,17 @@ func (x *RecordVersion) GetRecordId() string {
 	return ""
 }
 
-func (x *RecordVersion) GetUpdatedAt() string {
+func (x *RecordVersion) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
 	}
-	return ""
+	return nil
 }
 
 type SyncCheckRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LocalVersions []*RecordVersion       `protobuf:"bytes,1,rep,name=local_versions,json=localVersions,proto3" json:"local_versions,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Плоский список версий записей, хранящихся на клиенте.
+	LocalVersions []*RecordVersion `protobuf:"bytes,1,rep,name=local_versions,json=localVersions,proto3" json:"local_versions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -118,9 +125,11 @@ func (x *SyncCheckRequest) GetLocalVersions() []*RecordVersion {
 }
 
 type SyncCheckResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IdsToPull     []string               `protobuf:"bytes,1,rep,name=ids_to_pull,json=idsToPull,proto3" json:"ids_to_pull,omitempty"`
-	IdsToPush     []string               `protobuf:"bytes,2,rep,name=ids_to_push,json=idsToPush,proto3" json:"ids_to_push,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Список UUID записей, которые на сервере новее, чем на клиенте (нужно скачать).
+	IdsToPull []string `protobuf:"bytes,1,rep,name=ids_to_pull,json=idsToPull,proto3" json:"ids_to_pull,omitempty"`
+	// Список UUID записей, которые локально новее, чем в облаке (нужно закачать).
+	IdsToPush     []string `protobuf:"bytes,2,rep,name=ids_to_push,json=idsToPush,proto3" json:"ids_to_push,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -170,13 +179,16 @@ func (x *SyncCheckResponse) GetIdsToPush() []string {
 }
 
 type EncryptedRecordPayload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RecordId      string                 `protobuf:"bytes,1,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // Открытое имя для поиска в CLI list
-	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
-	Envelope      []byte                 `protobuf:"bytes,4,opt,name=envelope,proto3" json:"envelope,omitempty"` // JSON-байты структуры crypto.Envelope
-	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	RecordId string                 `protobuf:"bytes,1,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
+	// Открытое имя записи для быстрого поиска и листинга.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Категория секрета (credentials, text, binary, card).
+	Type string `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	// Бинарные JSON-байты крипто-конверта crypto.Envelope (шифртекст + nonce + tag).
+	Envelope      []byte                 `protobuf:"bytes,4,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -239,18 +251,18 @@ func (x *EncryptedRecordPayload) GetEnvelope() []byte {
 	return nil
 }
 
-func (x *EncryptedRecordPayload) GetCreatedAt() string {
+func (x *EncryptedRecordPayload) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
 	}
-	return ""
+	return nil
 }
 
-func (x *EncryptedRecordPayload) GetUpdatedAt() string {
+func (x *EncryptedRecordPayload) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
 	}
-	return ""
+	return nil
 }
 
 type PullRecordsRequest struct {
@@ -298,7 +310,8 @@ func (x *PullRecordsRequest) GetRecordIds() []string {
 }
 
 type PullRecordsResponse struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Набор запрошенных зашифрованных конвертов с метаданными.
 	Records       []*EncryptedRecordPayload `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -342,7 +355,8 @@ func (x *PullRecordsResponse) GetRecords() []*EncryptedRecordPayload {
 }
 
 type PushRecordsRequest struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Набор локальных зашифрованных конвертов для публикации в облаке.
 	Records       []*EncryptedRecordPayload `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -386,8 +400,9 @@ func (x *PushRecordsRequest) GetRecords() []*EncryptedRecordPayload {
 }
 
 type PushRecordsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Флаг успешного применения пакета и фиксации транзакции в облачной БД.
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -433,25 +448,25 @@ var File_gophkeeper_v1_sync_proto protoreflect.FileDescriptor
 
 const file_gophkeeper_v1_sync_proto_rawDesc = "" +
 	"\n" +
-	"\x18gophkeeper/v1/sync.proto\x12\rgophkeeper.v1\"K\n" +
+	"\x18gophkeeper/v1/sync.proto\x12\rgophkeeper.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"g\n" +
 	"\rRecordVersion\x12\x1b\n" +
-	"\trecord_id\x18\x01 \x01(\tR\brecordId\x12\x1d\n" +
+	"\trecord_id\x18\x01 \x01(\tR\brecordId\x129\n" +
 	"\n" +
-	"updated_at\x18\x02 \x01(\tR\tupdatedAt\"W\n" +
+	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"W\n" +
 	"\x10SyncCheckRequest\x12C\n" +
 	"\x0elocal_versions\x18\x01 \x03(\v2\x1c.gophkeeper.v1.RecordVersionR\rlocalVersions\"S\n" +
 	"\x11SyncCheckResponse\x12\x1e\n" +
 	"\vids_to_pull\x18\x01 \x03(\tR\tidsToPull\x12\x1e\n" +
-	"\vids_to_push\x18\x02 \x03(\tR\tidsToPush\"\xb7\x01\n" +
+	"\vids_to_push\x18\x02 \x03(\tR\tidsToPush\"\xef\x01\n" +
 	"\x16EncryptedRecordPayload\x12\x1b\n" +
 	"\trecord_id\x18\x01 \x01(\tR\brecordId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x1a\n" +
-	"\benvelope\x18\x04 \x01(\fR\benvelope\x12\x1d\n" +
+	"\benvelope\x18\x04 \x01(\fR\benvelope\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\tR\tupdatedAt\"3\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"3\n" +
 	"\x12PullRecordsRequest\x12\x1d\n" +
 	"\n" +
 	"record_ids\x18\x01 \x03(\tR\trecordIds\"V\n" +
@@ -464,7 +479,7 @@ const file_gophkeeper_v1_sync_proto_rawDesc = "" +
 	"\vSyncService\x12N\n" +
 	"\tSyncCheck\x12\x1f.gophkeeper.v1.SyncCheckRequest\x1a .gophkeeper.v1.SyncCheckResponse\x12T\n" +
 	"\vPullRecords\x12!.gophkeeper.v1.PullRecordsRequest\x1a\".gophkeeper.v1.PullRecordsResponse\x12T\n" +
-	"\vPushRecords\x12!.gophkeeper.v1.PushRecordsRequest\x1a\".gophkeeper.v1.PushRecordsResponseB'Z%gophkeeper/api/proto/gophkeeper/v1;v1b\x06proto3"
+	"\vPushRecords\x12!.gophkeeper.v1.PushRecordsRequest\x1a\".gophkeeper.v1.PushRecordsResponseB.Z,gophkeeper/gen/go/gophkeeper/v1;gophkeeperv1b\x06proto3"
 
 var (
 	file_gophkeeper_v1_sync_proto_rawDescOnce sync.Once
@@ -488,22 +503,26 @@ var file_gophkeeper_v1_sync_proto_goTypes = []any{
 	(*PullRecordsResponse)(nil),    // 5: gophkeeper.v1.PullRecordsResponse
 	(*PushRecordsRequest)(nil),     // 6: gophkeeper.v1.PushRecordsRequest
 	(*PushRecordsResponse)(nil),    // 7: gophkeeper.v1.PushRecordsResponse
+	(*timestamppb.Timestamp)(nil),  // 8: google.protobuf.Timestamp
 }
 var file_gophkeeper_v1_sync_proto_depIdxs = []int32{
-	0, // 0: gophkeeper.v1.SyncCheckRequest.local_versions:type_name -> gophkeeper.v1.RecordVersion
-	3, // 1: gophkeeper.v1.PullRecordsResponse.records:type_name -> gophkeeper.v1.EncryptedRecordPayload
-	3, // 2: gophkeeper.v1.PushRecordsRequest.records:type_name -> gophkeeper.v1.EncryptedRecordPayload
-	1, // 3: gophkeeper.v1.SyncService.SyncCheck:input_type -> gophkeeper.v1.SyncCheckRequest
-	4, // 4: gophkeeper.v1.SyncService.PullRecords:input_type -> gophkeeper.v1.PullRecordsRequest
-	6, // 5: gophkeeper.v1.SyncService.PushRecords:input_type -> gophkeeper.v1.PushRecordsRequest
-	2, // 6: gophkeeper.v1.SyncService.SyncCheck:output_type -> gophkeeper.v1.SyncCheckResponse
-	5, // 7: gophkeeper.v1.SyncService.PullRecords:output_type -> gophkeeper.v1.PullRecordsResponse
-	7, // 8: gophkeeper.v1.SyncService.PushRecords:output_type -> gophkeeper.v1.PushRecordsResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	8, // 0: gophkeeper.v1.RecordVersion.updated_at:type_name -> google.protobuf.Timestamp
+	0, // 1: gophkeeper.v1.SyncCheckRequest.local_versions:type_name -> gophkeeper.v1.RecordVersion
+	8, // 2: gophkeeper.v1.EncryptedRecordPayload.created_at:type_name -> google.protobuf.Timestamp
+	8, // 3: gophkeeper.v1.EncryptedRecordPayload.updated_at:type_name -> google.protobuf.Timestamp
+	3, // 4: gophkeeper.v1.PullRecordsResponse.records:type_name -> gophkeeper.v1.EncryptedRecordPayload
+	3, // 5: gophkeeper.v1.PushRecordsRequest.records:type_name -> gophkeeper.v1.EncryptedRecordPayload
+	1, // 6: gophkeeper.v1.SyncService.SyncCheck:input_type -> gophkeeper.v1.SyncCheckRequest
+	4, // 7: gophkeeper.v1.SyncService.PullRecords:input_type -> gophkeeper.v1.PullRecordsRequest
+	6, // 8: gophkeeper.v1.SyncService.PushRecords:input_type -> gophkeeper.v1.PushRecordsRequest
+	2, // 9: gophkeeper.v1.SyncService.SyncCheck:output_type -> gophkeeper.v1.SyncCheckResponse
+	5, // 10: gophkeeper.v1.SyncService.PullRecords:output_type -> gophkeeper.v1.PullRecordsResponse
+	7, // 11: gophkeeper.v1.SyncService.PushRecords:output_type -> gophkeeper.v1.PushRecordsResponse
+	9, // [9:12] is the sub-list for method output_type
+	6, // [6:9] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_gophkeeper_v1_sync_proto_init() }

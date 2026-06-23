@@ -1,35 +1,49 @@
 syntax = "proto3";
 
+// Пакет gophkeeper.v1 определяет сетевой контракт первой версии gRPC-сервисов
+// авторизации, регистрации и обмена данными крипто-сейфа GophKeeper.
 package gophkeeper.v1;
 
-option go_package = "gophkeeper/api/proto/gophkeeper/v1;v1";
+// Каноническая опция генерации Go-кода, соответствующая структуре папки gen/go/
+option go_package = "gophkeeper/gen/go/gophkeeper/v1;gophkeeperv1";
 
+// Сервис Registration управляет двухэтапным Zero-Knowledge протоколом беспарольной
+// регистрации и взаимного mTLS-анкоринга клиентских контейнеров в облаке.
 service Registration {
-  // Шаг 1: Начало регистрации/присоединения через TLS 1.3 с проверкой подлинности сервера.
-  // Сервер проверяет наличие SshFingerprint. Возвращает UserID (существующий или зарезервированный),
-  // SessionID и ServerNonce для одноразового челленджа.
+  // Шаг 1: Инициация сессии челленджа.
+  // Верифицирует наличие публичного ключа и генерирует одноразовый криптографический nonce.
   rpc RegisterBegin(RegisterBeginRequest) returns (RegisterBeginResponse);
 
-  // Шаг 2: Клиент доказывает владение ключом, отправляя AuthChallengeSignature,
-  // и передает свою локальную соль и конверты. Сервер сверяет подпись, фиксирует каноничное
-  // состояние аккаунта и выпускает mTLS сертификат контейнера.
+  // Шаг 2: Доказательство владения ключом (Proof of Possession).
+  // Проверяет подпись челленджа из ssh-agent, фиксирует каноничное состояние соли 
+  // аккаунта на сервере и выпускает индивидуальный mTLS паспорт устройства.
   rpc RegisterFinish(RegisterFinishRequest) returns (RegisterFinishResponse);
+}
+
+// Перечисление RegistrationStatus типизирует результат интеграции контейнера.
+enum RegistrationStatus {
+  REGISTRATION_STATUS_UNSPECIFIED = 0;
+  
+  // Аккаунт создан впервые, текущий контейнер зафиксирован как канонический источник соли.
+  REGISTRATION_STATUS_ACCOUNT_CREATED = 1;
+  
+  // Устройство присоединено к существующему аккаунту (требуется локальный Reconcile).
+  REGISTRATION_STATUS_ACCOUNT_JOINED = 2;
 }
 
 message RegisterBeginRequest {
   // Публичный ключ в каноническом формате OpenSSH Wire BLOB (из ssh-agent).
-  // Используется сервером для вычисления SshFingerprint и валидации челленджа.
   bytes ssh_public_key = 1;
 }
 
 message RegisterBeginResponse {
-  // UUID пользователя (новый зарезервированный или уже существующий в БД сервера).
+  // UUID пользователя (новый зарезервированный или уже существующий в облачной БД).
   string user_id = 1;
 
-  // UUID одноразовой сессии челленджа (TTL 5 минут, статус Unused).
+  // UUID одноразовой сессии челленджа (TTL строго 5 минут).
   string session_id = 2;
 
-  // Случайный криптографический нонс сервера для защиты от атак повторения (Replay).
+  // Криптографически стойкий случайный нонс сервера для защиты от атак повторения (Replay).
   bytes server_nonce = 3;
 }
 
@@ -37,38 +51,39 @@ message RegisterFinishRequest {
   string user_id = 1;
   string session_id = 2;
 
-  // Подпись Ed25519 из ssh-agent над ChallengePayload(register).
-  // Формат Payload строго Big-Endian: version + context + user_id + session_id + server_nonce + operation.
+  // Подпись Ed25519 из ssh-agent над структурированным Big-Endian блоком ChallengePayload.
   bytes auth_challenge_signature = 3;
 
-  // UUID локального SQLite контейнера, генерируемый при init.
+  // UUID локального SQLite контейнера, сгенерированный на этапе init.
   string device_id = 4;
 
-  // ИСПРАВЛЕНО: Клиент передает свою локальную соль, сгенерированную автономно.
+  // Автономно сгенерированная локальная соль аккаунта (строго 32 байта).
   bytes account_salt = 5;
 
-  // Конверт мастер-ключа под ключом разблокировки (Cloud Bootstrap Envelope).
+  // Запечатанный под AccountUnlockKey конверт мастер-ключей (Cloud Bootstrap Envelope).
   bytes account_bootstrap_envelope = 6;
 
-  // Конверт мастер-ключа под ключом устройства (Opaque для сервера).
+  // Запечатанный под DeviceKEK конверт мастер-ключа (непрозрачен для сервера).
   bytes device_master_key_envelope = 7;
 
-  // Запрос на выпуск mTLS сертификата устройства (PKCS#10 CSR).
+  // Запрос на выпуск клиентского mTLS сертификата устройства (PKCS#10 CSR).
   bytes csr = 8;
 
-  // Публичный ключ в каноническом формате OpenSSH Wire BLOB (из ssh-agent).
+  // Публичный ключ в каноническом формате OpenSSH Wire BLOB для повторной сверки.
   bytes ssh_public_key = 9;
 }
 
 message RegisterFinishResponse {
-  // Статус регистрации: account_created (первый контейнер) или account_joined (последующий)
-  string status = 1;
+  // Типизированный статус интеграции контейнера в экосистему аккаунта.
+  RegistrationStatus status = 1;
 
-  // ИСПРАВЛЕНО: Обязательный возврат канонического состояния для сверки и запуска Reconcile
+  // Серверный канон соли и bootstrap-конверта для запуска локальной LWW-миграции.
   bytes canonical_account_salt = 2;
   bytes canonical_account_bootstrap_envelope = 3;
 
-  // Выпущенный mTLS сертификат для авторизации данного DeviceID на gRPC Sync-портах.
+  // Выпущенный x509 DER mTLS сертификат для авторизации DeviceID на Sync-портах.
   bytes client_certificate = 4;
+  
+  // Цепочка доверия промежуточных издателей (CA Chain).
   bytes ca_chain = 5;
 }

@@ -4,7 +4,10 @@
 // 	protoc        v7.35.0
 // source: gophkeeper/v1/register.proto
 
-package v1
+// Пакет gophkeeper.v1 определяет сетевой контракт первой версии gRPC-сервисов
+// авторизации, регистрации и обмена данными крипто-сейфа GophKeeper.
+
+package gophkeeperv1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -21,10 +24,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Перечисление RegistrationStatus типизирует результат интеграции контейнера.
+type RegistrationStatus int32
+
+const (
+	RegistrationStatus_REGISTRATION_STATUS_UNSPECIFIED RegistrationStatus = 0
+	// Аккаунт создан впервые, текущий контейнер зафиксирован как канонический источник соли.
+	RegistrationStatus_REGISTRATION_STATUS_ACCOUNT_CREATED RegistrationStatus = 1
+	// Устройство присоединено к существующему аккаунту (требуется локальный Reconcile).
+	RegistrationStatus_REGISTRATION_STATUS_ACCOUNT_JOINED RegistrationStatus = 2
+)
+
+// Enum value maps for RegistrationStatus.
+var (
+	RegistrationStatus_name = map[int32]string{
+		0: "REGISTRATION_STATUS_UNSPECIFIED",
+		1: "REGISTRATION_STATUS_ACCOUNT_CREATED",
+		2: "REGISTRATION_STATUS_ACCOUNT_JOINED",
+	}
+	RegistrationStatus_value = map[string]int32{
+		"REGISTRATION_STATUS_UNSPECIFIED":     0,
+		"REGISTRATION_STATUS_ACCOUNT_CREATED": 1,
+		"REGISTRATION_STATUS_ACCOUNT_JOINED":  2,
+	}
+)
+
+func (x RegistrationStatus) Enum() *RegistrationStatus {
+	p := new(RegistrationStatus)
+	*p = x
+	return p
+}
+
+func (x RegistrationStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RegistrationStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_gophkeeper_v1_register_proto_enumTypes[0].Descriptor()
+}
+
+func (RegistrationStatus) Type() protoreflect.EnumType {
+	return &file_gophkeeper_v1_register_proto_enumTypes[0]
+}
+
+func (x RegistrationStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RegistrationStatus.Descriptor instead.
+func (RegistrationStatus) EnumDescriptor() ([]byte, []int) {
+	return file_gophkeeper_v1_register_proto_rawDescGZIP(), []int{0}
+}
+
 type RegisterBeginRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Публичный ключ в каноническом формате OpenSSH Wire BLOB (из ssh-agent).
-	// Используется сервером для вычисления SshFingerprint и валидации челленджа.
 	SshPublicKey  []byte `protobuf:"bytes,1,opt,name=ssh_public_key,json=sshPublicKey,proto3" json:"ssh_public_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -69,11 +123,11 @@ func (x *RegisterBeginRequest) GetSshPublicKey() []byte {
 
 type RegisterBeginResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// UUID пользователя (новый зарезервированный или уже существующий в БД сервера).
+	// UUID пользователя (новый зарезервированный или уже существующий в облачной БД).
 	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	// UUID одноразовой сессии челленджа (TTL 5 минут, статус Unused).
+	// UUID одноразовой сессии челленджа (TTL строго 5 минут).
 	SessionId string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// Случайный криптографический нонс сервера для защиты от атак повторения (Replay).
+	// Криптографически стойкий случайный нонс сервера для защиты от атак повторения (Replay).
 	ServerNonce   []byte `protobuf:"bytes,3,opt,name=server_nonce,json=serverNonce,proto3" json:"server_nonce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -134,20 +188,19 @@ type RegisterFinishRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	UserId    string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	SessionId string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// Подпись Ed25519 из ssh-agent над ChallengePayload(register).
-	// Формат Payload строго Big-Endian: version + context + user_id + session_id + server_nonce + operation.
+	// Подпись Ed25519 из ssh-agent над структурированным Big-Endian блоком ChallengePayload.
 	AuthChallengeSignature []byte `protobuf:"bytes,3,opt,name=auth_challenge_signature,json=authChallengeSignature,proto3" json:"auth_challenge_signature,omitempty"`
-	// UUID локального SQLite контейнера, генерируемый при init.
+	// UUID локального SQLite контейнера, сгенерированный на этапе init.
 	DeviceId string `protobuf:"bytes,4,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	// ИСПРАВЛЕНО: Клиент передает свою локальную соль, сгенерированную автономно.
+	// Автономно сгенерированная локальная соль аккаунта (строго 32 байта).
 	AccountSalt []byte `protobuf:"bytes,5,opt,name=account_salt,json=accountSalt,proto3" json:"account_salt,omitempty"`
-	// Конверт мастер-ключа под ключом разблокировки (Cloud Bootstrap Envelope).
+	// Запечатанный под AccountUnlockKey конверт мастер-ключей (Cloud Bootstrap Envelope).
 	AccountBootstrapEnvelope []byte `protobuf:"bytes,6,opt,name=account_bootstrap_envelope,json=accountBootstrapEnvelope,proto3" json:"account_bootstrap_envelope,omitempty"`
-	// Конверт мастер-ключа под ключом устройства (Opaque для сервера).
+	// Запечатанный под DeviceKEK конверт мастер-ключа (непрозрачен для сервера).
 	DeviceMasterKeyEnvelope []byte `protobuf:"bytes,7,opt,name=device_master_key_envelope,json=deviceMasterKeyEnvelope,proto3" json:"device_master_key_envelope,omitempty"`
-	// Запрос на выпуск mTLS сертификата устройства (PKCS#10 CSR).
+	// Запрос на выпуск клиентского mTLS сертификата устройства (PKCS#10 CSR).
 	Csr []byte `protobuf:"bytes,8,opt,name=csr,proto3" json:"csr,omitempty"`
-	// Публичный ключ в каноническом формате OpenSSH Wire BLOB (из ssh-agent).
+	// Публичный ключ в каноническом формате OpenSSH Wire BLOB для повторной сверки.
 	SshPublicKey  []byte `protobuf:"bytes,9,opt,name=ssh_public_key,json=sshPublicKey,proto3" json:"ssh_public_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -248,16 +301,17 @@ func (x *RegisterFinishRequest) GetSshPublicKey() []byte {
 
 type RegisterFinishResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Статус регистрации: account_created (первый контейнер) или account_joined (последующий)
-	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	// ИСПРАВЛЕНО: Обязательный возврат канонического состояния для сверки и запуска Reconcile
+	// Типизированный статус интеграции контейнера в экосистему аккаунта.
+	Status RegistrationStatus `protobuf:"varint,1,opt,name=status,proto3,enum=gophkeeper.v1.RegistrationStatus" json:"status,omitempty"`
+	// Серверный канон соли и bootstrap-конверта для запуска локальной LWW-миграции.
 	CanonicalAccountSalt              []byte `protobuf:"bytes,2,opt,name=canonical_account_salt,json=canonicalAccountSalt,proto3" json:"canonical_account_salt,omitempty"`
 	CanonicalAccountBootstrapEnvelope []byte `protobuf:"bytes,3,opt,name=canonical_account_bootstrap_envelope,json=canonicalAccountBootstrapEnvelope,proto3" json:"canonical_account_bootstrap_envelope,omitempty"`
-	// Выпущенный mTLS сертификат для авторизации данного DeviceID на gRPC Sync-портах.
+	// Выпущенный x509 DER mTLS сертификат для авторизации DeviceID на Sync-портах.
 	ClientCertificate []byte `protobuf:"bytes,4,opt,name=client_certificate,json=clientCertificate,proto3" json:"client_certificate,omitempty"`
-	CaChain           []byte `protobuf:"bytes,5,opt,name=ca_chain,json=caChain,proto3" json:"ca_chain,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Цепочка доверия промежуточных издателей (CA Chain).
+	CaChain       []byte `protobuf:"bytes,5,opt,name=ca_chain,json=caChain,proto3" json:"ca_chain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterFinishResponse) Reset() {
@@ -290,11 +344,11 @@ func (*RegisterFinishResponse) Descriptor() ([]byte, []int) {
 	return file_gophkeeper_v1_register_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *RegisterFinishResponse) GetStatus() string {
+func (x *RegisterFinishResponse) GetStatus() RegistrationStatus {
 	if x != nil {
 		return x.Status
 	}
-	return ""
+	return RegistrationStatus_REGISTRATION_STATUS_UNSPECIFIED
 }
 
 func (x *RegisterFinishResponse) GetCanonicalAccountSalt() []byte {
@@ -347,16 +401,20 @@ const file_gophkeeper_v1_register_proto_rawDesc = "" +
 	"\x1aaccount_bootstrap_envelope\x18\x06 \x01(\fR\x18accountBootstrapEnvelope\x12;\n" +
 	"\x1adevice_master_key_envelope\x18\a \x01(\fR\x17deviceMasterKeyEnvelope\x12\x10\n" +
 	"\x03csr\x18\b \x01(\fR\x03csr\x12$\n" +
-	"\x0essh_public_key\x18\t \x01(\fR\fsshPublicKey\"\x81\x02\n" +
-	"\x16RegisterFinishResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status\x124\n" +
+	"\x0essh_public_key\x18\t \x01(\fR\fsshPublicKey\"\xa4\x02\n" +
+	"\x16RegisterFinishResponse\x129\n" +
+	"\x06status\x18\x01 \x01(\x0e2!.gophkeeper.v1.RegistrationStatusR\x06status\x124\n" +
 	"\x16canonical_account_salt\x18\x02 \x01(\fR\x14canonicalAccountSalt\x12O\n" +
 	"$canonical_account_bootstrap_envelope\x18\x03 \x01(\fR!canonicalAccountBootstrapEnvelope\x12-\n" +
 	"\x12client_certificate\x18\x04 \x01(\fR\x11clientCertificate\x12\x19\n" +
-	"\bca_chain\x18\x05 \x01(\fR\acaChain2\xc9\x01\n" +
+	"\bca_chain\x18\x05 \x01(\fR\acaChain*\x8a\x01\n" +
+	"\x12RegistrationStatus\x12#\n" +
+	"\x1fREGISTRATION_STATUS_UNSPECIFIED\x10\x00\x12'\n" +
+	"#REGISTRATION_STATUS_ACCOUNT_CREATED\x10\x01\x12&\n" +
+	"\"REGISTRATION_STATUS_ACCOUNT_JOINED\x10\x022\xc9\x01\n" +
 	"\fRegistration\x12Z\n" +
 	"\rRegisterBegin\x12#.gophkeeper.v1.RegisterBeginRequest\x1a$.gophkeeper.v1.RegisterBeginResponse\x12]\n" +
-	"\x0eRegisterFinish\x12$.gophkeeper.v1.RegisterFinishRequest\x1a%.gophkeeper.v1.RegisterFinishResponseB'Z%gophkeeper/api/proto/gophkeeper/v1;v1b\x06proto3"
+	"\x0eRegisterFinish\x12$.gophkeeper.v1.RegisterFinishRequest\x1a%.gophkeeper.v1.RegisterFinishResponseB.Z,gophkeeper/gen/go/gophkeeper/v1;gophkeeperv1b\x06proto3"
 
 var (
 	file_gophkeeper_v1_register_proto_rawDescOnce sync.Once
@@ -370,23 +428,26 @@ func file_gophkeeper_v1_register_proto_rawDescGZIP() []byte {
 	return file_gophkeeper_v1_register_proto_rawDescData
 }
 
+var file_gophkeeper_v1_register_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_gophkeeper_v1_register_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_gophkeeper_v1_register_proto_goTypes = []any{
-	(*RegisterBeginRequest)(nil),   // 0: gophkeeper.v1.RegisterBeginRequest
-	(*RegisterBeginResponse)(nil),  // 1: gophkeeper.v1.RegisterBeginResponse
-	(*RegisterFinishRequest)(nil),  // 2: gophkeeper.v1.RegisterFinishRequest
-	(*RegisterFinishResponse)(nil), // 3: gophkeeper.v1.RegisterFinishResponse
+	(RegistrationStatus)(0),        // 0: gophkeeper.v1.RegistrationStatus
+	(*RegisterBeginRequest)(nil),   // 1: gophkeeper.v1.RegisterBeginRequest
+	(*RegisterBeginResponse)(nil),  // 2: gophkeeper.v1.RegisterBeginResponse
+	(*RegisterFinishRequest)(nil),  // 3: gophkeeper.v1.RegisterFinishRequest
+	(*RegisterFinishResponse)(nil), // 4: gophkeeper.v1.RegisterFinishResponse
 }
 var file_gophkeeper_v1_register_proto_depIdxs = []int32{
-	0, // 0: gophkeeper.v1.Registration.RegisterBegin:input_type -> gophkeeper.v1.RegisterBeginRequest
-	2, // 1: gophkeeper.v1.Registration.RegisterFinish:input_type -> gophkeeper.v1.RegisterFinishRequest
-	1, // 2: gophkeeper.v1.Registration.RegisterBegin:output_type -> gophkeeper.v1.RegisterBeginResponse
-	3, // 3: gophkeeper.v1.Registration.RegisterFinish:output_type -> gophkeeper.v1.RegisterFinishResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: gophkeeper.v1.RegisterFinishResponse.status:type_name -> gophkeeper.v1.RegistrationStatus
+	1, // 1: gophkeeper.v1.Registration.RegisterBegin:input_type -> gophkeeper.v1.RegisterBeginRequest
+	3, // 2: gophkeeper.v1.Registration.RegisterFinish:input_type -> gophkeeper.v1.RegisterFinishRequest
+	2, // 3: gophkeeper.v1.Registration.RegisterBegin:output_type -> gophkeeper.v1.RegisterBeginResponse
+	4, // 4: gophkeeper.v1.Registration.RegisterFinish:output_type -> gophkeeper.v1.RegisterFinishResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_gophkeeper_v1_register_proto_init() }
@@ -399,13 +460,14 @@ func file_gophkeeper_v1_register_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gophkeeper_v1_register_proto_rawDesc), len(file_gophkeeper_v1_register_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_gophkeeper_v1_register_proto_goTypes,
 		DependencyIndexes: file_gophkeeper_v1_register_proto_depIdxs,
+		EnumInfos:         file_gophkeeper_v1_register_proto_enumTypes,
 		MessageInfos:      file_gophkeeper_v1_register_proto_msgTypes,
 	}.Build()
 	File_gophkeeper_v1_register_proto = out.File

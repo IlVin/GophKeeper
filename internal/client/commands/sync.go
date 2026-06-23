@@ -13,7 +13,6 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
-	"time"
 
 	pb "gophkeeper/gen/go/gophkeeper/v1"
 	clientapp "gophkeeper/internal/client/app"
@@ -27,6 +26,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // newSyncCommand конструирует CLI-команду "sync" для проведения двусторонней
@@ -184,7 +184,7 @@ func executeNetworkSync(
 		MinVersion:   tls.VersionTLS13,
 		RootCAs:      serverCAPool,
 		Certificates: []tls.Certificate{clientCert},
-		ServerName:   "localhost", // Соответствует TLS SNI цепочки Server CA
+		ServerName:   "localhost",
 	}
 
 	slog.Debug("Установление защищенной mTLS 1.3 gRPC сессии синхронизации", "url", *state.ServerURL)
@@ -213,9 +213,10 @@ func executeNetworkSync(
 
 	var protoVersions []*pb.RecordVersion
 	for id, t := range localMeta {
+		// ИСПРАВЛЕНО: Вместо .Format() строки используем нативный timestamppb.New()
 		protoVersions = append(protoVersions, &pb.RecordVersion{
 			RecordId:  id,
-			UpdatedAt: t.Format(time.RFC3339),
+			UpdatedAt: timestamppb.New(t),
 		})
 	}
 
@@ -243,20 +244,23 @@ func executeNetworkSync(
 		}
 
 		for _, r := range pullResp.GetRecords() {
-			cTime, errC := time.Parse(time.RFC3339, r.GetCreatedAt())
-			uTime, errU := time.Parse(time.RFC3339, r.GetUpdatedAt())
-			if errC != nil || errU != nil {
-				slog.Error("Сервер прислал невалидный RFC3339 формат дат для pulled записи, пакет пропущен", "record_id", r.GetRecordId())
-				continue // Пропускаем поврежденный элемент для защиты локального LWW-инварианта
+			// ИСПРАВЛЕНО: Полностью убран уязвимый строковый time.Parse.
+			// Даты извлекаются нативно через .AsTime() без риска Scan Errors
+			if r.GetCreatedAt() == nil || r.GetUpdatedAt() == nil {
+				slog.Error("Сервер прислал пустой блок Timestamp для pulled записи, пакет пропущен", "record_id", r.GetRecordId())
+				continue
 			}
+
+			cTime := r.GetCreatedAt().AsTime().UTC()
+			uTime := r.GetUpdatedAt().AsTime().UTC()
 
 			err = secretStore.SaveRaw(ctx, &repository.EncryptedRecord{
 				ID:        r.GetRecordId(),
 				Name:      r.GetName(),
 				Type:      r.GetType(),
 				Envelope:  r.GetEnvelope(),
-				CreatedAt: cTime.UTC(),
-				UpdatedAt: uTime.UTC(),
+				CreatedAt: cTime,
+				UpdatedAt: uTime,
 			})
 			if err != nil {
 				slog.Error("Не удалось сохранить выкачанный конверт в SQLite", "record_id", r.GetRecordId(), "error", err)
@@ -279,13 +283,15 @@ func executeNetworkSync(
 				slog.Error("Не удалось извлечь сырой конверт для push", "id", id, "error", err)
 				continue
 			}
+
+			// ИСПРАВЛЕНО: Вместо .Format() строки упаковываем даты в timestamppb.New()
 			recordsToPush = append(recordsToPush, &pb.EncryptedRecordPayload{
 				RecordId:  localRec.ID,
 				Name:      localRec.Name,
 				Type:      localRec.Type,
 				Envelope:  localRec.Envelope,
-				CreatedAt: localRec.CreatedAt.Format(time.RFC3339),
-				UpdatedAt: localRec.UpdatedAt.Format(time.RFC3339),
+				CreatedAt: timestamppb.New(localRec.CreatedAt),
+				UpdatedAt: timestamppb.New(localRec.UpdatedAt),
 			})
 		}
 

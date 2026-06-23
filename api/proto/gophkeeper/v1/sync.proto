@@ -1,43 +1,63 @@
 syntax = "proto3";
 
+// Пакет gophkeeper.v1 определяет сетевой контракт первой версии gRPC-сервисов
+// авторизации, регистрации и обмена данными крипто-сейфа GophKeeper.
 package gophkeeper.v1;
 
-option go_package = "gophkeeper/api/proto/gophkeeper/v1;v1";
+import "google/protobuf/timestamp.proto";
 
+// Каноническая опция генерации Go-кода, соответствующая структуре папки gen/go/
+option go_package = "gophkeeper/gen/go/gophkeeper/v1;gophkeeperv1";
+
+// Сервис SyncService управляет дифференциальной репликацией крипто-конвертов
+// между локальной СУБД SQLite и облачным хранилищем по стратегии Last-Write-Wins (LWW).
 service SyncService {
-  // Дифференциальная проверка: клиент отправляет список своих ID и временных меток,
-  // сервер сравнивает их со своим состоянием и возвращает списки UUID, которые 
-  // нужно скачать (Pull) или загрузить в облако (Push).
+  // Дифференциальная проверка: клиент отправляет карту версий своих локальных записей,
+  // сервер сравнивает метки времени и возвращает списки UUID для фаз Pull и Push.
   rpc SyncCheck(SyncCheckRequest) returns (SyncCheckResponse);
 
-  // Скачивание обновленных или новых зашифрованных записей с сервера.
+  // Скачивание свежих или отсутствующих зашифрованных конвертов с сервера (Фаза PULL).
   rpc PullRecords(PullRecordsRequest) returns (PullRecordsResponse);
 
-  // Загрузка новых локальных зашифрованных записей в облако.
+  // Загрузка новых локальных оффлайн-изменений в облако (Фаза PUSH).
   rpc PushRecords(PushRecordsRequest) returns (PushRecordsResponse);
 }
 
 message RecordVersion {
+  // Уникальный UUID v5 зашифрованной записи.
   string record_id = 1; 
-  string updated_at = 2;  // RFC3339 строка для точной сверки времени
+  
+  // Строгая временная метка модификации для детерминированного LWW-сравнения.
+  google.protobuf.Timestamp updated_at = 2;
 }
 
 message SyncCheckRequest {
+  // Плоский список версий записей, хранящихся на клиенте.
   repeated RecordVersion local_versions = 1;
 }
 
 message SyncCheckResponse {
+  // Список UUID записей, которые на сервере новее, чем на клиенте (нужно скачать).
   repeated string ids_to_pull = 1;
+  
+  // Список UUID записей, которые локально новее, чем в облаке (нужно закачать).
   repeated string ids_to_push = 2;
 }
 
 message EncryptedRecordPayload {
   string record_id = 1;
-  string name = 2;       // Открытое имя для поиска в CLI list
+  
+  // Открытое имя записи для быстрого поиска и листинга.
+  string name = 2;       
+  
+  // Категория секрета (credentials, text, binary, card).
   string type = 3;       
-  bytes envelope = 4;    // JSON-байты структуры crypto.Envelope
-  string created_at = 5;
-  string updated_at = 6;
+  
+  // Бинарные JSON-байты крипто-конверта crypto.Envelope (шифртекст + nonce + tag).
+  bytes envelope = 4;    
+  
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
 message PullRecordsRequest {
@@ -45,13 +65,16 @@ message PullRecordsRequest {
 }
 
 message PullRecordsResponse {
+  // Набор запрошенных зашифрованных конвертов с метаданными.
   repeated EncryptedRecordPayload records = 1;
 }
 
 message PushRecordsRequest {
+  // Набор локальных зашифрованных конвертов для публикации в облаке.
   repeated EncryptedRecordPayload records = 1;
 }
 
 message PushRecordsResponse {
+  // Флаг успешного применения пакета и фиксации транзакции в облачной БД.
   bool success = 1;
 }

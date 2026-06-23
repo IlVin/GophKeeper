@@ -4,7 +4,10 @@
 // - protoc             v7.35.0
 // source: gophkeeper/v1/register.proto
 
-package v1
+// Пакет gophkeeper.v1 определяет сетевой контракт первой версии gRPC-сервисов
+// авторизации, регистрации и обмена данными крипто-сейфа GophKeeper.
+
+package gophkeeperv1
 
 import (
 	context "context"
@@ -26,14 +29,16 @@ const (
 // RegistrationClient is the client API for Registration service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис Registration управляет двухэтапным Zero-Knowledge протоколом беспарольной
+// регистрации и взаимного mTLS-анкоринга клиентских контейнеров в облаке.
 type RegistrationClient interface {
-	// Шаг 1: Начало регистрации/присоединения через TLS 1.3 с проверкой подлинности сервера.
-	// Сервер проверяет наличие SshFingerprint. Возвращает UserID (существующий или зарезервированный),
-	// SessionID и ServerNonce для одноразового челленджа.
+	// Шаг 1: Инициация сессии челленджа.
+	// Верифицирует наличие публичного ключа и генерирует одноразовый криптографический nonce.
 	RegisterBegin(ctx context.Context, in *RegisterBeginRequest, opts ...grpc.CallOption) (*RegisterBeginResponse, error)
-	// Шаг 2: Клиент доказывает владение ключом, отправляя AuthChallengeSignature,
-	// и передает свою локальную соль и конверты. Сервер сверяет подпись, фиксирует каноничное
-	// состояние аккаунта и выпускает mTLS сертификат контейнера.
+	// Шаг 2: Доказательство владения ключом (Proof of Possession).
+	// Проверяет подпись челленджа из ssh-agent, фиксирует каноничное состояние соли
+	// аккаунта на сервере и выпускает индивидуальный mTLS паспорт устройства.
 	RegisterFinish(ctx context.Context, in *RegisterFinishRequest, opts ...grpc.CallOption) (*RegisterFinishResponse, error)
 }
 
@@ -68,14 +73,16 @@ func (c *registrationClient) RegisterFinish(ctx context.Context, in *RegisterFin
 // RegistrationServer is the server API for Registration service.
 // All implementations must embed UnimplementedRegistrationServer
 // for forward compatibility.
+//
+// Сервис Registration управляет двухэтапным Zero-Knowledge протоколом беспарольной
+// регистрации и взаимного mTLS-анкоринга клиентских контейнеров в облаке.
 type RegistrationServer interface {
-	// Шаг 1: Начало регистрации/присоединения через TLS 1.3 с проверкой подлинности сервера.
-	// Сервер проверяет наличие SshFingerprint. Возвращает UserID (существующий или зарезервированный),
-	// SessionID и ServerNonce для одноразового челленджа.
+	// Шаг 1: Инициация сессии челленджа.
+	// Верифицирует наличие публичного ключа и генерирует одноразовый криптографический nonce.
 	RegisterBegin(context.Context, *RegisterBeginRequest) (*RegisterBeginResponse, error)
-	// Шаг 2: Клиент доказывает владение ключом, отправляя AuthChallengeSignature,
-	// и передает свою локальную соль и конверты. Сервер сверяет подпись, фиксирует каноничное
-	// состояние аккаунта и выпускает mTLS сертификат контейнера.
+	// Шаг 2: Доказательство владения ключом (Proof of Possession).
+	// Проверяет подпись челленджа из ssh-agent, фиксирует каноничное состояние соли
+	// аккаунта на сервере и выпускает индивидуальный mTLS паспорт устройства.
 	RegisterFinish(context.Context, *RegisterFinishRequest) (*RegisterFinishResponse, error)
 	mustEmbedUnimplementedRegistrationServer()
 }

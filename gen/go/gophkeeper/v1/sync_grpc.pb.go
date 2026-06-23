@@ -4,7 +4,10 @@
 // - protoc             v7.35.0
 // source: gophkeeper/v1/sync.proto
 
-package v1
+// Пакет gophkeeper.v1 определяет сетевой контракт первой версии gRPC-сервисов
+// авторизации, регистрации и обмена данными крипто-сейфа GophKeeper.
+
+package gophkeeperv1
 
 import (
 	context "context"
@@ -27,14 +30,16 @@ const (
 // SyncServiceClient is the client API for SyncService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис SyncService управляет дифференциальной репликацией крипто-конвертов
+// между локальной СУБД SQLite и облачным хранилищем по стратегии Last-Write-Wins (LWW).
 type SyncServiceClient interface {
-	// Дифференциальная проверка: клиент отправляет список своих ID и временных меток,
-	// сервер сравнивает их со своим состоянием и возвращает списки UUID, которые
-	// нужно скачать (Pull) или загрузить в облако (Push).
+	// Дифференциальная проверка: клиент отправляет карту версий своих локальных записей,
+	// сервер сравнивает метки времени и возвращает списки UUID для фаз Pull и Push.
 	SyncCheck(ctx context.Context, in *SyncCheckRequest, opts ...grpc.CallOption) (*SyncCheckResponse, error)
-	// Скачивание обновленных или новых зашифрованных записей с сервера.
+	// Скачивание свежих или отсутствующих зашифрованных конвертов с сервера (Фаза PULL).
 	PullRecords(ctx context.Context, in *PullRecordsRequest, opts ...grpc.CallOption) (*PullRecordsResponse, error)
-	// Загрузка новых локальных зашифрованных записей в облако.
+	// Загрузка новых локальных оффлайн-изменений в облако (Фаза PUSH).
 	PushRecords(ctx context.Context, in *PushRecordsRequest, opts ...grpc.CallOption) (*PushRecordsResponse, error)
 }
 
@@ -79,14 +84,16 @@ func (c *syncServiceClient) PushRecords(ctx context.Context, in *PushRecordsRequ
 // SyncServiceServer is the server API for SyncService service.
 // All implementations must embed UnimplementedSyncServiceServer
 // for forward compatibility.
+//
+// Сервис SyncService управляет дифференциальной репликацией крипто-конвертов
+// между локальной СУБД SQLite и облачным хранилищем по стратегии Last-Write-Wins (LWW).
 type SyncServiceServer interface {
-	// Дифференциальная проверка: клиент отправляет список своих ID и временных меток,
-	// сервер сравнивает их со своим состоянием и возвращает списки UUID, которые
-	// нужно скачать (Pull) или загрузить в облако (Push).
+	// Дифференциальная проверка: клиент отправляет карту версий своих локальных записей,
+	// сервер сравнивает метки времени и возвращает списки UUID для фаз Pull и Push.
 	SyncCheck(context.Context, *SyncCheckRequest) (*SyncCheckResponse, error)
-	// Скачивание обновленных или новых зашифрованных записей с сервера.
+	// Скачивание свежих или отсутствующих зашифрованных конвертов с сервера (Фаза PULL).
 	PullRecords(context.Context, *PullRecordsRequest) (*PullRecordsResponse, error)
-	// Загрузка новых локальных зашифрованных записей в облако.
+	// Загрузка новых локальных оффлайн-изменений в облако (Фаза PUSH).
 	PushRecords(context.Context, *PushRecordsRequest) (*PushRecordsResponse, error)
 	mustEmbedUnimplementedSyncServiceServer()
 }
