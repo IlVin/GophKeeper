@@ -3,9 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/x509"
-	"gophkeeper/internal/shared/certs"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
+
+	"gophkeeper/internal/shared/certs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -22,28 +25,20 @@ const (
 	ExpectedURIPrefix             = "urn:gophkeeper:file:"
 )
 
-// AuthInterceptor инкапсулирует пул доверенных корневых сертификатов устройств для ручной верификации
 type AuthInterceptor struct {
 	deviceCAPool *x509.CertPool
-	pool         *pgxpool.Pool // Для проверки статуса в БД
+	pool         *pgxpool.Pool
 }
 
-// NewAuthInterceptor создает экземпляр перехватчика с привязкой к Device CA Trust Root
-func NewAuthInterceptor(dbPool *pgxpool.Pool) *AuthInterceptor {
-	// Вызываем ваш готовый загрузчик встроенного пула Device CA
+func NewAuthInterceptor(dbPool *pgxpool.Pool) (*AuthInterceptor, error) {
 	devicePool, err := certs.LoadDeviceCAPool()
 	if err != nil {
-		// Если эмбед пустой, сервер упадет на старте (Fail-Fast)
-		panic("critical: failed to load embedded device CA trust root: " + err.Error())
+		return nil, fmt.Errorf("failed to load embedded device CA: %w", err)
 	}
-
-	return &AuthInterceptor{
-		deviceCAPool: devicePool,
-		pool:         dbPool,
-	}
+	return &AuthInterceptor{deviceCAPool: devicePool, pool: dbPool}, nil
 }
 
-// UnaryAuthInterceptor проверяет mTLS сертификаты устройств и защищает от TLS-bypass атак
+// UnaryAuthInterceptor — шлюз безопасности для работы TLS и mTLS на одном сетевом порту.
 func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -51,27 +46,33 @@ func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (any, error) {
-		// 1. Разрешаем свободный доступ к challenge-методам регистрации и привязки
+		// 1. White List: Разрешаем анонимный TLS-доступ к методам регистрации
 		if isPublicEndpoint(info.FullMethod) {
+			slog.Debug("Bypassing mTLS check for public registration endpoint", "method", info.FullMethod)
 			return handler(ctx, req)
 		}
 
-		// 2. Извлекаем TLS-информацию о подключенном пире
+		// 2. ИБ-БАРИЕР ДЛЯ ЗАКРЫТЫХ МЕТОДОВ (Sync Check, Pull, Push)
+		// Если метод закрытый, наличие клиентского mTLS-сертификата КАТЕГОРИЧЕСКИ ОБЯЗАТЕЛЬНО
 		p, ok := peer.FromContext(ctx)
 		if !ok || p.AuthInfo == nil {
-			return nil, status.Error(codes.Unauthenticated, "missing transport security credentials")
+			slog.Warn("TLS-Bypass attempt blocked: transport security credentials missing")
+			return nil, status.Error(codes.Unauthenticated, "transport security credentials missing")
 		}
 
 		tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 		if !ok || len(tlsInfo.State.PeerCertificates) == 0 {
-			return nil, status.Error(codes.Unauthenticated, "mTLS client certificate is required for sync channels")
+			// ЖЕСТКИЙ Fail-Fast отказ: если клиент вызвал Sync без сертификата, рвем сессию!
+			slog.Warn("TLS-Bypass attack blocked: client metadata present but no mTLS certificate provided")
+			return nil, status.Error(codes.Unauthenticated, "mutual TLS authentication is strictly required for this resource")
 		}
 
-		// Извлекаем первый (листовой) сертификат контейнера
+		// Извлекаем листовой сертификат устройства, который проскочил проверку 'VerifyClientCertIfGiven'
 		clientCert := tlsInfo.State.PeerCertificates[0]
 
-		// 3. КРИТИЧЕСКИЙ БАРЬЕР: Вручную верифицируем цепочку подписей сертификата против DeviceCA (Инвариант mTLS)
-		// Так как сервер работает в режиме VerifyClientCertIfGiven, мы обязаны отсечь невалидные подписи здесь
+		// 3. РУЧНАЯ КРИПТОГРАФИЧЕСКАЯ ВЕРИФИКАЦИЯ ЦЕПОЧКИ (Второй рубеж обороны)
+		// Так как стандартная библиотека пропустила сертификат в режиме IfGiven,
+		// мы обязаны принудительно проверить подпись против нашего Device CA здесь.
 		opts := x509.VerifyOptions{
 			Roots:       in.deviceCAPool,
 			CurrentTime: time.Now().UTC(),
@@ -79,10 +80,12 @@ func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		if _, err := clientCert.Verify(opts); err != nil {
-			return nil, status.Errorf(codes.Unauthenticated, "client certificate verification failed (untrusted chain or expired): %v", err)
+			slog.Error("mTLS cryptographic validation failed: client used untrusted CA or expired passport")
+			// Маскируем сырую ошибку x509 для защиты от Information Disclosure
+			return nil, status.Error(codes.Unauthenticated, "client certificate verification failed")
 		}
 
-		// 4. Извлекаем и сканируем Subject Alternative Names (SAN) в поисках URI схемы v4.0
+		// 4. ИЗВЛЕЧЕНИЕ КОНТЕКСТА УСТРОЙСТВА (SAN URI)
 		var deviceID string
 		for _, uri := range clientCert.URIs {
 			uriStr := uri.String()
@@ -92,13 +95,15 @@ func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 			}
 		}
 
-		if deviceID == "" {
+		if strings.TrimSpace(deviceID) == "" {
+			slog.Warn("mTLS anomaly: certificate is validly signed by Device CA, but lacks canonical GophKeeper SAN URI")
 			return nil, status.Error(codes.Unauthenticated, "invalid client identity: missing or malformed container SAN URI")
 		}
 
-		// 5. Помещаем верифицированный DeviceID в контекст запроса для бизнес-логики
-		ctx = context.WithValue(ctx, DeviceIDContextKey, deviceID)
+		slog.Debug("mTLS session successfully established and authorized on shared port", "device_id", deviceID)
 
+		// 5. Прокидываем проверенный DeviceID в контекст
+		ctx = context.WithValue(ctx, DeviceIDContextKey, deviceID)
 		return handler(ctx, req)
 	}
 }

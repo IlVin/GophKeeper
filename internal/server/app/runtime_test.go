@@ -1,30 +1,39 @@
-package app_test
+package app
 
 import (
 	"context"
-	"net"
 	"testing"
 
-	"gophkeeper/internal/server/app"
 	"gophkeeper/internal/server/config"
 
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc"
+	"github.com/stretchr/testify/require"
 )
 
-func TestAppFromContext_SuccessAndFailure(t *testing.T) {
-	ctx := context.Background()
-	_, err := app.AppFromContext(ctx)
-	assert.ErrorContains(t, err, "server app is missing in context")
+// TestApp_Context_Lifecycle_ShouldSuccess проверяет сквозной цикл упаковки
+// и извлечения контейнера приложения из контекста горутины.
+func TestApp_Context_Lifecycle_ShouldSuccess(t *testing.T) {
+	cfg := config.Config{}
 
-	var cfg config.Config
-	mockListener := &net.TCPListener{}
-	mockgRPC := &grpc.Server{}
+	// Конструируем тестовый объект (передаем nil-ресурсы для изоляции фабрики)
+	originApp := NewApp(cfg, nil, nil, nil, nil)
+	require.NotNil(t, originApp)
 
-	application := app.NewApp(cfg, mockListener, mockgRPC, nil)
-	ctx = app.WithApp(ctx, application)
+	// Упаковываем в контекст
+	ctx := WithApp(context.Background(), originApp)
+	require.NotNil(t, ctx)
 
-	extracted, err := app.AppFromContext(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, application, extracted)
+	// Извлекаем обратно
+	fetchedApp, err := AppFromContext(ctx)
+	require.NoError(t, err)
+	assert.Same(t, originApp, fetchedApp, "Извлеченный из контекста объект должен быть идентичен исходному указателю")
+}
+
+// TestAppFromContext_WithEmptyContext_ShouldReturnError проверяет барьер безопасности при пустом контексте.
+func TestAppFromContext_WithEmptyContext_ShouldReturnError(t *testing.T) {
+	fetchedApp, err := AppFromContext(context.Background())
+
+	assert.Error(t, err)
+	assert.Nil(t, fetchedApp)
+	assert.Contains(t, err.Error(), "server app runtime context container is missing")
 }

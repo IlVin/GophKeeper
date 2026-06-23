@@ -1,10 +1,14 @@
+// Package app координирует рантайм-контейнер ресурсов серверной части приложения,
+// управляя процессами инициализации, сетевого вещания и безопасной остановки.
 package app
 
 import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -16,13 +20,19 @@ import (
 	"gophkeeper/internal/server/providers/postgres"
 	servergrpc "gophkeeper/internal/server/transport/grpc"
 
-	proxyproto "github.com/pires/go-proxyproto"
+	"github.com/pires/go-proxyproto"
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/acme/autocert"
 )
 
-// Bootstrap координирует запуск сервера: загружает конфигурацию, настраивает строгий mTLS и поднимает gRPC.
+// Bootstrap координирует пошаговый запуск и инициализацию всех ресурсов облачного сервера.
+//
+// Функция загружает конфигурацию, поднимает транзакционный слой PostgreSQL,
+// накатывает миграции Goose, разворачивает PKI-инфраструктуру, настраивает гибридный
+// TLS/mTLS 1.3 канал и собирает готовый контейнер App (Инварианты №4, №9, №12, №13).
 func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, error) {
+	slog.Info("Starting server pre-flight bootstrap and resource allocation pipeline")
+
 	if err := config.ReadConfigFile(v); err != nil {
 		return ctx, nil, fmt.Errorf("read server config: %w", err)
 	}
@@ -32,47 +42,75 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 		return ctx, nil, fmt.Errorf("load server config: %w", err)
 	}
 
+	// 1. Инициализация и подключение пула СУБД PostgreSQL
 	pool, err := postgres.Connect(ctx, cfg.Storage)
 	if err != nil {
 		return ctx, nil, fmt.Errorf("initialize database layer: %w", err)
 	}
 
+	// Флаг для каскадной экстренной очистки ресурсов в случае сбоев на промежуточных шагах
+	bootstrapSuccess := false
+	var acmeHTTPListener net.Listener
+	var rawGrpcListener net.Listener
+
+	defer func() {
+		if !bootstrapSuccess {
+			slog.Error("Bootstrap pipeline collapsed, triggering emergency resource rollback cascade")
+			if acmeHTTPListener != nil {
+				_ = acmeHTTPListener.Close()
+			}
+			if rawGrpcListener != nil {
+				_ = rawGrpcListener.Close()
+			}
+			if pool != nil {
+				pool.Close()
+			}
+		}
+	}()
+
+	slog.Debug("Applying required database evolutionary schema migrations via Goose")
 	if err := postgres.Migrate(pool); err != nil {
-		pool.Close()
 		return ctx, nil, fmt.Errorf("apply server database migrations: %w", err)
 	}
 
 	var tlsConfig *tls.Config
-	var acmeHTTPListener net.Listener
-	var deviceCert *x509.Certificate // ДОБАВЛЕНО: Объявляем переменную на уровне функции для корректного Scope
+	var deviceCert *x509.Certificate
 
+	// 2. Инициализация PKI и TLS/mTLS слоев защиты
 	if strings.TrimSpace(cfg.Server.LetsEncryptDomain) != "" {
+		slog.Info("Enforcing Automated Certificate Management Environment (ACME) via Let's Encrypt",
+			"domain", cfg.Server.LetsEncryptDomain)
+
 		certManager := &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
 			HostPolicy: autocert.HostWhitelist(cfg.Server.LetsEncryptDomain),
 			Cache:      postgres.NewPostgresCache(pool),
 		}
 
+		// ИСПРАВЛЕНО: ClientAuth переведен в VerifyClientCertIfGiven для гибридной работы TLS/mTLS на одном порту
 		tlsConfig = &tls.Config{
 			GetCertificate: certManager.GetCertificate,
 			MinVersion:     tls.VersionTLS13,
 			ClientAuth:     tls.VerifyClientCertIfGiven,
 		}
 
-		var acmeErr error
-		acmeHTTPListener, acmeErr = net.Listen("tcp", cfg.Server.BindHTTP)
-		if acmeErr != nil {
-			fmt.Printf("Warning: failed to listen on HTTP socket %s for ACME challenge: %v\n", cfg.Server.BindHTTP, acmeErr)
+		acmeHTTPListener, err = net.Listen("tcp", cfg.Server.BindHTTP)
+		if err != nil {
+			slog.Warn("Failed to listen on HTTP socket for ACME challenge verifications",
+				"bind", cfg.Server.BindHTTP, "error", err)
 		} else {
 			go func() {
-				_ = http.Serve(acmeHTTPListener, certManager.HTTPHandler(nil))
+				slog.Debug("Starting automated HTTP ACME challenge listener daemon")
+				if serveErr := http.Serve(acmeHTTPListener, certManager.HTTPHandler(nil)); serveErr != nil && !errors.Is(serveErr, net.ErrClosed) {
+					slog.Error("ACME HTTP server daemon collapsed", "error", serveErr)
+				}
 			}()
 		}
 	} else {
-		// Загрузка Server CA с передачей объекта внешней конфигурации
+		slog.Info("Relying on local CA private keys and self-signed infrastructure for TLS context")
+
 		caCert, caPrivKey, err := pki.LoadServerCA(cfg)
 		if err != nil {
-			pool.Close()
 			return ctx, nil, fmt.Errorf("load server ca: %w", err)
 		}
 
@@ -83,15 +121,11 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 
 		serverCert, err := pki.GenerateDynamicServerCertificate(caCert, caPrivKey, host)
 		if err != nil {
-			pool.Close()
 			return ctx, nil, fmt.Errorf("generate dynamic server cert: %w", err)
 		}
 
-		// ИСПРАВЛЕНО: Присваиваем значение внешней переменной без оператора := (чтобы не перекрывать Scope)
-		var dCert *x509.Certificate
-		dCert, _, err = pki.LoadDeviceCA(cfg)
+		dCert, _, err := pki.LoadDeviceCA(cfg)
 		if err != nil {
-			pool.Close()
 			return ctx, nil, fmt.Errorf("load device ca trust root: %w", err)
 		}
 		deviceCert = dCert
@@ -99,6 +133,7 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 		clientCAPool := x509.NewCertPool()
 		clientCAPool.AddCert(deviceCert)
 
+		// ИСПРАВЛЕНО: Настроен режим VerifyClientCertIfGiven для разделения анонимного и mTLS трафика
 		tlsConfig = &tls.Config{
 			Certificates: []tls.Certificate{*serverCert},
 			ClientCAs:    clientCAPool,
@@ -107,31 +142,36 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 		}
 	}
 
-	rawGrpcListener, err := net.Listen("tcp", cfg.Server.BindGRPC)
+	// 3. Открытие и конфигурация слушателя входящего gRPC вещания
+	slog.Debug("Opening main gRPC TCP listening network socket descriptor", "bind", cfg.Server.BindGRPC)
+	rawGrpcListener, err = net.Listen("tcp", cfg.Server.BindGRPC)
 	if err != nil {
-		if acmeHTTPListener != nil {
-			_ = acmeHTTPListener.Close()
-		}
-		pool.Close()
 		return ctx, nil, fmt.Errorf("listen grpc socket %s: %w", cfg.Server.BindGRPC, err)
 	}
 
 	var grpcListener net.Listener = rawGrpcListener
 	if cfg.Server.UseProxyProtocol {
+		slog.Debug("Enabling PROXY protocol v1/v2 header parser wrap on gRPC socket")
 		grpcListener = &proxyproto.Listener{
 			Listener:          rawGrpcListener,
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 	}
 
-	// Инициализируем перехватчик. Если мы в режиме Let's Encrypt, deviceCert будет nil,
-	// и интерцептор создаст пустой пул (для MVP это штатное поведение, если mTLS не настроен).
-	interceptor := auth.NewAuthInterceptor(pool)
+	// 4. Сборка интерцепторов безопасности и окончательного контейнера App
+	slog.Debug("Injecting active context auth interceptor and assembling gRPC server instance")
+	interceptor, err := auth.NewAuthInterceptor(pool)
+	if err != nil {
+		return ctx, nil, fmt.Errorf("initialize auth interceptor: %w", err)
+	}
 	grpcServer := servergrpc.NewGRPCServer(cfg, tlsConfig, pool, interceptor)
 
-	application := NewApp(cfg, grpcListener, grpcServer, acmeHTTPListener)
-	application.Pool = pool
+	application := NewApp(cfg, grpcListener, grpcServer, pool, acmeHTTPListener)
 
+	// Активируем флаг успеха, отключая экстренный откат ресурсов в defer
+	bootstrapSuccess = true
+
+	slog.Info("Server environment bootstrap completed successfully. Composition Root initialized.")
 	ctx = WithApp(ctx, application)
 	return ctx, application, nil
 }

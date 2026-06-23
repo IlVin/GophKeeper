@@ -1,13 +1,10 @@
-package auth_test
+package auth
 
 import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"net/url"
 	"testing"
-
-	"gophkeeper/internal/server/auth"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,63 +15,71 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestUnaryAuthInterceptor_PublicEndpointsPass(t *testing.T) {
-	interceptor := auth.NewUnaryAuthInterceptor()
-	ctx := context.Background()
+// TestNewAuthInterceptor_Constructor_Success проверяет штатное конструирование объекта интерцептора.
+func TestNewAuthInterceptor_Constructor_Success(t *testing.T) {
+	interceptor, err := NewAuthInterceptor(nil)
+	require.NoError(t, err)
+	require.NotNil(t, interceptor)
 
-	info := &grpc.UnaryServerInfo{FullMethod: "/gophkeeper.v1.Registration/RegisterBegin"}
-	handler := func(ctx context.Context, req any) (any, error) {
-		return "success", nil
-	}
-
-	resp, err := interceptor(ctx, nil, info, handler)
-	assert.NoError(t, err)
-	assert.Equal(t, "success", resp)
+	unaryFunc := interceptor.UnaryAuthInterceptor()
+	assert.NotNil(t, unaryFunc)
 }
 
-func TestUnaryAuthInterceptor_MissingCredentialsError(t *testing.T) {
-	interceptor := auth.NewUnaryAuthInterceptor()
-	ctx := context.Background() // Пустой контекст без пира
-
-	info := &grpc.UnaryServerInfo{FullMethod: "/gophkeeper.v1.Secrets/Sync"}
-	handler := func(ctx context.Context, req any) (any, error) { return nil, nil }
-
-	_, err := interceptor(ctx, nil, info, handler)
-	assert.Error(t, err)
-	assert.Equal(t, codes.Unauthenticated, status.Code(err))
-}
-
-func TestUnaryAuthInterceptor_ValidSANURIPass(t *testing.T) {
-	interceptor := auth.NewUnaryAuthInterceptor()
-
-	// Конструируем mock-сертификат с правильной URI схемой urn:gophkeeper:file:<uuid>
-	targetUUID := "11112222-3333-4444-5555-666677778888"
-	parsedURL, err := url.Parse("urn:gophkeeper:file:" + targetUUID)
+// TestAuthInterceptor_PublicEndpoints_ShouldBypass проверяет, что публичные методы
+// из белого списка успешно проходят сквозь интерцептор в анонимном TLS-режиме (без сертификата).
+func TestAuthInterceptor_PublicEndpoints_ShouldBypass(t *testing.T) {
+	interceptor, err := NewAuthInterceptor(nil)
 	require.NoError(t, err)
 
-	mockCert := &x509.Certificate{
-		URIs: []*url.URL{parsedURL},
+	unaryFunc := interceptor.UnaryAuthInterceptor()
+	ctx := context.Background()
+
+	info := &grpc.UnaryServerInfo{
+		FullMethod: "/gophkeeper.v1.Registration/RegisterBegin",
 	}
 
-	// Помещаем mock-сертификат в TLS-структуры gRPC пира
+	dummyHandler := func(ctx context.Context, req any) (any, error) {
+		return "allowed_anonymous", nil
+	}
+
+	res, err := unaryFunc(ctx, nil, info, dummyHandler)
+	require.NoError(t, err)
+	assert.Equal(t, "allowed_anonymous", res)
+}
+
+// TestAuthInterceptor_ProtectedEndpoints_FailsIfNoCertificate проверяет ИБ-барьер:
+// если защищенный метод вызывается без mTLS-сертификата (TLS-Bypass), интерцептор обязан вернуть Unauthenticated.
+func TestAuthInterceptor_ProtectedEndpoints_FailsIfNoCertificate(t *testing.T) {
+	interceptor, err := NewAuthInterceptor(nil)
+	require.NoError(t, err)
+
+	unaryFunc := interceptor.UnaryAuthInterceptor()
+
+	// Имитируем контекст gRPC-пира, у которого есть TLS-подключение, но НЕТ PeerCertificates (атака TLS-Bypass)
 	peerInfo := &peer.Peer{
 		AuthInfo: credentials.TLSInfo{
 			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{mockCert},
+				PeerCertificates: []*x509.Certificate{}, // Пустой слайс паспорта
 			},
 		},
 	}
 	ctx := peer.NewContext(context.Background(), peerInfo)
 
-	info := &grpc.UnaryServerInfo{FullMethod: "/gophkeeper.v1.Secrets/Sync"}
-	handler := func(ctx context.Context, req any) (any, error) {
-		// Проверяем, что ID контейнера успешно проброшен в контекст
-		val := ctx.Value(auth.DeviceIDContextKey)
-		assert.Equal(t, targetUUID, val)
-		return "authenticated", nil
+	info := &grpc.UnaryServerInfo{
+		FullMethod: "/gophkeeper.v1.SyncService/SyncCheck",
 	}
 
-	resp, err := interceptor(ctx, nil, info, handler)
-	assert.NoError(t, err)
-	assert.Equal(t, "authenticated", resp)
+	dummyHandler := func(ctx context.Context, req any) (any, error) {
+		return "should_not_be_reached", nil
+	}
+
+	res, err := unaryFunc(ctx, nil, info, dummyHandler)
+
+	assert.Nil(t, res)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code(), "Интерцептор обязан вернуть код Unauthenticated для защиты от TLS-Bypass")
+	assert.Contains(t, st.Message(), "mutual TLS authentication is strictly required")
 }

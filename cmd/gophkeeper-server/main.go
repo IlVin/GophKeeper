@@ -1,7 +1,10 @@
+// Package main является главной точкой входа для запуска облачного gRPC-сервера
+// распределенной экосистемы хранения зашифрованных контейнеров GophKeeper.
 package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"gophkeeper/internal/server/commands"
@@ -9,37 +12,43 @@ import (
 )
 
 func main() {
+	// Инициируем сквозной запуск сервера с перехватом критических исключений
 	if err := run(); err != nil {
-		// Выводим чистую критическую ошибку запуска в stderr для системных логов
+		// Фиксируем ИБ-инцидент падения сервера в системный логгер
+		slog.Error("Критический сбой рантайма: работа сервера аварийно завершена", "error", err)
+
+		// Дублируем чистый трейс в stderr для системных демонов ОС (systemd/docker logs)
 		fmt.Fprintf(os.Stderr, "FATAL: server terminated with error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// run инкапсулирует логику запуска и возвращает ошибку вместо неконтролируемого падения
+// run координирует инициализацию CLI-оболочки сервера, разворачивание дерева
+// команд Cobra и гарантирует Graceful Shutdown всех внутренних пулов соединений.
 func run() error {
 	// 1. Инициализируем изолированный объект Viper для сбора конфигурации
 	v := config.NewViper()
 
 	// 2. Создаем фабрику команд сервера (Composition Root слоя CLI)
-	// Внутри фабрики будет инициализирована структура CLI-контекста сервера
 	serverCLI := commands.NewServerCLI(v)
 
-	// 3. Гарантируем Graceful Shutdown и очистку памяти контейнера приложения (App)
-	// при любом выходе из run() (ошибка валидации флагов, прерывание по сигналу, штатная остановка)
+	// 3. Гарантируем Graceful Shutdown и очистку памяти пулов при любом выходе из run()
 	defer func() {
-		_ = serverCLI.Close()
+		if closeErr := serverCLI.Close(); closeErr != nil {
+			// Явно перехватываем ошибку закрытия ресурсов для исключения зомби-дескрипторов в ОС
+			slog.Error("Ошибка финализации ресурсов сервера при выполнении Graceful Shutdown", "error", closeErr)
+		}
 	}()
 
 	// 4. Собираем дерево Cobra команд сервера
 	rootCmd, err := serverCLI.NewServerRootCommand()
 	if err != nil {
-		return fmt.Errorf("failed to initialize server CLI: %w", err)
+		return fmt.Errorf("failed to initialize server CLI structure: %w", err)
 	}
 
 	// 5. Запускаем выполнение серверной Cobra-оболочки
 	if err := rootCmd.Execute(); err != nil {
-		return err
+		return fmt.Errorf("server command execution failed: %w", err)
 	}
 
 	return nil

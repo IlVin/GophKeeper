@@ -1,21 +1,21 @@
-package app_test
+package app
 
 import (
 	"context"
 	"testing"
 
-	"gophkeeper/internal/server/app"
-
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBootstrap_InvalidConfigError(t *testing.T) {
+// TestBootstrap_WithEmptyViper_ShouldSourceError проверяет срабатывание Fail-Fast
+// барьера лоадера, если в метод инициализации передан пустой объект Viper без DSN.
+func TestBootstrap_WithEmptyViper_ShouldSourceError(t *testing.T) {
 	ctx := context.Background()
-	v := viper.New()
-	v.Set("server.config_file", "non_existent_file_path.yaml")
+	emptyViper := viper.New()
 
-	_, application, err := app.Bootstrap(ctx, v)
+	ctxResult, application, err := Bootstrap(ctx, emptyViper)
 	assert.Error(t, err)
 	assert.Nil(t, application)
+	assert.NotNil(t, ctxResult)
 }

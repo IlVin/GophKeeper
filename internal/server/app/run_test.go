@@ -4,23 +4,36 @@ import (
 	"testing"
 
 	"gophkeeper/internal/server/app"
-	"gophkeeper/internal/server/config"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestApp_RunUninitializedError(t *testing.T) {
-	var cfg config.Config
-	application := app.NewApp(cfg, nil, nil, nil)
+// TestApp_Run_FailsIfNil ИБ-барьер Fail-Fast: запуск на nil объектах должен
+// сразу возвращать ошибку рантайма, предотвращая неконтролируемые паники.
+func TestApp_Run_FailsIfNil(t *testing.T) {
+	dummyApp := &app.App{
+		GRPCServer:   nil,
+		Listener:     nil,
+		AcmeListener: nil,
+		Pool:         nil,
+	}
 
-	err := application.Run()
-	assert.ErrorContains(t, err, "grpc server or listener not initialized")
+	err := dummyApp.Run()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "grpc server or listener not initialized")
 }
 
-func TestApp_ShutdownGracefulNoPanic(t *testing.T) {
-	var cfg config.Config
-	application := app.NewApp(cfg, nil, nil, nil)
+// TestApp_Shutdown_ShouldNotPanicПроверяет устойчивость деструктора к очистке пустых полей.
+func TestApp_Shutdown_ShouldNotPanic(t *testing.T) {
+	dummyApp := &app.App{
+		GRPCServer:   nil,
+		Listener:     nil,
+		AcmeListener: nil,
+		Pool:         nil,
+	}
 
-	err := application.Shutdown()
-	assert.NoError(t, err)
+	assert.NotPanics(t, func() {
+		err := dummyApp.Shutdown()
+		assert.NoError(t, err)
+	}, "Деструктор обязан безопасно обрабатывать nil поля ресурсов")
 }
