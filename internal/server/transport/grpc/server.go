@@ -34,16 +34,9 @@ func NewGRPCServer(
 
 	server := grpc.NewServer(opts...)
 
-	// Передаем флаг активности базы через (pool != nil)
-	infoHandler := NewInfoHandler(cfg, func() bool { return pool != nil })
-	pb.RegisterInfoServiceServer(server, infoHandler)
-
 	// ИСПРАВЛЕНО: Передаем pool соединений PostgreSQL для работы Challenge State Machine
 	regHandler := NewRegistrationHandler(cfg, pool)
 	pb.RegisterRegistrationServer(server, regHandler)
-
-	attachHandler := NewDeviceAttachmentHandler(cfg, pool)
-	pb.RegisterDeviceAttachmentServer(server, attachHandler)
 
 	syncHandler := NewSyncHandler(cfg, pool)
 	pb.RegisterSyncServiceServer(server, syncHandler)

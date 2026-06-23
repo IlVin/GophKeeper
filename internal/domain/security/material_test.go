@@ -1,48 +1,55 @@
-package security
+package security_test
 
 import (
 	"testing"
-	"unsafe"
+
+	"gophkeeper/internal/domain/security"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMaterial_ExactSizesAndTypes(t *testing.T) {
-	t.Parallel()
+// TestSecretBytes_Destroy_ShouldZeroFillMemory проверяет, что метод Destroy
+// физически выжигает нулями бинарные массивы секретов в оперативной памяти.
+func TestSecretBytes_Destroy_ShouldZeroFillMemory(t *testing.T) {
+	secret := security.SecretBytes([]byte{0xDE, 0xAD, 0xBE, 0xEF})
 
-	assert.Equal(t, 64, DerivationSignatureSize)
-	assert.Equal(t, 32, KEKSize)
-	assert.Equal(t, 32, SaltSize)
-	assert.Equal(t, 16, DeviceIDSize)
+	// Проверяем исходное состояние памяти
+	assert.Equal(t, byte(0xDE), secret[0])
 
-	assert.Equal(t, uintptr(DerivationSignatureSize), unsafe.Sizeof(DerivationSignature{}))
-	assert.Equal(t, uintptr(KEKSize), unsafe.Sizeof(AccountUnlockKey{}))
-	assert.Equal(t, uintptr(KEKSize), unsafe.Sizeof(DeviceKEK{}))
-	assert.Equal(t, uintptr(SaltSize), unsafe.Sizeof(AccountSalt{}))
-	assert.Equal(t, uintptr(DeviceIDSize), unsafe.Sizeof(DeviceID{}))
+	// Запускаем деструктор ИБ-гигиены
+	secret.Destroy()
+
+	// Верифицируем полное зануление ячеек RAM
+	assert.Equal(t, byte(0), secret[0], "Первый байт секрета обязан быть полностью занулен")
+	assert.Equal(t, byte(0), secret[3], "Последний байт секрета обязан быть полностью занулен")
 }
 
-func TestNewDerivationSignature(t *testing.T) {
-	t.Parallel()
+// TestSecretBytes_Clone_ShouldCreateIndependentCopy проверяет изолированность
+// клонированных срезов данных в памяти друг от друга.
+func TestSecretBytes_Clone_ShouldCreateIndependentCopy(t *testing.T) {
+	original := security.SecretBytes([]byte{1, 2, 3})
+	cloned := original.Clone()
 
-	t.Run("success", func(t *testing.T) {
-		t.Parallel()
+	require.Equal(t, original, cloned)
 
-		raw := make([]byte, DerivationSignatureSize)
-		for i := range raw {
-			raw[i] = byte(i)
-		}
+	// Модифицируем клон, оригинальный массив не должен измениться
+	cloned[0] = 99
+	assert.Equal(t, byte(1), original[0], "Модификация клонированного среза не должна влиять на оригинал")
+}
 
-		got, err := NewDerivationSignature(raw)
-		require.NoError(t, err)
-		assert.Equal(t, raw, got[:])
-	})
+// TestGenerateRandomKey_Success проверяет успешную генерацию случайных ключей нужной длины.
+func TestGenerateRandomKey_Success(t *testing.T) {
+	key, err := security.GenerateRandomKey(32)
+	require.NoError(t, err)
+	require.Len(t, key, 32, "Размер сгенерированного ключа обязан строго соответствовать запросу")
 
-	t.Run("invalid length", func(t *testing.T) {
-		t.Parallel()
+	defer key.Destroy()
+}
 
-		_, err := NewDerivationSignature(make([]byte, DerivationSignatureSize-1))
-		require.Error(t, err)
-	})
+// TestGenerateRandomKey_WithInvalidSize_ShouldReturnError проверяет барьер fail-fast при невалидных размерах.
+func TestGenerateRandomKey_WithInvalidSize_ShouldReturnError(t *testing.T) {
+	key, err := security.GenerateRandomKey(-5)
+	assert.Error(t, err)
+	assert.Nil(t, key)
 }

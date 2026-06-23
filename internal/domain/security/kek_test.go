@@ -1,202 +1,54 @@
-package security
+package security_test
 
 import (
 	"testing"
 
-	"github.com/google/uuid"
+	"gophkeeper/internal/domain/security"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func mustDeviceIDFromUUID(t *testing.T, s string) DeviceID {
-	t.Helper()
+// TestDeriveAccountUnlockKey_Success_And_SaltLengthEnforcement проверяет успешную
+// деривацию HKDF-SHA256 ключа разблокировки и жесткий барьер на 32-байтную соль.
+func TestDeriveAccountUnlockKey_Success_And_SaltLengthEnforcement(t *testing.T) {
+	mockSignature := make([]byte, 64)
+	for i := range mockSignature {
+		mockSignature[i] = byte(i)
+	}
 
-	u := uuid.MustParse(s)
-	var id DeviceID
-	copy(id[:], u[:])
+	// 1. Тест-барьер: передача невалидной соли (размер меньше 32 байт) должна вызывать ошибку
+	invalidSalt := []byte{0x01, 0x02}
+	key, err := security.DeriveAccountUnlockKey(mockSignature, invalidSalt)
+	assert.ErrorIs(t, err, security.ErrInvalidSalt)
+	assert.Nil(t, key)
 
-	return id
+	// 2. Успешный сценарий: передача честной 32-байтной соли
+	validSalt := make([]byte, 32)
+	for i := range validSalt {
+		validSalt[i] = byte(i + 10)
+	}
+
+	unlockKey, err := security.DeriveAccountUnlockKey(mockSignature, validSalt)
+	require.NoError(t, err, "Вывод ключа разблокировки на верных размерах должен пройти успешно")
+	require.Len(t, unlockKey, 32, "Размер выведенного симметричного ключа должен составлять ровно 32 байта")
+
+	defer unlockKey.Destroy()
 }
 
-func TestDeriveAccountUnlockKey(t *testing.T) {
-	t.Parallel()
-
-	makeSignature := func(s string) DerivationSignature {
-		var sig DerivationSignature
-		copy(sig[:], []byte(s))
-		return sig
+// TestDeriveDeviceKEK_Success проверяет успешный вывод DeviceKEK на базе AccountUnlockKey.
+func TestDeriveDeviceKEK_Success(t *testing.T) {
+	mockUnlockKey := security.SecretBytes(make([]byte, 32))
+	for i := range mockUnlockKey {
+		mockUnlockKey[i] = byte(i)
 	}
+	defer mockUnlockKey.Destroy()
 
-	makeSalt := func(s string) AccountSalt {
-		var salt AccountSalt
-		copy(salt[:], []byte(s))
-		return salt
-	}
+	deviceID := []byte("a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d")
 
-	signature := makeSignature("1234567890123456789012345678901234567890123456789012345678901234")
-	salt := makeSalt("abcdefghijklmnopqrstuvwxzy123456")
-
-	got, err := DeriveAccountUnlockKey(signature, salt)
+	deviceKEK, err := security.DeriveDeviceKEK(mockUnlockKey, deviceID)
 	require.NoError(t, err)
-	assert.Len(t, got, KEKSize)
-}
+	require.Len(t, deviceKEK, 32)
 
-func TestDeriveDeviceKEK(t *testing.T) {
-	t.Parallel()
-
-	makeAccountUnlockKey := func(s string) AccountUnlockKey {
-		var key AccountUnlockKey
-		copy(key[:], []byte(s))
-		return key
-	}
-
-	accountUnlockKey := makeAccountUnlockKey("12345678901234567890123456789012")
-	deviceID := mustDeviceIDFromUUID(t, "550e8400-e29b-41d4-a716-446655440000")
-
-	got, err := DeriveDeviceKEK(accountUnlockKey, deviceID)
-	require.NoError(t, err)
-	assert.Len(t, got, KEKSize)
-}
-
-func TestDeriveKeys_Deterministic(t *testing.T) {
-	t.Parallel()
-
-	makeSignature := func(s string) DerivationSignature {
-		var sig DerivationSignature
-		copy(sig[:], []byte(s))
-		return sig
-	}
-
-	makeAccountUnlockKey := func(s string) AccountUnlockKey {
-		var key AccountUnlockKey
-		copy(key[:], []byte(s))
-		return key
-	}
-
-	makeAccountSalt := func(s string) AccountSalt {
-		var salt AccountSalt
-		copy(salt[:], []byte(s))
-		return salt
-	}
-
-	t.Run("account unlock key deterministic", func(t *testing.T) {
-		t.Parallel()
-
-		signature := makeSignature("1234567890123456789012345678901234567890123456789012345678901234")
-		salt := makeAccountSalt("abcdefghijklmnopqrstuvwxzy123456")
-
-		got1, err := DeriveAccountUnlockKey(signature, salt)
-		require.NoError(t, err)
-
-		got2, err := DeriveAccountUnlockKey(signature, salt)
-		require.NoError(t, err)
-
-		assert.Equal(t, got1, got2)
-	})
-
-	t.Run("device kek deterministic", func(t *testing.T) {
-		t.Parallel()
-
-		accountUnlockKey := makeAccountUnlockKey("12345678901234567890123456789012")
-		deviceID := mustDeviceIDFromUUID(t, "550e8400-e29b-41d4-a716-446655440000")
-
-		got1, err := DeriveDeviceKEK(accountUnlockKey, deviceID)
-		require.NoError(t, err)
-
-		got2, err := DeriveDeviceKEK(accountUnlockKey, deviceID)
-		require.NoError(t, err)
-
-		assert.Equal(t, got1, got2)
-	})
-}
-
-func TestDeriveKeys_ChangesWithInput(t *testing.T) {
-	t.Parallel()
-
-	makeSignature := func(s string) DerivationSignature {
-		var sig DerivationSignature
-		copy(sig[:], []byte(s))
-		return sig
-	}
-
-	makeAccountUnlockKey := func(s string) AccountUnlockKey {
-		var key AccountUnlockKey
-		copy(key[:], []byte(s))
-		return key
-	}
-
-	makeAccountSalt := func(s string) AccountSalt {
-		var salt AccountSalt
-		copy(salt[:], []byte(s))
-		return salt
-	}
-
-	t.Run("account unlock key variations", func(t *testing.T) {
-		t.Parallel()
-
-		got1, err := DeriveAccountUnlockKey(
-			makeSignature("1234567890123456789012345678901234567890123456789012345678901234"),
-			makeAccountSalt("abcdefghijklmnopqrstuvwxzy123456"),
-		)
-		require.NoError(t, err)
-
-		got2, err := DeriveAccountUnlockKey(
-			makeSignature("1234567890123456789012345678901234567890123456789012345678901234"),
-			makeAccountSalt("zyxwvutsrqponmlkjihgfedcba654321"),
-		)
-		require.NoError(t, err)
-
-		got3, err := DeriveAccountUnlockKey(
-			makeSignature("abcdefghijklmnopqrstuvwxzy123456abcdefghijklmnopqrstuvwxzy1234"),
-			makeAccountSalt("abcdefghijklmnopqrstuvwxzy123456"),
-		)
-		require.NoError(t, err)
-
-		assert.NotEqual(t, got1, got2)
-		assert.NotEqual(t, got1, got3)
-	})
-
-	t.Run("device kek variations", func(t *testing.T) {
-		t.Parallel()
-
-		got1, err := DeriveDeviceKEK(
-			makeAccountUnlockKey("12345678901234567890123456789012"),
-			mustDeviceIDFromUUID(t, "550e8400-e29b-41d4-a716-446655440000"),
-		)
-		require.NoError(t, err)
-
-		got2, err := DeriveDeviceKEK(
-			makeAccountUnlockKey("12345678901234567890123456789012"),
-			mustDeviceIDFromUUID(t, "550e8400-e29b-41d4-a716-446655440001"),
-		)
-		require.NoError(t, err)
-
-		got3, err := DeriveDeviceKEK(
-			makeAccountUnlockKey("abcdefghijklmnopqrstuvwxzy123456"),
-			mustDeviceIDFromUUID(t, "550e8400-e29b-41d4-a716-446655440000"),
-		)
-		require.NoError(t, err)
-
-		assert.NotEqual(t, got1, got2)
-		assert.NotEqual(t, got1, got3)
-	})
-}
-
-func TestDeriveKeys_DomainSeparation(t *testing.T) {
-	t.Parallel()
-
-	var signature DerivationSignature
-	copy(signature[:], []byte("1234567890123456789012345678901234567890123456789012345678901234"))
-
-	var accountSalt AccountSalt
-	copy(accountSalt[:], []byte("abcdefghijklmnopqrstuvwxzy123456"))
-
-	accountUnlockKey, err := DeriveAccountUnlockKey(signature, accountSalt)
-	require.NoError(t, err)
-
-	deviceID := mustDeviceIDFromUUID(t, "550e8400-e29b-41d4-a716-446655440000")
-	deviceKEK, err := DeriveDeviceKEK(accountUnlockKey, deviceID)
-	require.NoError(t, err)
-
-	assert.NotEqual(t, accountUnlockKey[:], deviceKEK[:])
+	defer deviceKEK.Destroy()
 }

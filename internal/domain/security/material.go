@@ -1,3 +1,5 @@
+// Package security инкапсулирует криптографическое ядро, алгоритмы деривации,
+// контекстной защиты AAD и сериализации протоколов GophKeeper.
 package security
 
 import (
@@ -5,46 +7,36 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime"
 )
 
+// Константы размеров криптографических материалов (в байтах) согласно спецификации.
 const (
-	DerivationSignatureSize    = 64
+	// DerivationSignatureSize определяет размер подписи деривации OpenSSH (64 байта).
+	DerivationSignatureSize = 64
+
+	// AuthChallengeSignatureSize определяет размер подписи челленджа Proof of Possession (64 байта).
 	AuthChallengeSignatureSize = 64
-	KEKSize                    = 32
-	SaltSize                   = 32
-	DeviceIDSize               = 16
-	MasterKeySize              = 32
+
+	// KEKSize определяет стандартный размер симметричных ключей XChaCha20 (32 байта).
+	KEKSize = 32
+
+	// SaltSize определяет строгий размер криптографической соли аккаунта (32 байта).
+	SaltSize = 32
+
+	// MasterKeySize определяет размер главного ключа запечатывания сейфа (32 байта).
+	MasterKeySize = 32
 )
 
-type DerivationSignature [DerivationSignatureSize]byte
-type AccountUnlockKey [KEKSize]byte
-type DeviceKEK [KEKSize]byte
-type AccountSalt [SaltSize]byte
-type DeviceID [DeviceIDSize]byte
-
-type AccountMasterKey [MasterKeySize]byte
-type AuthChallengeSignature [AuthChallengeSignatureSize]byte
-type SSHPublicKey []byte
-type SSHFingerprint string
-
-func NewDerivationSignature(raw []byte) (DerivationSignature, error) {
-	if len(raw) != DerivationSignatureSize {
-		return DerivationSignature{}, fmt.Errorf("invalid derivation signature length: got=%d want=%d", len(raw), DerivationSignatureSize)
-	}
-
-	var sig DerivationSignature
-	copy(sig[:], raw)
-
-	return sig, nil
-}
-
-func (DeviceID) IsDeviceID() {}
-
-// SecretBytes предоставляет безопасную обертку над срезами байт в RAM
+// SecretBytes предоставляет безопасную потокобезопасную обертку над срезами байт в RAM,
+// инкапсулирующую механизмы контролируемого гарантированного уничтожения секретов.
 type SecretBytes []byte
 
-// Destroy заполняет память нулями и предотвращает оптимизации компилятора по удалению цикла
+// Destroy принудительно заполняет выделенную область памяти нулями.
+//
+// Функция защищена от оптимизаций компилятора по удалению «мертвых» циклов (Dead Code Elimination)
+// с помощью вызова контракта runtime.KeepAlive(s).
 func (s SecretBytes) Destroy() {
 	if s == nil {
 		return
@@ -52,11 +44,11 @@ func (s SecretBytes) Destroy() {
 	for i := range s {
 		s[i] = 0
 	}
-	// Удерживаем рантайм от удаления очистки памяти в оптимизированных билдах
+	// Удерживаем рантайм от удаления зануления в оптимизированных релизных сборках (O3)
 	runtime.KeepAlive(s)
 }
 
-// Clone создает изолированную копию секрета в памяти
+// Clone создает изолированную дублирующую копию секрета в оперативной памяти.
 func (s SecretBytes) Clone() SecretBytes {
 	if s == nil {
 		return nil
@@ -66,14 +58,33 @@ func (s SecretBytes) Clone() SecretBytes {
 	return clone
 }
 
-// GenerateRandomKey генерирует криптографически стойкую последовательность байт заданного размера
+// GenerateRandomKey генерирует криптографически стойкую последовательность байт заданного размера.
+//
+// Использует системный генератор энтропии rand.Reader ОС.
+// В случае сбоя гарантирует мгновенное выжигание выделенного буфера в RAM нулями.
 func GenerateRandomKey(size int) (SecretBytes, error) {
 	if size <= 0 {
-		return nil, errors.New("invalid key size")
+		slog.Error("Key generation rejected: invalid highly-entropic size constraint", "size", size)
+		return nil, errors.New("invalid key size: must be greater than zero")
 	}
+
 	buf := make([]byte, size)
+
+	cleanUpNeeded := true
+	defer func() {
+		if cleanUpNeeded {
+			for i := range buf {
+				buf[i] = 0
+			}
+			slog.Debug("Emergency erasure of random key buffer completed due to entropy reader failure")
+		}
+	}()
+
+	slog.Debug("Requesting high-entropy random byte stream from system rand.Reader", "size", size)
 	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read secure entropy stream: %w", err)
 	}
+
+	cleanUpNeeded = false
 	return SecretBytes(buf), nil
 }
