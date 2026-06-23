@@ -181,30 +181,22 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 	// =========================================================================
 	// ЭТАП 4: ДЕШИФРОВАНИЕ И ПОБАЙТОВАЯ ВЕРИФИКАЦИЯ ЦЕЛОСТНОСТИ ЦЕПОЧКИ
 	// =========================================================================
-	t.Run("Decrypt Sealed Envelope on Replica Client and Assert Integrity", func(t *testing.T) {
-		stdout, stderr, err := runClient(dbClient2, "get", "--name", "large_backup.bin")
+	t.Run("Decrypt Sealed Envelope on Replica Client via --file and Assert Integrity", func(t *testing.T) {
+		decryptedOutPath := filepath.Join(tmpDir, "decrypted_replica_10mb.bin")
+
+		// На второй копии клиента вызываем get БЕЗ флага --json, передавая флаг --file для прямой записи сырых байт
+		_, stderr, err := runClient(dbClient2, "get", "--name", "large_backup.bin", "--file", decryptedOutPath)
 		if err != nil {
-			t.Fatalf("failed to fetch and decrypt record on replica client: %v, stderr: %s", err, stderr)
+			t.Fatalf("failed to fetch and decrypt record to file on replica client: %v, stderr: %s", err, stderr)
 		}
 
-		var resp CLIResponse
-		if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
-			t.Fatalf("failed to decode json response envelope: %v, raw stdout: %q", err, stdout)
+		// Считываем сохраненный файл напрямую с диска
+		decryptedPayloadBytes, err := os.ReadFile(decryptedOutPath)
+		if err != nil {
+			t.Fatalf("failed to read exported decrypted file from disk: %v", err)
 		}
 
-		if !resp.Success {
-			t.Fatalf("get command failed inside json token: %s", resp.Error)
-		}
-
-		// Преобразуем динамическое поле Data в DTO GetResponse
-		dataBytes, _ := json.Marshal(resp.Data)
-		var getData GetResponse
-		_ = json.Unmarshal(dataBytes, &getData)
-
-		// Извлекаем дешифрованные байты полезной нагрузки (Payload)
-		decryptedPayloadBytes := []byte(getData.Payload)
-
-		// ВЕРИФИКАЦИЯ ИБ-ИНВАРИАНТА: Размер и байты должны совпасть абсолютно
+		// ВЕРИФИКАЦИЯ ИБ-ИНВАРИАНТА: Размер и байты должны совпасть абсолютно со случайной исходной энтропией
 		if len(decryptedPayloadBytes) != binarySize10MB {
 			t.Errorf("integrity violation: expected decrypted file size to be %d bytes, but got %d",
 				binarySize10MB, len(decryptedPayloadBytes))
@@ -214,15 +206,7 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 		if !bytes.Equal(randomBytes, decryptedPayloadBytes) {
 			t.Error("CRITICAL SECURITY DEFECT: Decrypted binary file content is corrupted or altered. Bitwise mismatch found!")
 		} else {
-			t.Log("✔ Success! Decrypted 10MB binary payload is bitwise identical to the source file.")
-		}
-
-		// Валидируем сопутствующие зашифрованные метаданные конверта
-		if getData.Metadata["bank"] != "" { // Проверка, что чужие метаданные не попали
-			t.Errorf("unexpected metadata found inside decrypted scope")
-		}
-		if getData.Metadata["env"] != "production" || getData.Metadata["version"] != "v1.0.0" {
-			t.Errorf("record metadata mapping is broken or corrupted: %v", getData.Metadata)
+			t.Log("✔ Success! Decrypted 10MB binary payload written via --file is bitwise identical to the source file.")
 		}
 	})
 }

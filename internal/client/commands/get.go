@@ -3,10 +3,13 @@
 package commands
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"gophkeeper/internal/client/providers/sqlite"
 	"gophkeeper/internal/client/providers/sshagent"
@@ -23,7 +26,7 @@ func newGetCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Расшифровать и прочитать приватный секрет из сейфа по его имени или ID",
-		Long:  `Вскрывает крипто-конверт XChaCha20-Poly1305, верифицирует целостность через AAD и выводит plaintext в терминал.`,
+		Long:  `Вскрывает крипто-конверт XChaCha20-Poly1305, верифицирует целостность через AAD, выводит plaintext в терминал или выгружает в файл.`,
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
@@ -34,10 +37,15 @@ func newGetCommand(cli *CLI) *cobra.Command {
 				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
 			}
 
-			// Читаем эфемерные флаги поиска записи
+			// Читаем эфемерные флаги поиска записи и выгрузки
 			flags := cmd.Flags()
 			id, _ := flags.GetString("id")
 			name, _ := flags.GetString("name")
+			exportPath, _ := flags.GetString("file")
+
+			id = strings.TrimSpace(id)
+			name = strings.TrimSpace(name)
+			exportPath = strings.TrimSpace(exportPath)
 
 			if id == "" && name == "" {
 				return cli.PrintError(out, errors.New("вы должны указать либо флаг --name, либо флаг --id для поиска записи"), "валидация флагов")
@@ -82,7 +90,7 @@ func newGetCommand(cli *CLI) *cobra.Command {
 				slog.Debug("Инициирован детерминированный поиск записи по текстовому имени")
 			}
 
-			// Вызов криптографического конвейера дешифрования (Возвращает монолитный JSON-блок)
+			// Вызов криптографического конвейера дешифрования
 			recordName, plainBytes, err := secretService.UnsealSecret(ctx, targetKey, isFindByID)
 			if err != nil {
 				slog.Error("Криптографический конвейер не смог вскрыть конверт записи", "error", err)
@@ -103,12 +111,43 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			// Объявляем объекты безопасности над вложенными элементами структуры
 			payloadBlock := security.SecretBytes(plain.Payload)
 
+			// Извлекаем тип секрета из сырой записи в СУБД для контроля консольного вывода
+			var secretType string
+			if isFindByID {
+				if rec, _ := secretStore.GetByID(ctx, targetKey); rec != nil {
+					secretType = rec.Type
+				}
+			} else {
+				if rec, _ := secretStore.GetByName(ctx, targetKey); rec != nil {
+					secretType = rec.Type
+				}
+			}
+
+			// АППАРАТНАЯ ЗАЩИТА ТЕРМИНАЛА: Запрещаем вывод бинарного типа без указания флага --file или --json
+			if secretType == "binary" && exportPath == "" && !cli.JSONOutput {
+				secretBlock.Destroy()
+				payloadBlock.Destroy()
+				statusErr := errors.New("отказ вывода: секрет имеет тип 'binary' и не может быть отображен в терминале в виде текста. Пожалуйста, укажите путь выгрузки через флаг '--file /path/to/output'")
+				return cli.PrintError(out, statusErr, "защита консоли")
+			}
+
+			// Если указан флаг --file — производим принудительную выгрузку сырых байт на диск
+			if exportPath != "" {
+				slog.Info("Инициирована персистентная выгрузка plaintext контента на диск", "path", exportPath)
+				if err := os.WriteFile(exportPath, plain.Payload, 0o600); err != nil {
+					secretBlock.Destroy()
+					payloadBlock.Destroy()
+					slog.Error("Сбой записи расшифрованного файла на диск", "path", exportPath, "error", err)
+					return cli.PrintError(out, err, "экспорт в файл")
+				}
+			}
+
 			// Гарантируем тотальное обнуление всех конфиденциальных байт в RAM по выходу из функции
 			defer func() {
 				secretBlock.Destroy()
 				payloadBlock.Destroy()
 				for k := range plain.Metadata {
-					delete(plain.Metadata, k) // Ускоряем GC для очистки ссылок метаданных
+					delete(plain.Metadata, k)
 				}
 				slog.Debug("Расшифрованные байты секрета полностью стерты из оперативной памяти (RAM Hygiene)")
 			}()
@@ -119,11 +158,20 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			}
 			agentClosedChecked = true
 
-			// Передаем структурированный payload ответа.
-			// ВНИМАНИЕ: Для вывода JSON автоматизации мы передаем безопасный слепок
+			// ФОРМИРОВАНИЕ ПАКЕТА ДЛЯ JSON API (--json)
+			var finalPayloadStr string
+			if cli.JSONOutput {
+				if secretType == "binary" {
+					// Для бинарного типа упаковываем данные в безопасный Base64
+					finalPayloadStr = base64.StdEncoding.EncodeToString(plain.Payload)
+				} else {
+					finalPayloadStr = string(plain.Payload)
+				}
+			}
+
 			payloadOut := GetResponse{
 				Name:     recordName,
-				Payload:  string(plain.Payload), // Копия формируется только на этапе передачи в stdout
+				Payload:  finalPayloadStr,
 				Metadata: plain.Metadata,
 			}
 
@@ -132,8 +180,14 @@ func newGetCommand(cli *CLI) *cobra.Command {
 				fmt.Fprintln(out, "\n✔ Дешифрование конверта выполнено успешно!")
 				fmt.Fprintln(out, "================================================================================")
 				fmt.Fprintf(out, "  Имя секрета  : %s\n", recordName)
+				fmt.Fprintf(out, "  Тип секрета  : %s\n", secretType)
 				fmt.Fprintln(out, "================================================================================")
-				fmt.Fprintf(out, "  Полезная нагрузка (Payload): %s\n", string(plain.Payload))
+
+				if exportPath != "" {
+					fmt.Fprintf(out, "  ✔ Контент успешно расшифрован и сохранен на диск: %s\n", exportPath)
+				} else {
+					fmt.Fprintf(out, "  Полезная нагрузка (Payload): %s\n", string(plain.Payload))
+				}
 				fmt.Fprintln(out, "================================================================================")
 
 				if len(plain.Metadata) > 0 {
@@ -151,9 +205,10 @@ func newGetCommand(cli *CLI) *cobra.Command {
 		}),
 	}
 
-	// Регистрация эфемерных флагов поиска
+	// Регистрация эфемерных флагов поиска и выгрузки
 	cmd.Flags().String("id", "", "Поиск и вскрытие записи по её UUID идентификатору")
 	cmd.Flags().String("name", "", "Поиск и вскрытие записи по её уникальному текстовому имени")
+	cmd.Flags().String("file", "", "Абсолютный путь на диске для выгрузки расшифрованного plaintext контента")
 
 	return cmd
 }
