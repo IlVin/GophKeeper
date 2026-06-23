@@ -50,17 +50,14 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 		return nil, status.Error(codes.InvalidArgument, "ssh public key cannot be empty")
 	}
 
-	// Парсим публичный ключ для расчета SshFingerprint (Identity Binding)
 	pubKey, err := ssh.ParsePublicKey(req.GetSshPublicKey())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid ssh public key format: %v", err)
 	}
 	fingerprint := serverCalculateFingerprint(pubKey)
 
-	// Ищем существующего пользователя в PostgreSQL (Схема Register-or-Join)
 	existingUser, err := h.repo.GetByFingerprint(ctx, fingerprint)
 	if err != nil {
-		// БАРЬЕР ИБ: Маскируем сырые трейсы СУБД, пишем их в лог сервера, отдаем безопасный Internal текст
 		slog.Error("Database fetch failed in RegisterBegin", "fingerprint", fingerprint, "error", err)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
@@ -74,14 +71,12 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 
 	sessionID := uuid.New().String()
 
-	// Генерируем 32-байтный случайный серверный nonce через OS CSPRNG (Защита от Replay)
 	serverNonce := make([]byte, 32)
 	if _, err = rand.Read(serverNonce); err != nil {
 		slog.Error("CSPRNG entropy generation failed for server nonce", "error", err)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
-	// Сохраняем challenge session в PostgreSQL со статусом "Unused" и TTL 5 минут
 	session := &repository.ChallengeSession{
 		ID:          sessionID,
 		UserID:      userID,
@@ -106,7 +101,6 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 
 // RegisterFinish — Шаг 2: Верификация подписи крипто-челленджа из ssh-agent и выпуск mTLS сертификата.
 func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.RegisterFinishRequest) (*pb.RegisterFinishResponse, error) {
-	// Базовая валидация параметров
 	if req.GetUserId() == "" || req.GetSessionId() == "" || req.GetDeviceId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "user_id, session_id and device_id are required")
 	}
@@ -120,32 +114,32 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 		return nil, status.Error(codes.InvalidArgument, "account salt must be exactly 32 bytes")
 	}
 
-	// 1. ВАЛИДАЦИЯ СЕССИИ (Challenge State Machine и защита от Replay)
-	session, err := h.repo.GetAndLock(ctx, req.GetSessionId())
+	// 1. ИСПРАВЛЕНО: Вместо сломанного GetAndLock вызываем потокобезопасный транзакционный ConsumeChallengeSession
+	session, err := h.repo.ConsumeChallengeSession(ctx, req.GetSessionId())
 	if err != nil {
-		slog.Error("Row locking failed for challenge session transaction", "session_id", req.GetSessionId(), "error", err)
+		slog.Error("Transactional challenge token consumption crashed", "session_id", req.GetSessionId(), "error", err)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "challenge session not found")
 	}
 
-	// Проверяем TTL и статус сессии
+	// Проверяем TTL сессии
 	if time.Now().UTC().After(session.ExpiresAt) {
 		_ = h.repo.UpdateState(ctx, session.ID, "Expired")
 		return nil, status.Error(codes.DeadlineExceeded, "challenge session has expired (TTL 5 min)")
 	}
-	if session.State != "Unused" {
-		return nil, status.Error(codes.PermissionDenied, "challenge session already used, replay blocked")
-	}
-	if session.UserID != req.GetUserId() || session.Operation != "register" {
-		return nil, status.Error(codes.InvalidArgument, "session parameter mismatch")
+
+	// УБРАНО: Проверка session.State != "Unused" больше не нужна.
+	// Метод ConsumeChallengeSession сам атомарно проверил статус и погасил токен (перевёл в 'Used').
+	// Если бы сессия была погашена ранее, повторный вызов вернул бы состояние 'Used', но ConsumeChallengeSession
+	// обновляет и переводит в Used только если на входе было строго 'Unused', защищая от Replay.
+	if session.State != "Used" {
+		return nil, status.Error(codes.PermissionDenied, "challenge session already consumed or invalid, replay blocked")
 	}
 
-	// Погашаем сессию МГНОВЕННО (Атомарный переход Unused -> Used для предотвращения атак повторения)
-	if err = h.repo.UpdateState(ctx, session.ID, "Used"); err != nil {
-		slog.Error("Failed to update challenge session state atomic transition to Used", "session_id", session.ID, "error", err)
-		return nil, status.Error(codes.Internal, "Internal server error")
+	if session.UserID != req.GetUserId() || session.Operation != "register" {
+		return nil, status.Error(codes.InvalidArgument, "session parameter mismatch")
 	}
 
 	// 2. КРИПТОГРАФИЧЕСКАЯ ВЕРИФИКАЦИЯ SSH-ПОДПИСИ (Инвариант №3)
@@ -176,7 +170,6 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	var canonicalBootstrap []byte
 	var statusEnum pb.RegistrationStatus
 
-	// ИСПРАВЛЕНО: Полностью удален импорт клиентского пакета sshagent! Расчет идет на месте.
 	currentFingerprint := serverCalculateFingerprint(clientPubKey)
 
 	existingUser, err := h.repo.GetByFingerprint(ctx, currentFingerprint)
@@ -246,7 +239,7 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	}
 
 	return &pb.RegisterFinishResponse{
-		Status:                            statusEnum, // ИСПРАВЛЕНО: Передаем строго типизированный enum
+		Status:                            statusEnum,
 		CanonicalAccountSalt:              canonicalSalt,
 		CanonicalAccountBootstrapEnvelope: canonicalBootstrap,
 		ClientCertificate:                 clientCertDER,
