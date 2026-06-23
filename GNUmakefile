@@ -1,14 +1,17 @@
 # Переменные проекта
-VERSION=v0.0.1
-DATE=$(shell date +%Y-%m-%d)
+VERSION ?= v0.0.1
+DATE    ?= $(shell date +%Y-%m-%d)
 
 WORKDIR=.
 
-MAIN_SERVER=${WORKDIR}/cmd/gophkeeper-server/main.go
-BINARY_SERVER=${WORKDIR}/cmd/gophkeeper-server/gophkeeper-server
+MAIN_SERVER   ?= ${WORKDIR}/cmd/gophkeeper-server/main.go
+MAIN_CLIENT   ?= ${WORKDIR}/cmd/gophkeeper/main.go
 
-MAIN_CLIENT=${WORKDIR}/cmd/gophkeeper/main.go
-BINARY_CLIENT=${WORKDIR}/cmd/gophkeeper/gophkeeper
+# Пути для кроссплатформенных бинарников
+BUILD_DIR     ?= ./build
+LDFLAGS       := -s -w -X gophkeeper/internal/client/commands.Version=$(VERSION) -X gophkeeper/internal/client/commands.BuildDate=$(DATE)
+
+
 
 # ProtoBuf generator
 # Локальные пути для утилит
@@ -70,14 +73,35 @@ test-race:
 lint:
 	golangci-lint run
 
-build: build-linux
+.PHONY: build build-linux build-windows build-macos clean-build
+## build: Сборка клиента и сервера под все целевые платформы (MVP ТЗ)
+build: build-linux build-windows build-macos
 
-## build-linux: Сборка статических бинарников строго под Linux x86_64 для scratch-контейнера
+## build-linux: Сборка статических бинарников под Linux x86_64 для scratch-контейнеров и хостов
 build-linux: gen-proto
-	@echo "Compiling static binaries for Linux containers..."
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X gophkeeper/internal/client/commands.Version=$(VERSION) -X gophkeeper/internal/client/commands.BuildDate=$(DATE)" -o $(BINARY_CLIENT) $(MAIN_CLIENT)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X gophkeeper/internal/client/commands.Version=$(VERSION) -X gophkeeper/internal/client/commands.BuildDate=$(DATE)" -o $(BINARY_SERVER) $(MAIN_SERVER)
-	go build -ldflags  -o gophkeeper cmd/gophkeeper/main.go
+	@echo "Compiling static binaries for Linux (amd64)..."
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/linux/gophkeeper $(MAIN_CLIENT)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/linux/gophkeeper-server $(MAIN_SERVER)
+
+## build-windows: Кросс-компиляция статических бинарников под Windows x86_64
+build-windows: gen-proto
+	@echo "Compiling static binaries for Windows (amd64)..."
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/windows/gophkeeper.exe $(MAIN_CLIENT)
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/windows/gophkeeper-server.exe $(MAIN_SERVER)
+
+## build-macos: Кросс-компиляция статических бинарников под macOS (Intel и Apple Silicon)
+build-macos: gen-proto
+	@echo "Compiling static binaries for macOS (Intel amd64)..."
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/macos/gophkeeper-darwin-amd64 $(MAIN_CLIENT)
+	@echo "Compiling static binaries for macOS (Apple Silicon arm64)..."
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/macos/gophkeeper-darwin-arm64 $(MAIN_CLIENT)
+	@echo "Compiling server for macOS (Intel amd64)..."
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/macos/gophkeeper-server-darwin-amd64 $(MAIN_SERVER)
+
+## clean-build: Удаление скомпилированных артефактов
+clean-build:
+	@echo "Cleaning up build directory..."
+	rm -rf $(BUILD_DIR)
 
 
 ## up: Сначала собирает Linux-бинарник на хосте, а затем мгновенно поднимает Docker-стек
