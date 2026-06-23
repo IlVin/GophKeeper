@@ -36,7 +36,7 @@ func (c *ServerCLI) NewServerRootCommand() (*cobra.Command, error) {
 	pFlags.String("server-ca-key", "", "path to Server CA private key file")
 	pFlags.String("device-ca-key", "", "path to Device Identity CA private key file")
 
-	// ИСПРАВЛЕНО: Явный перехват и валидация ошибок биндинга для предотвращения немых сбоев
+	// Явный перехват и валидация ошибок биндинга для предотвращения немых сбоев
 	if err := c.v.BindPFlag("server.config_file", pFlags.Lookup("config")); err != nil {
 		return nil, fmt.Errorf("failed to bind flag 'config': %w", err)
 	}

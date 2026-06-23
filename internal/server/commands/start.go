@@ -67,7 +67,7 @@ func (c *ServerCLI) newStartCommand() *cobra.Command {
 				slog.Info("Received termination OS signal, initiating graceful shutdown sequence", "signal", sig.String())
 				fmt.Fprintf(out, "\nReceived OS signal %v. Finalizing active pools...\n", sig)
 
-				// ИСПРАВЛЕНО: Явный контроль и проброс ошибок закрытия ресурсов для исключения утечек в ОС
+				// Явный контроль и проброс ошибок закрытия ресурсов для исключения утечек в ОС
 				if closeErr := c.Close(); closeErr != nil {
 					slog.Error("Resource cleanup transaction crashed during command finalization phase", "error", closeErr)
 					return fmt.Errorf("failed to shutdown server cleanly: %w", closeErr)

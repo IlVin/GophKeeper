@@ -56,8 +56,7 @@ func (p *PostgresCache) Get(ctx context.Context, key string) ([]byte, error) {
 func (p *PostgresCache) Put(ctx context.Context, key string, data []byte) error {
 	slog.Info("Publishing updated Let's Encrypt TLS certificate block to PostgreSQL cache", "key", key)
 
-	// ИСПРАВЛЕНО: Убран избыточный ручной накат дат.
-	// Время модификации теперь канонично выставляется триггером trigger_update_acme_cache_timestamp в СУБД
+	// Время модификации канонично выставляется триггером trigger_update_acme_cache_timestamp в СУБД
 	query := `
 		INSERT INTO acme_cache (key, data) 
 		VALUES ($1, $2)

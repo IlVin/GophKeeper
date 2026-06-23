@@ -99,7 +99,6 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 		return fmt.Errorf("failed to generate device identity csr: %w", err)
 	}
 
-	// ИСПРАВЛЕНО: Объект ИБ-деструкции создается атомарно в точке выделения памяти
 	mtlsSecret := security.SecretBytes(rawMtlsPrivKey)
 	defer mtlsSecret.Destroy()
 
@@ -128,7 +127,6 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 	canonicalBootstrap := finishResp.GetCanonicalAccountBootstrapEnvelope()
 
 	if !bytes.Equal(state.AccountSalt, canonicalSalt) || !bytes.Equal(state.AccountBootstrapEnvelope, canonicalBootstrap) {
-		// ИСПРАВЛЕНО: Убран несанкционированный системный вывод в os.Stderr. Лог переведен на slog.Info
 		slog.Info("Server canonical state mismatch detected! Automated local Reconcile Migration triggered.")
 
 		err = s.initService.ReconcileContainer(

@@ -114,7 +114,7 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 		return nil, status.Error(codes.InvalidArgument, "account salt must be exactly 32 bytes")
 	}
 
-	// 1. ИСПРАВЛЕНО: Вместо сломанного GetAndLock вызываем потокобезопасный транзакционный ConsumeChallengeSession
+	// 1. Вызываем потокобезопасный транзакционный ConsumeChallengeSession
 	session, err := h.repo.ConsumeChallengeSession(ctx, req.GetSessionId())
 	if err != nil {
 		slog.Error("Transactional challenge token consumption crashed", "session_id", req.GetSessionId(), "error", err)

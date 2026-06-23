@@ -44,7 +44,7 @@ func IssueDeviceCertificate(
 		return nil, nil, fmt.Errorf("client csr signature validation failed: %w", err)
 	}
 
-	// ИСПРАВЛЕНО: Защитный ИБ-барьер против атак Identity Spoofing.
+	// Защитный ИБ-барьер против атак Identity Spoofing.
 	// Если клиент передал URI в CSR, проверяем его жесткое совпадение с доменным контекстом
 	if len(csr.URIs) > 0 {
 		var csrDeviceID string

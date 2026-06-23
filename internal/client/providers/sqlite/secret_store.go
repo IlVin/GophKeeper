@@ -91,7 +91,6 @@ func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository
 		r.UserID = &userIDNull.String
 	}
 
-	// ИСПРАВЛЕНО: Явный контроль и перехват ошибок парсинга дат для защиты LWW-инварианта
 	r.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created_at timestamp for record %s: %w", r.ID, err)
@@ -221,7 +220,6 @@ func (s *SQLiteSecretStore) GetSyncMetadata(ctx context.Context) (map[string]tim
 // SaveRaw выполняет слепой Upsert зашифрованного конверта, пришедшего с сервера при Pull-сессии.
 // Обновление применится на диске только в том случае, если входящая дата строго свежее локальной.
 func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.EncryptedRecord) error {
-	// ИСПРАВЛЕНО: Заменен синтаксис параметров с PostgreSQL ($1-$7) на канонический SQLite (?)
 	query := `
 		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -260,7 +258,6 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 
 // GetRawByID вычитывает сырой зашифрованный конверт для его отправки в облако при Push-сессии.
 func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
-	// ИСПРАВЛЕНО: Заменен невалидный плейсхолдер $1 на знак вопроса ?
 	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records WHERE id = ?;`
 
 	var r repository.EncryptedRecord

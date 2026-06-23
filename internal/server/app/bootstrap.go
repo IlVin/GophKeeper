@@ -87,7 +87,7 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 			Cache:      postgres.NewPostgresCache(pool),
 		}
 
-		// ИСПРАВЛЕНО: ClientAuth переведен в VerifyClientCertIfGiven для гибридной работы TLS/mTLS на одном порту
+		// ClientAuth переведен в VerifyClientCertIfGiven для гибридной работы TLS/mTLS на одном порту
 		tlsConfig = &tls.Config{
 			GetCertificate: certManager.GetCertificate,
 			MinVersion:     tls.VersionTLS13,
@@ -133,7 +133,7 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 		clientCAPool := x509.NewCertPool()
 		clientCAPool.AddCert(deviceCert)
 
-		// ИСПРАВЛЕНО: Настроен режим VerifyClientCertIfGiven для разделения анонимного и mTLS трафика
+		// Настроен режим VerifyClientCertIfGiven для разделения анонимного и mTLS трафика
 		tlsConfig = &tls.Config{
 			Certificates: []tls.Certificate{*serverCert},
 			ClientCAs:    clientCAPool,

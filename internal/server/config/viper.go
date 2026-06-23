@@ -59,7 +59,7 @@ func ReadConfigFile(v *viper.Viper) error {
 	v.SetConfigFile(configFile)
 
 	if err := v.ReadInConfig(); err != nil {
-		// ИСПРАВЛЕНО: Явный переданный файл обязан существовать. Немой запуск заблокирован.
+		// Явный переданный файл обязан существовать. Немой запуск заблокирован.
 		if errors.Is(err, os.ErrNotExist) {
 			slog.Error("Critical initialization failure: explicit config file not found", "path", configFile)
 			return fmt.Errorf("%w: %s", ErrExplicitConfigMissing, configFile)

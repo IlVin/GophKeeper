@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS challenge_sessions (
 CREATE INDEX IF NOT EXISTS idx_challenge_sessions_lookup ON challenge_sessions(id, state, expires_at);
 
 
--- 4. ИСПРАВЛЕНО: Добавлена таблица хранения актуальных зашифрованных секретов (Records Vault)
+-- 4. Таблица хранения актуальных зашифрованных секретов (Records Vault)
 CREATE TABLE IF NOT EXISTS records (
     id UUID PRIMARY KEY,                          -- Детерминированный UUID v5 записи клиента
     user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS idx_records_user_sync ON records(user_id, updated_at);
 
 
--- 5. ИСПРАВЛЕНО: Добавлена таблица ведения истории изменений секретов (History Audit Trail)
+-- 5. Таблица ведения истории изменений секретов (History Audit Trail)
 CREATE TABLE IF NOT EXISTS records_history (
     history_id BIGSERIAL PRIMARY KEY,
     record_id UUID NOT NULL,

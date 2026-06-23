@@ -48,7 +48,6 @@ func RequireAgent() error {
 
 	agentClient := agent.NewClient(conn)
 
-	// ИСПРАВЛЕНО: Вместо уязвимого Signers() вызываем List() для безопасного извлечения ключей
 	keys, err := agentClient.List()
 	if err != nil {
 		slog.Error("System ssh-agent daemon rejected keys list request or socket is broken", "error", err)

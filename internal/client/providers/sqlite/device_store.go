@@ -71,7 +71,6 @@ func (s *SQLiteDeviceStore) ReadDeviceState(ctx context.Context) (*repository.Lo
 
 // SaveDeviceState выполняет первичное сохранение оффлайн-конфигурации или её полную перезапись (UPSERT).
 func (s *SQLiteDeviceStore) SaveDeviceState(ctx context.Context, state *repository.LocalDeviceState) error {
-	// ИСПРАВЛЕНО: Плейсхолдеры приведены к стандарту SQLite (?) взамен невалидных $1, $2...
 	query := `
 		INSERT INTO device_state (
 			id, server_url, user_id, device_id, ssh_public_key, account_salt, 
@@ -147,7 +146,6 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 	}()
 
 	// 1. Обновляем глобальное состояние устройства в device_state (id = 1)
-	// ИСПРАВЛЕНО: Заменен синтаксис параметров с PostgreSQL ($1-$7) на канонический SQLite (?)
 	stateQuery := `
 		UPDATE device_state SET
 			server_url = ?,
@@ -192,7 +190,6 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 			return fmt.Errorf("очистка records перед миграцией: %w", err)
 		}
 
-		// ИСПРАВЛЕНО: Заменен синтаксис параметров на (?)
 		recordQuery := `
 			INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?);`
@@ -270,7 +267,6 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 			r.UserID = &uNull.String
 		}
 
-		// ИСПРАВЛЕНО: Явный перехват и обработка ошибок парсинга дат
 		r.CreatedAt, err = time.Parse(time.RFC3339, cStr)
 		if err != nil {
 			return nil, fmt.Errorf("парсинг даты создания записи %s: %w", r.ID, err)

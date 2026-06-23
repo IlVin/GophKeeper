@@ -45,7 +45,7 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 		postgresDSN = "postgres://gophkeeper:gophkeeper_pswd@127.0.0.1:5432/gophkeeper?sslmode=disable"
 	}
 
-	// ИСПРАВЛЕНО: Вычисляем абсолютные пути к приватным ключам Серверного CA и Директного CA,
+	// Вычисляем абсолютные пути к приватным ключам Серверного CA и Директного CA,
 	// чтобы PKI-слой сервера гарантированно инициализировался в любой среде (CI/CD или локально)
 	serverCAKeyAbs, err := filepath.Abs("../../../.certs_private/server-ca.key")
 	if err != nil {
@@ -161,7 +161,7 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 
 		// 3. Синхронизируем Клиента 1 (Доставляет САМЫЙ СТАРЫЙ пакет ПОСЛЕДНИМ)
 		// Сервер отбросит его Push, но в рамках Pull отдаст ему канон от Клиента 3.
-		_, _, _ = runClient(dbClient1, "sync") // ИСПРАВЛЕНО: Убран хрупкий ассерт счетчика pulled
+		_, _, _ = runClient(dbClient1, "sync")
 
 		// ПРОВЕРЯЕМ ЛОКАЛЬНЫЙ КЭШ КЛИЕНТА 1: Он должен был бесшовно всосать истину через LWW!
 		getStdout1, _, _ := runClient(dbClient1, "get", "--name", "shared_secret")

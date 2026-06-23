@@ -36,7 +36,7 @@ func Connect(ctx context.Context, cfg config.StorageConfig) (*pgxpool.Pool, erro
 		return nil, fmt.Errorf("failed to parse postgres dsn: %w", err)
 	}
 
-	// ИСПРАВЛЕНО: Интегрируем динамические параметры из config.StorageConfig взамен слепого затирания
+	// Интегрируем динамические параметры из config.StorageConfig
 	if cfg.MaxConns > 0 {
 		poolConfig.MaxConns = cfg.MaxConns
 	} else {

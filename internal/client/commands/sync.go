@@ -213,7 +213,6 @@ func executeNetworkSync(
 
 	var protoVersions []*pb.RecordVersion
 	for id, t := range localMeta {
-		// ИСПРАВЛЕНО: Вместо .Format() строки используем нативный timestamppb.New()
 		protoVersions = append(protoVersions, &pb.RecordVersion{
 			RecordId:  id,
 			UpdatedAt: timestamppb.New(t),
@@ -244,7 +243,6 @@ func executeNetworkSync(
 		}
 
 		for _, r := range pullResp.GetRecords() {
-			// ИСПРАВЛЕНО: Полностью убран уязвимый строковый time.Parse.
 			// Даты извлекаются нативно через .AsTime() без риска Scan Errors
 			if r.GetCreatedAt() == nil || r.GetUpdatedAt() == nil {
 				slog.Error("Сервер прислал пустой блок Timestamp для pulled записи, пакет пропущен", "record_id", r.GetRecordId())
@@ -284,7 +282,6 @@ func executeNetworkSync(
 				continue
 			}
 
-			// ИСПРАВЛЕНО: Вместо .Format() строки упаковываем даты в timestamppb.New()
 			recordsToPush = append(recordsToPush, &pb.EncryptedRecordPayload{
 				RecordId:  localRec.ID,
 				Name:      localRec.Name,

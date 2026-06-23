@@ -217,7 +217,6 @@ func (s *SecretService) unlockMasterKey(ctx context.Context, state *repository.L
 		return nil, fmt.Errorf("master key envelope corruption: %w", err)
 	}
 
-	// ИСПРАВЛЕНО: Объект безопасности конструируется мгновенно в точке выделения памяти
 	return security.SecretBytes(masterKeyBytes), nil
 }
 

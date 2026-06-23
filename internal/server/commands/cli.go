@@ -41,7 +41,7 @@ func (c *ServerCLI) App(ctx context.Context) (*serverapp.App, error) {
 		return c.app, nil
 	}
 
-	// ИСПРАВЛЕНО: Защита от циклической инициализации при фатальных сбоях
+	// Защита от циклической инициализации при фатальных сбоях
 	if c.appErr != nil {
 		slog.Warn("Повторный запрос инициализации отклонен: кэширован статус фатального сбоя старта")
 		return nil, c.appErr
