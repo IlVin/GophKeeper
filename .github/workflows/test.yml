@@ -133,7 +133,7 @@ jobs:
         run: go mod download
 
       - name: Run functional ssh-agent tests
-        run: go test -tags=functional ./internal/adapters/sshagent -count=1 -v
+        run: go test -tags=functional ./internal/client/providers/sshagent -count=1 -v
 
       - name: Run Dedicated Client E2E Tests
         run: go test -tags=e2e ./internal/... -run E2E -count=1 -v
