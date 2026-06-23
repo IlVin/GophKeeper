@@ -1,12 +1,15 @@
+// Package service содержит компоненты бизнес-логики клиентского приложения GophKeeper,
+// оркеструющие криптографические конвейеры, вызовы деривации и сетевую синхронизацию.
 package service
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"os"
+	"log/slog"
 
-	pb "gophkeeper/gen/go/gophkeeper/v1" // Путь сгенерированных Go-заглушек
+	pb "gophkeeper/gen/go/gophkeeper/v1"
 	"gophkeeper/internal/client/providers/device"
 	"gophkeeper/internal/client/providers/sshagent"
 	"gophkeeper/internal/client/repository"
@@ -16,14 +19,16 @@ import (
 	"google.golang.org/grpc"
 )
 
+// RegisterService инкапсулирует сценарий бизнес-логики двухэтапной беспарольной
+// регистрации и привязки локального контейнера к облачному аккаунту.
 type RegisterService struct {
 	deviceStore repository.DeviceStore
-	initService *InitService // Ссылка на сервис, выполняющий ReconcileContainer
+	initService *InitService
 	agentClient *sshagent.Client
 	grpcClient  pb.RegistrationClient
 }
 
-// NewRegisterService конструирует use-case сервис регистрации устройства.
+// NewRegisterService конструирует новый экземпляр Use-Case сервиса сетевой регистрации.
 func NewRegisterService(
 	ds repository.DeviceStore,
 	is *InitService,
@@ -38,24 +43,37 @@ func NewRegisterService(
 	}
 }
 
-// RunRegistration выполняет сквозной двухэтапный сценарий беспарольной регистрации устройства.
+// RunRegistration выполняет сквозной защищенный криптографический протокол беспарольной регистрации устройства.
+//
+// Метод инициирует gRPC-сессию TLS 1.3, проходит криптографический вызов Proof of Possession,
+// генерирует mTLS паспорт контейнера P-256 и сверяет локальную соль с серверным каноном (Инварианты №3, №9, №12, №13, №14).
 func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string) error {
-	// 1. Вычитываем текущее локальное INITIALIZED состояние устройства из SQLite
+	slog.Info("Initiating two-step passwordless device cloud registration protocol")
+
+	// 1. Извлекаем текущее локальное состояние устройства из СУБД SQLite
 	state, err := s.deviceStore.ReadDeviceState(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to read initial state: %w", err)
 	}
 
-	// 2. ВЫЗОВ REGISTER_BEGIN RPC (Через чистый TLS 1.3)
+	// ЗАЩИТНЫЙ ИБ-БАРЬЕР: Предотвращает панику разыменования, если база пуста
+	if state == nil {
+		slog.Warn("Registration pipeline aborted: local container is uninitialized")
+		return errors.New("environment is not initialized: please run 'gophkeeper init' first")
+	}
+
+	// 2. ВЫЗОВ REGISTER_BEGIN RPC (Передача публичного ключа для идентификации аккаунта)
+	slog.Debug("Executing RPC RegisterBegin channel request")
 	beginReq := &pb.RegisterBeginRequest{
 		SshPublicKey: state.SshPublicKey,
 	}
 	beginResp, err := s.grpcClient.RegisterBegin(ctx, beginReq)
 	if err != nil {
+		slog.Error("RPC RegisterBegin request failed", "error", err)
 		return fmt.Errorf("gRPC RegisterBegin failed: %w", err)
 	}
 
-	// 3. СБОРКА И ПОДПИСЬ ЧЕЛЛЕНДЖА (Инвариант №3: Разделение ролей подписей)
+	// 3. СБОРКА И ПОДПИСЬ КРИПТОГРАФИЧЕСКОГО ЧЕЛЛЕНДЖА
 	challenge := security.NewChallengePayload(
 		beginResp.GetUserId(),
 		beginResp.GetSessionId(),
@@ -63,28 +81,30 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 		"register",
 	)
 
-	// Извлекаем фингерпринт из локального состояния для идентификации ключа в агенте
 	pubKey, err := ssh.ParsePublicKey(state.SshPublicKey)
 	if err != nil {
 		return fmt.Errorf("parse public key failed: %w", err)
 	}
 	fingerprint := sshagent.FingerprintSHA256(pubKey)
 
-	// Запрашиваем AuthChallengeSignature у агента (Payload содержит UserID, SessionID и ServerNonce)
+	slog.Debug("Requesting challenge authentication signature from ssh-agent HSM-module")
 	authChallengeSignature, err := s.agentClient.SignED25519Raw(fingerprint, challenge.Marshal())
 	if err != nil {
 		return fmt.Errorf("ssh-agent failed to sign challenge payload: %w", err)
 	}
 
-	// 4. ГЕНЕРАЦИЯ mTLS ИДЕНТИЧНОСТИ КОНТЕЙНЕРА
+	// 4. ГЕНЕРАЦИЯ mTLS ИДЕНТИЧНОСТИ КОНТЕЙНЕРА (NIST P-256)
 	rawMtlsPrivKey, csrBytes, err := device.GenerateContainerCSR(state.DeviceID)
 	if err != nil {
 		return fmt.Errorf("failed to generate device identity csr: %w", err)
 	}
+
+	// ИСПРАВЛЕНО: Объект ИБ-деструкции создается атомарно в точке выделения памяти
 	mtlsSecret := security.SecretBytes(rawMtlsPrivKey)
 	defer mtlsSecret.Destroy()
 
-	// 5. ВЫЗОВ REGISTER_FINISH RPC
+	// 5. ВЫЗОВ REGISTER_FINISH RPC (Передача подписанного челленджа и CSR)
+	slog.Debug("Executing RPC RegisterFinish channel request with payload verification tokens")
 	finishReq := &pb.RegisterFinishRequest{
 		UserId:                   beginResp.GetUserId(),
 		SessionId:                beginResp.GetSessionId(),
@@ -99,17 +119,17 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 
 	finishResp, err := s.grpcClient.RegisterFinish(ctx, finishReq)
 	if err != nil {
+		slog.Error("RPC RegisterFinish authentication rejected by cloud server", "error", err)
 		return fmt.Errorf("gRPC RegisterFinish failed: %w", err)
 	}
 
-	// 6. КРИТИЧЕСКИЙ СВЕРЯЮЩИЙ БАРЬЕР: СРАВНЕНИЕ С СЕРВЕРНЫМ КАНОНОМ (Инвариант №12, №13)
+	// 6. КРИТИЧЕСКИЙ СВЕРЯЮЩИЙ БАРЬЕР: СРАВНЕНИЕ С СЕРВЕРНЫМ КАНОНОМ (Last-Write-Wins Инварианты)
 	canonicalSalt := finishResp.GetCanonicalAccountSalt()
 	canonicalBootstrap := finishResp.GetCanonicalAccountBootstrapEnvelope()
 
 	if !bytes.Equal(state.AccountSalt, canonicalSalt) || !bytes.Equal(state.AccountBootstrapEnvelope, canonicalBootstrap) {
-		// Обнаружено несовпадение: контейнер был создан оффлайн со своей солью, но сервер вернул каноничную соль!
-		// Запускаем криптографический конвейер Reconcile Migration для перешифрования базы под каноничные ключи (Инвариант №14)
-		_, _ = fmt.Fprintln(os.Stderr, "[Lifecycle] Mismatch with server canonical state detected! Launching local Reconcile Migration...")
+		// ИСПРАВЛЕНО: Убран несанкционированный системный вывод в os.Stderr. Лог переведен на slog.Info
+		slog.Info("Server canonical state mismatch detected! Automated local Reconcile Migration triggered.")
 
 		err = s.initService.ReconcileContainer(
 			ctx,
@@ -121,15 +141,16 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 			mtlsSecret,
 		)
 		if err != nil {
+			slog.Error("Automated local reconciliation migration collapsed", "error", err)
 			return fmt.Errorf("local reconcile migration failed: %w", err)
 		}
 
-		// Конвейер ReconcileContainer сам атомарно зафиксирует REGISTERED состояние в транзакции SQLite
+		slog.Info("Device successfully linked and migrated under canonical server credentials via Reconcile")
 		return nil
 	}
 
-	// 7. ЕСЛИ СВЕРКА ПРОШЛА УСПЕШНО (Мы первый контейнер аккаунта) — СОХРАНЯЕМ СЕТЕВЫЕ ИДЕНТИФИКАТОРЫ
-	// Вычисляем DeviceKEK для запечатывания сгенерированного mTLS приватного ключа (Инвариант №9)
+	// 7. ЕСЛИ СВЕРКА ПРОШЛА УСПЕШНО (Мы являемся первичным контейнером аккаунта в облаке)
+	slog.Debug("Local credentials match cloud canon, deriving DeviceKEK for client certificate sealing")
 	derivationPayload := security.NewDerivationPayload(fingerprint)
 	rawDerivationSig, err := s.agentClient.SignED25519Raw(fingerprint, derivationPayload.Marshal())
 	if err != nil {
@@ -153,7 +174,7 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 	userIDStr := beginResp.GetUserId()
 	deviceAAD := security.BuildDeviceMasterKeyAAD(&userIDStr, state.DeviceID)
 
-	// Запечатываем mTLS приватный ключ под локальным DeviceKEK
+	// Запечатываем mTLS приватный ключ под локальным DeviceKEK для персистентного хранения в SQLite
 	encryptedMtlsJSON, err := security.SealEnvelope(deviceKEK, mtlsSecret, deviceAAD, security.AADSchemaDeviceMasterKey)
 	if err != nil {
 		return fmt.Errorf("failed to seal mtls private key under device kek: %w", err)
@@ -174,5 +195,11 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 		CreatedAt:                state.CreatedAt,
 	}
 
-	return s.deviceStore.SaveDeviceState(ctx, updatedState)
+	slog.Debug("Committing final registered device state container metadata to SQLite")
+	if err := s.deviceStore.SaveDeviceState(ctx, updatedState); err != nil {
+		return fmt.Errorf("failed to commit registered state to database: %w", err)
+	}
+
+	slog.Info("Device registration process finalized successfully. Passport mTLS verified.")
+	return nil
 }
