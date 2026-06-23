@@ -188,7 +188,14 @@ func executeNetworkSync(
 	}
 
 	slog.Debug("Установление защищенной mTLS 1.3 gRPC сессии синхронизации", "url", *state.ServerURL)
-	conn, err := grpc.NewClient(*state.ServerURL, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+	conn, err := grpc.NewClient(
+		*state.ServerURL,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxCallMsgSize),
+			grpc.MaxCallSendMsgSize(maxCallMsgSize),
+		),
+	)
 	if err != nil {
 		return cli.PrintError(out, err, "сетевое подключение к gRPC узлу синхронизации")
 	}

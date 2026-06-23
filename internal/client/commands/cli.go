@@ -23,6 +23,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const maxCallMsgSize = 32 * 1024 * 1024 // 32 Мегабайта
+
 // CLIResponse описывает унифицированный JSON-конверт для автоматизации и E2E-тестирования.
 type CLIResponse struct {
 	Success bool        `json:"success"`

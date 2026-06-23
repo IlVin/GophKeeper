@@ -11,8 +11,6 @@ MAIN_CLIENT   ?= ${WORKDIR}/cmd/gophkeeper/main.go
 BUILD_DIR     ?= ./build
 LDFLAGS       := -s -w -X gophkeeper/internal/client/commands.Version=$(VERSION) -X gophkeeper/internal/client/commands.BuildDate=$(DATE)
 
-
-
 # ProtoBuf generator
 # Локальные пути для утилит
 GOPATH_BIN := $(shell go env GOPATH)/bin
@@ -176,11 +174,9 @@ clean-vault:
 	@rm -f *.db *.db-wal *.db-shm
 	@echo "✔ Success! All offline SQLite databases, WAL journals, and client configs have been securely deleted."
 
-.PHONY: clean-all
+.PHONY: clean
 ## clean-all: Полная очистка репозитория (бинарники, protobuf, сертификаты и СУБД)
-clean: down clean-vault proto-clean
-	@echo "Purging compiled binaries..."
-	@rm -rf ./cmd/gophkeeper/gophkeeper ./cmd/gophkeeper-server/gophkeeper-server
+clean: down clean-vault proto-clean clean-build
 	@echo "✔ Entire local development state has been safely reset."
 
 # ## build: Сборка проекта

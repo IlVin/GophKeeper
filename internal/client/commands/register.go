@@ -121,6 +121,10 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 			conn, err := grpc.NewClient(
 				serverAddr,
 				grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+				grpc.WithDefaultCallOptions(
+					grpc.MaxCallRecvMsgSize(maxCallMsgSize),
+					grpc.MaxCallSendMsgSize(maxCallMsgSize),
+				),
 			)
 			if err != nil {
 				return cli.PrintError(out, err, "инициализация сетевого gRPC клиента")
