@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// TestE2E_BinaryPayloadSyncAndVerification генерирует файл размером 9 МБ с рандомным содержимым,
+// TestE2E_BinaryPayloadSyncAndVerification генерирует файл размером 10 МБ с рандомным содержимым,
 // запечатывает его в локальном сейфе, реплицирует в облако и проверяет побайтовую идентичность
 // расшифрованного файла на изолированной второй копии клиента.
 func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
@@ -32,7 +32,7 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 
 	dbClient1 := filepath.Join(tmpDir, "vault_source.db")
 	dbClient2 := filepath.Join(tmpDir, "vault_replica.db")
-	sourceFilePath := filepath.Join(tmpDir, "source_9mb.bin")
+	sourceFilePath := filepath.Join(tmpDir, "source_10mb.bin")
 
 	// Находим абсолютные пути к скомпилированным кроссплатформенным бинарникам
 	clientBinary, _ := filepath.Abs("../../../build/linux/gophkeeper")
@@ -46,16 +46,16 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 		t.Fatalf("server binary not found at %q. Run 'make build-linux' first", serverBinary)
 	}
 
-	// 2. ГЕНЕРАЦИЯ БОЛЬШОГО ВЫСОКОЭНТРОПИЙНОГО ФАЙЛА (9 Мегабайт)
-	t.Log("Generating 9 Megabytes highly-entropic random binary file...")
-	const binarySize9MB = 9 * 1024 * 1024
-	randomBytes := make([]byte, binarySize9MB)
+	// 2. ГЕНЕРАЦИЯ БОЛЬШОГО ВЫСОКОЭНТРОПИЙНОГО ФАЙЛА (10 Мегабайт)
+	t.Log("Generating 10 Megabytes highly-entropic random binary file...")
+	const binarySize10MB = 10 * 1024 * 1024
+	randomBytes := make([]byte, binarySize10MB)
 	if _, err := io.ReadFull(rand.Reader, randomBytes); err != nil {
 		t.Fatalf("failed to generate system entropy stream: %v", err)
 	}
 
 	if err := os.WriteFile(sourceFilePath, randomBytes, 0o600); err != nil {
-		t.Fatalf("failed to persist 9MB source file to scratch disk: %v", err)
+		t.Fatalf("failed to persist 10MB source file to scratch disk: %v", err)
 	}
 
 	// 3. ИНФРАСТРУКТУРНЫЙ SPIN-UP ОБЛАЧНОГО СЕРВЕРА
@@ -132,7 +132,7 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 	// =========================================================================
 	// ЭТАП 2: ЗАПЕЧАТЫВАНИЕ БИНАРНОГО КОНВЕРТА НА КЛИЕНТЕ 1
 	// =========================================================================
-	t.Run("Seal 9MB Binary Blob Into Source Vault", func(t *testing.T) {
+	t.Run("Seal 10MB Binary Blob Into Source Vault", func(t *testing.T) {
 		stdout, stderr, err := runClient(dbClient1,
 			"create",
 			"--name", "large_backup.bin",
@@ -155,7 +155,7 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 	// ЭТАП 3: РЕПЛИКАЦИЯ В ОБЛАКО И ДИФФЕРЕНЦИАЛЬНЫЙ PULL НА КЛИЕНТЕ 2
 	// =========================================================================
 	t.Run("Replicate Opaque Ciphertext and Pull onto Replica Client", func(t *testing.T) {
-		// Клиент 1: Пушит 9МБ зашифрованный конверт в Postgres
+		// Клиент 1: Пушит 10МБ зашифрованный конверт в Postgres
 		stdout1, stderr1, err := runClient(dbClient1, "sync")
 		if err != nil {
 			t.Fatalf("client_1 sync failed: %v, stderr: %s", err, stderr1)
@@ -205,16 +205,16 @@ func TestE2E_BinaryPayloadSyncAndVerification(t *testing.T) {
 		decryptedPayloadBytes := []byte(getData.Payload)
 
 		// ВЕРИФИКАЦИЯ ИБ-ИНВАРИАНТА: Размер и байты должны совпасть абсолютно
-		if len(decryptedPayloadBytes) != binarySize9MB {
+		if len(decryptedPayloadBytes) != binarySize10MB {
 			t.Errorf("integrity violation: expected decrypted file size to be %d bytes, but got %d",
-				binarySize9MB, len(decryptedPayloadBytes))
+				binarySize10MB, len(decryptedPayloadBytes))
 		}
 
 		slog.Info("Executing memory-to-memory bitwise comparison of decrypted stream versus original entropy")
 		if !bytes.Equal(randomBytes, decryptedPayloadBytes) {
 			t.Error("CRITICAL SECURITY DEFECT: Decrypted binary file content is corrupted or altered. Bitwise mismatch found!")
 		} else {
-			t.Log("✔ Success! Decrypted 9MB binary payload is bitwise identical to the source file.")
+			t.Log("✔ Success! Decrypted 10MB binary payload is bitwise identical to the source file.")
 		}
 
 		// Валидируем сопутствующие зашифрованные метаданные конверта
