@@ -30,9 +30,17 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 	dbClient2 := filepath.Join(tmpDir, "client_2.db")
 	dbClient3 := filepath.Join(tmpDir, "client_3.db")
 
-	// Находим абсолютный путь к скомпилированным бинарникам клиента и сервера
-	clientBinary, _ := filepath.Abs("../../../cmd/gophkeeper/gophkeeper")
-	serverBinary, _ := filepath.Abs("../../../cmd/gophkeeper-server/gophkeeper-server")
+	// Находим корректные абсолютные пути к скомпилированным бинарникам клиента и сервера в build-директории
+	clientBinary, _ := filepath.Abs("../../../build/linux/gophkeeper")
+	serverBinary, _ := filepath.Abs("../../../build/linux/gophkeeper-server")
+
+	// Верифицируем физическое наличие бинарных файлов перед стартом распределенного E2E конвейера
+	if _, err := os.Stat(clientBinary); os.IsNotExist(err) {
+		t.Fatalf("compiled client binary not found at %q. Please execute 'make build-linux' first", clientBinary)
+	}
+	if _, err := os.Stat(serverBinary); os.IsNotExist(err) {
+		t.Fatalf("compiled server binary not found at %q. Please execute 'make build-linux' first", serverBinary)
+	}
 
 	// 2. АВТОНОМНЫЙ ЗАПУСК СЕРВЕРА В ФОНЕ (Spin-up)
 	// Сервер использует нативный PostgreSQL, поднятый в GitHub Actions, через DATABASE_DSN
@@ -59,8 +67,8 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 	serverCmd := exec.Command(serverBinary, "start",
 		"--bind-grpc", serverTargetAddr,
 		"--database", postgresDSN,
-		"--server-ca-key", serverCAKeyAbs, // Абсолютный путь
-		"--device-ca-key", deviceCAKeyAbs, // Абсолютный путь
+		"--server-ca-key", serverCAKeyAbs,
+		"--device-ca-key", deviceCAKeyAbs,
 	)
 	serverCmd.Env = os.Environ()
 
@@ -147,11 +155,11 @@ func TestE2E_ThreeClientsConflictResolution_LWW(t *testing.T) {
 	})
 
 	// =========================================================================
-	// ЭТАП 3: КОНКУРЕНТНАЯ СИНХРОНИЗАЦИЯ (sync) И ПРОВЕРКА LWW ПРИНЦИПА
+	// ЭТАП 3: КОНКУРЕНТНАЯ СИНХРОНИЗАЦИЯ (sync) И ПР ПОВЕРКА LWW ПРИНЦИПА
 	// =========================================================================
 	// Мы намеренно нарушаем хронологический порядок отправки на сервер!
 	// Сначала пушим промежуточное состояние, затем самое свежее, и самым последним
-	// доставляем самый старый пакет. Сервер обязан отбросить старый пакет на основеupdated_at!
+	// доставляем самый старый пакет. Сервер обязан отбросить старый пакет на основе updated_at!
 	t.Run("Execute Concurrent Replication and Validate LWW Truth", func(t *testing.T) {
 		// 1. Синхронизируем Клиента 2 (Заливает промежуточное значение в Postgres)
 		_, _, _ = runClient(dbClient2, "sync")

@@ -27,9 +27,9 @@ func TestE2E_VaultWorkflow_JSON(t *testing.T) {
 
 	testDBPath := filepath.Join(tmpDir, "goph_keeper_e2e_test.db")
 
-	// Динамически вычисляем абсолютный путь к скомпилированному бинарнику клиента,
+	// Динамически вычисляем корректный абсолютный путь к скомпилированному бинарнику клиента,
 	// чтобы тесты стабильно проходили как на хосте, так и внутри GitHub Actions Runner.
-	pathToBinary, err := filepath.Abs("../../../cmd/gophkeeper/gophkeeper")
+	pathToBinary, err := filepath.Abs("../../../build/linux/gophkeeper")
 	if err != nil {
 		t.Fatalf("failed to resolve absolute path to binary: %v", err)
 	}
@@ -40,9 +40,6 @@ func TestE2E_VaultWorkflow_JSON(t *testing.T) {
 	}
 
 	// 2. ИБ-ПРЕДУСЛОВИЕ: Инициализируем и пробрасываем живой ssh-agent для GitHub Actions
-	// (Здесь тест неявно использует ваши существующие хелперы генерации ключа и сокета)
-	// Для полной автономности внутри воркфлоу, если переменная SSH_AUTH_SOCK пуста,
-	// тест подхватит поднятый в CI/CD контекст.
 	if os.Getenv("SSH_AUTH_SOCK") == "" {
 		t.Log("WARNING: SSH_AUTH_SOCK env variable is empty. Ensure ssh-agent step is active in your pipeline.")
 	}

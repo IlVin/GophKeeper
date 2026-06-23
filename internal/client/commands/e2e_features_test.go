@@ -27,10 +27,15 @@ func TestE2E_FeaturesAndNegativeValidation(t *testing.T) {
 
 	testDBPath := filepath.Join(tmpDir, "goph_keeper_features_test.db")
 
-	// Динамически вычисляем абсолютный путь к бинарнику клиента
-	pathToBinary, err := filepath.Abs("../../../cmd/gophkeeper/gophkeeper")
+	// Динамически вычисляем корректный абсолютный путь к скомпилированному бинарнику клиента
+	pathToBinary, err := filepath.Abs("../../../build/linux/gophkeeper")
 	if err != nil {
 		t.Fatalf("failed to resolve absolute path to binary: %v", err)
+	}
+
+	// Верифицируем физическое наличие бинарного файла перед стартом E2E конвейера
+	if _, err := os.Stat(pathToBinary); os.IsNotExist(err) {
+		t.Fatalf("compiled binary not found at %q. Please execute 'make build-linux' first", pathToBinary)
 	}
 
 	// Вспомогательный анонимный хелпер для атомарного выполнения CLI команд
@@ -39,7 +44,7 @@ func TestE2E_FeaturesAndNegativeValidation(t *testing.T) {
 		finalArgs := append(baseArgs, args...)
 
 		cmd := exec.Command(pathToBinary, finalArgs...)
-		cmd.Env = os.Environ() // Пробрасываем сокет ssh-agent
+		cmd.Env = os.Environ() // Пробрасываем сокет ssh-agent для прохождения барьеров ИБ
 
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
@@ -165,7 +170,7 @@ func TestE2E_FeaturesAndNegativeValidation(t *testing.T) {
 			t.Fatalf("failed to decode error json envelope: %v, raw stdout: %q", err, stdout)
 		}
 
-		// ЖЕСТКИЙ АССЕРТ НЕГАТИВНОГО КАН ОНА
+		// ЖЕСТКИЙ АССЕРТ НЕГАТИВНОГО КАНОНА
 		if resp.Success {
 			t.Error("CRITICAL SECURITY HOLE: create command returned success=true for a corrupted --meta JSON payload!")
 		}
