@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS records (
     envelope BYTEA NOT NULL,                      -- Бинарный конверт Poly1305 (шифртекст + nonce + tag)
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Время создания, переданное клиентом
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Время модификации для LWW-сверки
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     
     -- Жесткий ИБ-контроль типов секретов на стороне PostgreSQL
     CONSTRAINT check_record_type CHECK (type IN ('credentials', 'binary', 'text', 'card'))

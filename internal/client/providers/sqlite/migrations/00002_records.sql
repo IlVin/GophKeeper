@@ -21,7 +21,8 @@ CREATE TABLE records (
     
     -- Временные метки модификации записей по стандарту UTC ISO8601
     created_at TEXT NOT NULL CHECK (length(created_at) > 0),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) > 0)
+    updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+    is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
 -- Создание индекса для обеспечения мгновенного поиска по текстовому имени записи.

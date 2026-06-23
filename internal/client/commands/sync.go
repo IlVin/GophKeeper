@@ -266,6 +266,7 @@ func executeNetworkSync(
 				Envelope:  r.GetEnvelope(),
 				CreatedAt: cTime,
 				UpdatedAt: uTime,
+				IsDeleted: r.GetIsDeleted(),
 			})
 			if err != nil {
 				slog.Error("Не удалось сохранить выкачанный конверт в SQLite", "record_id", r.GetRecordId(), "error", err)
@@ -296,6 +297,7 @@ func executeNetworkSync(
 				Envelope:  localRec.Envelope,
 				CreatedAt: timestamppb.New(localRec.CreatedAt),
 				UpdatedAt: timestamppb.New(localRec.UpdatedAt),
+				IsDeleted: localRec.IsDeleted,
 			})
 		}
 

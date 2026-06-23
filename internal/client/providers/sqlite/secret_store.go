@@ -180,10 +180,15 @@ func (s *SQLiteSecretStore) List(ctx context.Context) ([]repository.RecordMetada
 
 // Delete полностью вычищает строку записи и её зашифрованный конверт по её ID.
 func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
-	query := `DELETE FROM records WHERE id = ?;`
+	query := `UPDATE records SET is_deleted = 1, updated_at = $1 WHERE id = $2;`
 
-	slog.Debug("Удаление записи из СУБД SQLite", "id", id)
-	_, err := s.db.ExecContext(ctx, query, id)
+	// 1. Генерируем точное монотонное UTC-время на стороне рантайма Go
+	// 2. Сериализуем его в канонический текстовый формат RFC3339 для SQLite
+	nowStr := time.Now().UTC().Format(time.RFC3339)
+
+	slog.Debug("Мягкое удаление локальной записи (флаг is_deleted)", "id", id, "updated_at", nowStr)
+
+	_, err := s.db.ExecContext(ctx, query, nowStr, id)
 	if err != nil {
 		slog.Error("Не удалось выполнить DELETE секретной записи", "id", id, "error", err)
 		return fmt.Errorf("failed to delete record from sqlite: %w", err)
@@ -221,8 +226,8 @@ func (s *SQLiteSecretStore) GetSyncMetadata(ctx context.Context) (map[string]tim
 // Обновление применится на диске только в том случае, если входящая дата строго свежее локальной.
 func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.EncryptedRecord) error {
 	query := `
-		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at, is_deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO
 			UPDATE SET
 				user_id = EXCLUDED.user_id,
@@ -230,7 +235,8 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 				type = EXCLUDED.type,
 				envelope = EXCLUDED.envelope,
 				created_at = EXCLUDED.created_at,
-				updated_at = EXCLUDED.updated_at
+				updated_at = EXCLUDED.updated_at,
+				is_deleted = EXCLUDED.is_deleted
 			WHERE EXCLUDED.updated_at > records.updated_at;`
 
 	var userIDStr sql.NullString
@@ -238,6 +244,10 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		userIDStr.String = *r.UserID
 		userIDStr.Valid = true
 	}
+
+	// Извлекаем статус удаления из доменной модели (предполагается наличие поля IsDeleted типа int)
+	// Если в вашей структуре EncryptedRecord поле называется по-другому, адаптируйте имя:
+	isDeletedVal := r.IsDeleted
 
 	slog.Debug("Сетевая синхронизация (SaveRaw): применение LWW конверта из облака", "id", r.ID)
 	_, err := s.db.ExecContext(ctx, query,
@@ -248,6 +258,7 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		r.Envelope,
 		r.CreatedAt.Format(time.RFC3339),
 		r.UpdatedAt.Format(time.RFC3339),
+		isDeletedVal,
 	)
 	if err != nil {
 		slog.Error("Не удалось выполнить SaveRaw для входящего сетевого пакета", "id", r.ID, "error", err)
@@ -258,14 +269,14 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 
 // GetRawByID вычитывает сырой зашифрованный конверт для его отправки в облако при Push-сессии.
 func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
-	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records WHERE id = ?;`
+	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records WHERE id = ?;`
 
 	var r repository.EncryptedRecord
 	var userIDNull sql.NullString
 	var cStr, uStr string
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&r.ID, &userIDNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr,
+		&r.ID, &userIDNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr, &r.IsDeleted,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

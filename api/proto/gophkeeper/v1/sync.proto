@@ -29,10 +29,13 @@ message RecordVersion {
   
   // Строгая временная метка модификации для детерминированного LWW-сравнения.
   google.protobuf.Timestamp updated_at = 2;
+
+  // Флаг мягкого удаления записи (0 - запись активна, 1 - запись удалена локально).
+  int32 is_deleted = 3;
 }
 
 message SyncCheckRequest {
-  // Плоский список версий записей, хранящихся на клиенте.
+  // Плоский список версий записей, хранящихся на клиенте (включая маркеры удалений).
   repeated RecordVersion local_versions = 1;
 }
 
@@ -54,10 +57,14 @@ message EncryptedRecordPayload {
   string type = 3;       
   
   // Бинарные JSON-байты крипто-конверта crypto.Envelope (шифртекст + nonce + tag).
+  // Может отправляться пустым (nil) при фиксации удаления на фазе Push.
   bytes envelope = 4;    
   
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+
+  // Унифицированный числовой статус удаления для выравнивания с СУБД SQLite и PostgreSQL.
+  int32 is_deleted = 7;
 }
 
 message PullRecordsRequest {
@@ -65,12 +72,12 @@ message PullRecordsRequest {
 }
 
 message PullRecordsResponse {
-  // Набор запрошенных зашифрованных конвертов с метаданными.
+  // Набор запрошенных зашифрованных конвертов с метаданными и статусами удаления.
   repeated EncryptedRecordPayload records = 1;
 }
 
 message PushRecordsRequest {
-  // Набор локальных зашифрованных конвертов для публикации в облаке.
+  // Набор локальных зашифрованных конвертов для публикации или удаления в облаке.
   repeated EncryptedRecordPayload records = 1;
 }
 

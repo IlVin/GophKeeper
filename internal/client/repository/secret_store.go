@@ -33,6 +33,9 @@ type EncryptedRecord struct {
 
 	// UpdatedAt содержит временную метку последней модификации записи (базис для LWW-репликации).
 	UpdatedAt time.Time
+
+	// IsDeleted метка удаленности
+	IsDeleted int32
 }
 
 // Destroy осуществляет превентивную очистку ссылок и бинарных массивов структуры

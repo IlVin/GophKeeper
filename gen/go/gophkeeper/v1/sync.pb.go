@@ -30,7 +30,9 @@ type RecordVersion struct {
 	// Уникальный UUID v5 зашифрованной записи.
 	RecordId string `protobuf:"bytes,1,opt,name=record_id,json=recordId,proto3" json:"record_id,omitempty"`
 	// Строгая временная метка модификации для детерминированного LWW-сравнения.
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Флаг мягкого удаления записи (0 - запись активна, 1 - запись удалена локально).
+	IsDeleted     int32 `protobuf:"varint,3,opt,name=is_deleted,json=isDeleted,proto3" json:"is_deleted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -79,9 +81,16 @@ func (x *RecordVersion) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *RecordVersion) GetIsDeleted() int32 {
+	if x != nil {
+		return x.IsDeleted
+	}
+	return 0
+}
+
 type SyncCheckRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Плоский список версий записей, хранящихся на клиенте.
+	// Плоский список версий записей, хранящихся на клиенте (включая маркеры удалений).
 	LocalVersions []*RecordVersion `protobuf:"bytes,1,rep,name=local_versions,json=localVersions,proto3" json:"local_versions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -186,9 +195,12 @@ type EncryptedRecordPayload struct {
 	// Категория секрета (credentials, text, binary, card).
 	Type string `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
 	// Бинарные JSON-байты крипто-конверта crypto.Envelope (шифртекст + nonce + tag).
-	Envelope      []byte                 `protobuf:"bytes,4,opt,name=envelope,proto3" json:"envelope,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Может отправляться пустым (nil) при фиксации удаления на фазе Push.
+	Envelope  []byte                 `protobuf:"bytes,4,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Унифицированный числовой статус удаления для выравнивания с СУБД SQLite и PostgreSQL.
+	IsDeleted     int32 `protobuf:"varint,7,opt,name=is_deleted,json=isDeleted,proto3" json:"is_deleted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -265,6 +277,13 @@ func (x *EncryptedRecordPayload) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *EncryptedRecordPayload) GetIsDeleted() int32 {
+	if x != nil {
+		return x.IsDeleted
+	}
+	return 0
+}
+
 type PullRecordsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RecordIds     []string               `protobuf:"bytes,1,rep,name=record_ids,json=recordIds,proto3" json:"record_ids,omitempty"`
@@ -311,7 +330,7 @@ func (x *PullRecordsRequest) GetRecordIds() []string {
 
 type PullRecordsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Набор запрошенных зашифрованных конвертов с метаданными.
+	// Набор запрошенных зашифрованных конвертов с метаданными и статусами удаления.
 	Records       []*EncryptedRecordPayload `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -356,7 +375,7 @@ func (x *PullRecordsResponse) GetRecords() []*EncryptedRecordPayload {
 
 type PushRecordsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Набор локальных зашифрованных конвертов для публикации в облаке.
+	// Набор локальных зашифрованных конвертов для публикации или удаления в облаке.
 	Records       []*EncryptedRecordPayload `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -448,16 +467,18 @@ var File_gophkeeper_v1_sync_proto protoreflect.FileDescriptor
 
 const file_gophkeeper_v1_sync_proto_rawDesc = "" +
 	"\n" +
-	"\x18gophkeeper/v1/sync.proto\x12\rgophkeeper.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"g\n" +
+	"\x18gophkeeper/v1/sync.proto\x12\rgophkeeper.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x86\x01\n" +
 	"\rRecordVersion\x12\x1b\n" +
 	"\trecord_id\x18\x01 \x01(\tR\brecordId\x129\n" +
 	"\n" +
-	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"W\n" +
+	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1d\n" +
+	"\n" +
+	"is_deleted\x18\x03 \x01(\x05R\tisDeleted\"W\n" +
 	"\x10SyncCheckRequest\x12C\n" +
 	"\x0elocal_versions\x18\x01 \x03(\v2\x1c.gophkeeper.v1.RecordVersionR\rlocalVersions\"S\n" +
 	"\x11SyncCheckResponse\x12\x1e\n" +
 	"\vids_to_pull\x18\x01 \x03(\tR\tidsToPull\x12\x1e\n" +
-	"\vids_to_push\x18\x02 \x03(\tR\tidsToPush\"\xef\x01\n" +
+	"\vids_to_push\x18\x02 \x03(\tR\tidsToPush\"\x8e\x02\n" +
 	"\x16EncryptedRecordPayload\x12\x1b\n" +
 	"\trecord_id\x18\x01 \x01(\tR\brecordId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -466,7 +487,9 @@ const file_gophkeeper_v1_sync_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"3\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1d\n" +
+	"\n" +
+	"is_deleted\x18\a \x01(\x05R\tisDeleted\"3\n" +
 	"\x12PullRecordsRequest\x12\x1d\n" +
 	"\n" +
 	"record_ids\x18\x01 \x03(\tR\trecordIds\"V\n" +

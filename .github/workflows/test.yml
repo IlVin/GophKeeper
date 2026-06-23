@@ -83,7 +83,7 @@ jobs:
 
     # Компилируем ОБА бинарника (и клиента, и сервер), так как тест будет дергать их оба!
     - name: Compile Client and Server Binaries
-      run: make build
+      run: make build-linux
 
     # ЗАПУСКАЕМ СЕТЕВЫЕ И ЛОКАЛЬНЫЕ E2E ТЕСТЫ ОДНОЙ КОМАНДОЙ
     - name: Run All Dedicated E2E Network Tests
