@@ -5,6 +5,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 
@@ -76,4 +77,21 @@ func (c *ServerCLI) Close() error {
 	c.app = nil
 	c.appErr = nil
 	return err
+}
+
+// PrintResult выполняет централизованный вывод успешных результатов сессии.
+func (c *ServerCLI) PrintResult(out io.Writer, payload interface{}, textRender func()) {
+	textRender()
+}
+
+// PrintError выполняет централизованную обработку, логирование и форматирование сбоев.
+func (c *ServerCLI) PrintError(out io.Writer, err error, contextMessage string) error {
+	if err == nil {
+		return nil
+	}
+
+	fullErr := fmt.Errorf("%s: %w", contextMessage, err)
+	slog.Error("Регистрация системного сбоя рантайма команды", "context", contextMessage, "error", err)
+
+	return fullErr
 }

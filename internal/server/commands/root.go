@@ -64,6 +64,7 @@ func (c *ServerCLI) NewServerRootCommand() (*cobra.Command, error) {
 
 	// Регистрируем подкоманды, передавая ссылку на ленивый контекст ServerCLI
 	cmd.AddCommand(c.newStartCommand())
+	cmd.AddCommand(c.newVersionCommand())
 
 	slog.Debug("Server root Cobra command compiled successfully with secure parameters mapping")
 	return cmd, nil

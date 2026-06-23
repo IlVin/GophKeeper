@@ -1,5 +1,6 @@
 # Переменные проекта
-VERSION=v1.0.1
+VERSION=v0.0.1
+DATE=$(shell date +%Y-%m-%d)
 
 WORKDIR=.
 
@@ -74,8 +75,10 @@ build: build-linux
 ## build-linux: Сборка статических бинарников строго под Linux x86_64 для scratch-контейнера
 build-linux: gen-proto
 	@echo "Compiling static binaries for Linux containers..."
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.buildVersion=${VERSION}" -o $(BINARY_CLIENT) $(MAIN_CLIENT)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.buildVersion=${VERSION}" -o $(BINARY_SERVER) $(MAIN_SERVER)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X gophkeeper/internal/client/commands.Version=$(VERSION) -X gophkeeper/internal/client/commands.BuildDate=$(DATE)" -o $(BINARY_CLIENT) $(MAIN_CLIENT)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X gophkeeper/internal/client/commands.Version=$(VERSION) -X gophkeeper/internal/client/commands.BuildDate=$(DATE)" -o $(BINARY_SERVER) $(MAIN_SERVER)
+	go build -ldflags  -o gophkeeper cmd/gophkeeper/main.go
+
 
 ## up: Сначала собирает Linux-бинарник на хосте, а затем мгновенно поднимает Docker-стек
 up: certs build-linux

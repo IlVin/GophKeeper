@@ -183,6 +183,7 @@ func (c *CLI) addCommands(cmd *cobra.Command) {
 		newGetCommand(c),
 		newDeleteCommand(c),
 		newSyncCommand(c),
+		newVersionCommand(c),
 	)
 }
 
