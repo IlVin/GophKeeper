@@ -1,7 +1,10 @@
+// Package commands координирует разворачивание дерева CLI-команд Cobra
+// и оркестрирует инициализацию серверного рантайма GophKeeper.
 package commands
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -9,6 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newStartCommand конструирует дочернюю команду 'start' для Cobra.
+//
+// Команда запускает асинхронное сетевое вещание gRPC-сервера в фоновой горутине
+// и блокирует основной поток, ожидая системных сигналов SIGINT/SIGTERM для
+// безопасной финализации пулов СУБД (Graceful Shutdown) (Инварианты №4, №15).
 func (c *ServerCLI) newStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -16,45 +24,57 @@ func (c *ServerCLI) newStartCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
-			// Вызываем инициализацию контейнера СТРОГО в момент старта целевой команды
+			// Ленивая инициализация и бутстрап контейнера СТРОГО в момент старта команды
 			application, err := c.App(cmd.Context())
 			if err != nil {
+				slog.Error("Failed to bootstrap server core infrastructure inside start command execution", "error", err)
 				return err
 			}
 
-			fmt.Fprintln(out, "✔ Server infrastructure successfully bootstrapped.")
-			fmt.Fprintln(out, "gRPC Secure Server Listener active on", application.Config.Server.BindGRPC)
-
-			if application.Config.Server.UseProxyProtocol {
-				fmt.Fprintln(out, "PROXY protocol preamble parsing enabled.")
-			}
+			slog.Info("Server infrastructure successfully bootstrapped",
+				"bind_grpc", application.Config.Server.BindGRPC,
+				"proxy_protocol", application.Config.Server.UseProxyProtocol,
+			)
 
 			if application.Config.Server.LetsEncryptDomain != "" {
-				fmt.Fprintln(out, "ACME Automated TLS enabled for domain:", application.Config.Server.LetsEncryptDomain)
-				fmt.Fprintln(out, "ACME HTTP challenge port active on", application.Config.Server.BindHTTP)
+				slog.Info("ACME Automated TLS initialized for domain identity",
+					"domain", application.Config.Server.LetsEncryptDomain,
+					"bind_http", application.Config.Server.BindHTTP,
+				)
 			} else {
-				fmt.Fprintln(out, "Running in local isolated mode via filesystem-loaded PKI trust roots")
+				slog.Info("Running in local isolated server mode via filesystem PKI trust roots")
 			}
 
 			// Настраиваем перехват сигналов завершения операционной системы для Graceful Shutdown
 			sigChan := make(chan os.Signal, 1)
-			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+			signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+			defer signal.Stop(sigChan)
 
-			// Запускаем сервер gRPC в отдельной горутине, чтобы не блокировать основной поток сигналов
+			// Запускаем сервер gRPC в отдельной горутине, чтобы не блокировать поток сигналов ОС
 			serverErrChan := make(chan error, 1)
 			go func() {
 				serverErrChan <- application.Run()
 			}()
 
+			fmt.Fprintln(out, "✔ GophKeeper secure daemon initialized. Listen channel open.")
+
 			// Ожидаем либо критической ошибки рантайма gRPC, либо сигнала остановки от ОС
 			select {
 			case err := <-serverErrChan:
+				slog.Error("Server network listener runtime execution collapsed unexpectedly", "error", err)
 				return fmt.Errorf("server runtime execution crashed: %w", err)
 			case sig := <-sigChan:
-				fmt.Fprintf(out, "\nReceived OS signal %v. Initiating graceful shutdown sequence...\n", sig)
-				// Метод Close() внутри выполняет GracefulStop для gRPC и закрывает пулы pgxpool
-				_ = c.Close()
-				fmt.Fprintln(out, "✔ GophKeeper server stopped clean. Resources released.")
+				slog.Info("Received termination OS signal, initiating graceful shutdown sequence", "signal", sig.String())
+				fmt.Fprintf(out, "\nReceived OS signal %v. Finalizing active pools...\n", sig)
+
+				// ИСПРАВЛЕНО: Явный контроль и проброс ошибок закрытия ресурсов для исключения утечек в ОС
+				if closeErr := c.Close(); closeErr != nil {
+					slog.Error("Resource cleanup transaction crashed during command finalization phase", "error", closeErr)
+					return fmt.Errorf("failed to shutdown server cleanly: %w", closeErr)
+				}
+
+				slog.Info("GophKeeper cloud daemon stopped clean. Active descriptors released.")
+				fmt.Fprintln(out, "✔ GophKeeper server stopped clean.")
 			}
 
 			return nil

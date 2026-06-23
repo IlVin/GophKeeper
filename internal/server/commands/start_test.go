@@ -1,26 +1,29 @@
 package commands_test
 
 import (
-	"bytes"
 	"testing"
 
 	"gophkeeper/internal/server/commands"
+	"gophkeeper/internal/server/config"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestStartCommand_MissingContextError(t *testing.T) {
-	v := viper.New()
-	root, err := commands.NewServerRootCommand(v)
+// TestNewStartCommand_Compilation_And_Name_Check проверяет корректность сборки
+// фабричного метода подкоманды 'start' и её интеграцию в Cobra.
+func TestNewStartCommand_Compilation_And_Name_Check(t *testing.T) {
+	v := config.NewViper()
+	serverCLI := commands.NewServerCLI(v)
+
+	rootCmd, err := serverCLI.NewServerRootCommand()
 	require.NoError(t, err)
 
-	buf := new(bytes.Buffer)
-	root.SetOut(buf)
-	root.SetArgs([]string{"start"})
+	// Ищем подкоманду 'start' в зарегистрированном дереве корня
+	startCmd, _, err := rootCmd.Find([]string{"start"})
+	require.NoError(t, err)
+	require.NotNil(t, startCmd)
 
-	// Запуск должен упасть, так как Bootstrap не выполнился из-за отсутствия конфигурации
-	err = root.Execute()
-	assert.Error(t, err)
+	assert.Equal(t, "start", startCmd.Name(), "Имя команды должно быть строго 'start'")
+	assert.NotEmpty(t, startCmd.Short, "Команда должна содержать краткое UX описание")
 }

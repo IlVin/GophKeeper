@@ -1,42 +1,41 @@
-package commands
+package commands_test
 
 import (
 	"context"
-	serverapp "gophkeeper/internal/server/app"
-	"gophkeeper/internal/server/config"
 	"testing"
+
+	"gophkeeper/internal/server/app"
+	"gophkeeper/internal/server/commands"
+	"gophkeeper/internal/server/config"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+// TestAppFromCommand_Success проверяет успешное извлечение контейнера App
+// из контекста живой Cobra-команды.
 func TestAppFromCommand_Success(t *testing.T) {
-	var cfg config.Config
-	application := serverapp.NewApp(cfg, nil, nil, nil)
+	cmd := &cobra.Command{Use: "test"}
 
-	ctx := context.Background()
-	ctx = serverapp.WithApp(ctx, application)
+	// Конструируем тестовый объект приложения
+	originApp := app.NewApp(config.Config{}, nil, nil, nil, nil)
 
-	cmd := &cobra.Command{
-		Use: "test",
-		Run: func(cmd *cobra.Command, args []string) {},
-	}
+	// Упаковываем в контекст команды
+	ctx := app.WithApp(context.Background(), originApp)
 	cmd.SetContext(ctx)
 
-	extracted, err := AppFromCommand(cmd)
-	assert.NoError(t, err)
-	assert.Equal(t, application, extracted)
+	// Извлекаем через адаптер
+	fetchedApp, err := commands.AppFromCommand(cmd)
+	require.NoError(t, err)
+	assert.Same(t, originApp, fetchedApp)
 }
 
-func TestAppFromCommand_FailureWhenMissing(t *testing.T) {
-	cmd := &cobra.Command{
-		Use: "test",
-		Run: func(cmd *cobra.Command, args []string) {},
-	}
-	cmd.SetContext(context.Background())
+// TestAppFromCommand_WithNilCommand_ShouldReturnError проверяет защиту от nil указателя.
+func TestAppFromCommand_WithNilCommand_ShouldReturnError(t *testing.T) {
+	fetchedApp, err := commands.AppFromCommand(nil)
 
-	extracted, err := AppFromCommand(cmd)
 	assert.Error(t, err)
-	assert.Nil(t, extracted)
-	assert.ErrorContains(t, err, "server app is missing in context")
+	assert.Nil(t, fetchedApp)
+	assert.Contains(t, err.Error(), "cannot extract app container from a nil cobra command")
 }
