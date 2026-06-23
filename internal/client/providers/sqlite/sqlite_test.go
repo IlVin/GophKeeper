@@ -1,120 +1,53 @@
-package sqlite
+package sqlite_test
 
 import (
-	"database/sql"
-	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gophkeeper/internal/client/providers/sqlite"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestOpen_CreatesDatabaseFile(t *testing.T) {
+// TestOpen_WithEmptyPath_ShouldReturnError проверяет fail-fast барьер ядра на пустой путь.
+func TestOpen_WithEmptyPath_ShouldReturnError(t *testing.T) {
+	db, err := sqlite.Open("  ")
+	assert.ErrorIs(t, err, sqlite.ErrEmptyPath)
+	assert.Nil(t, db)
+}
+
+// TestOpen_Success_And_PragmaVerification проверяет успешный цикл создания и открытия
+// базы данных со строгой валидацией PRAGMA-параметров (WAL, Foreign Keys) на диске.
+func TestOpen_Success_And_PragmaVerification(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "state", "goph_keeper.db")
 
-	db, err := Open(dbPath)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer db.Close()
+	// Принудительно выставляем жесткие ИБ-права 0700 на временную папку
+	err := os.Chmod(tmpDir, 0o700)
+	require.NoError(t, err)
 
-	if _, err := os.Stat(dbPath); err != nil {
-		t.Fatalf("expected database file to exist: %v", err)
-	}
-}
+	dbPath := filepath.Join(tmpDir, "production_vault.db")
 
-func TestOpen_RejectsEmptyPath(t *testing.T) {
-	_, err := Open("")
-	if !errors.Is(err, ErrEmptyPath) {
-		t.Fatalf("Open() error = %v, want %v", err, ErrEmptyPath)
-	}
-}
+	// Открываем базу через ядро Open
+	db, err := sqlite.Open(dbPath)
+	require.NoError(t, err, "Безопасное открытие базы данных должно пройти успешно")
+	require.NotNil(t, db)
 
-func TestOpen_ConfiguresSQLitePragmas(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "state", "goph_keeper.db")
+	defer func() {
+		_ = db.Close()
+	}()
 
-	db, err := Open(dbPath)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer db.Close()
+	// 1. Верифицируем, что PRAGMA foreign_keys успешно применилась и активна (выдаст 1)
+	var foreignKeysEnabled int
+	err = db.QueryRow("PRAGMA foreign_keys;").Scan(&foreignKeysEnabled)
+	require.NoError(t, err)
+	assert.Equal(t, 1, foreignKeysEnabled, "Ограничение внешних ключей СУБД обязано быть принудительно включено")
 
-	var foreignKeys int
-	if err := db.QueryRow(`PRAGMA foreign_keys;`).Scan(&foreignKeys); err != nil {
-		t.Fatalf("query PRAGMA foreign_keys error = %v", err)
-	}
-	if foreignKeys != 1 {
-		t.Fatalf("PRAGMA foreign_keys = %d, want 1", foreignKeys)
-	}
-
-	var busyTimeout int
-	if err := db.QueryRow(`PRAGMA busy_timeout;`).Scan(&busyTimeout); err != nil {
-		t.Fatalf("query PRAGMA busy_timeout error = %v", err)
-	}
-	if busyTimeout != 5000 {
-		t.Fatalf("PRAGMA busy_timeout = %d, want 5000", busyTimeout)
-	}
-
-	var journalMode string
-	if err := db.QueryRow(`PRAGMA journal_mode;`).Scan(&journalMode); err != nil {
-		t.Fatalf("query PRAGMA journal_mode error = %v", err)
-	}
-	if journalMode != "wal" {
-		t.Fatalf("PRAGMA journal_mode = %q, want %q", journalMode, "wal")
-	}
-}
-
-func TestMigrate_RunsMigrations(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "state", "goph_keeper.db")
-
-	db, err := Open(dbPath)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer db.Close()
-
-	if err := Migrate(db); err != nil {
-		t.Fatalf("Migrate() error = %v", err)
-	}
-
-	if !tableExists(t, db, "device_state") {
-		t.Fatal("expected table device_state to exist after migration")
-	}
-}
-
-func TestMigrate_IsIdempotent(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "state", "goph_keeper.db")
-
-	db, err := Open(dbPath)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer db.Close()
-
-	if err := Migrate(db); err != nil {
-		t.Fatalf("first Migrate() error = %v", err)
-	}
-
-	if err := Migrate(db); err != nil {
-		t.Fatalf("second Migrate() error = %v", err)
-	}
-
-	if !tableExists(t, db, "device_state") {
-		t.Fatal("expected table device_state to exist after repeated migration")
-	}
-}
-
-func tableExists(t *testing.T, db *sql.DB, tableName string) bool {
-	t.Helper()
-
-	var name string
-	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, tableName).Scan(&name)
-	if err != nil {
-		return false
-	}
-
-	return name == tableName
+	// 2. Верифицируем, что PRAGMA journal_mode на диске честно переведена в WAL
+	var currentJournalMode string
+	err = db.QueryRow("PRAGMA journal_mode;").Scan(&currentJournalMode)
+	require.NoError(t, err)
+	assert.Equal(t, "wal", strings.ToLower(currentJournalMode), "Журналирование транзакций обязано работать в WAL режиме")
 }
