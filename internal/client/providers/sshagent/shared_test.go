@@ -1,15 +1,66 @@
 package sshagent
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
+	sshagent "golang.org/x/crypto/ssh/agent"
 )
+
+// startMockAgent запускает фоновый UNIX-сервер ssh-agent для изоляции тестов от ОС.
+// Возвращает путь к временному UNIX-сокету и интерфейс связки ключей (keyring).
+func startMockAgent(t *testing.T) (string, sshagent.Agent) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "agent.sock")
+
+	listener, err := net.Listen("unix", sockPath)
+	require.NoError(t, err)
+
+	mockAgent := sshagent.NewKeyring()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				_ = sshagent.ServeAgent(mockAgent, conn)
+			}()
+		}
+	}()
+
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+
+	return sockPath, mockAgent
+}
+
+// generateTestEd25519Key генерирует валидную пару ключей Ed25519 и загружает её в тестовый агент.
+func generateTestEd25519Key(t *testing.T, keyring sshagent.Agent, comment string) ed25519.PublicKey {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	err = keyring.Add(sshagent.AddedKey{
+		PrivateKey: priv,
+		Comment:    comment,
+	})
+	require.NoError(t, err)
+
+	return pub
+}
 
 // testSSHAgentEnv contains environment values exported by ssh-agent.
 type testSSHAgentEnv struct {
