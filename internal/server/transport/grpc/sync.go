@@ -168,7 +168,7 @@ func (h *SyncHandler) PushRecords(ctx context.Context, req *pb.PushRecordsReques
 		// 1. Обновляем или создаем актуальную запись
 		upsertQuery := `
 			INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at, is_deleted)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (id) DO UPDATE SET
 				name = EXCLUDED.name,
 				type = EXCLUDED.type,
