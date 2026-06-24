@@ -21,18 +21,6 @@ import (
 // - Клиент 1 удаляет запись (is_deleted=1, updated_at=T1)
 // - Клиент 2 пересоздает эту же запись (is_deleted=0, created_at=T2, updated_at=T2, T2 > T1)
 // - LWW должен победить: побеждает новая запись от клиента 2, так как T2 > T1
-//
-// Сценарий:
-// 1. Клиент 1 создает запись "shared" с payload "v1" (created_at=T0, updated_at=T0)
-// 2. Клиент 1 синхронизируется → на сервере "shared" v1
-// 3. Клиент 2 синхронизируется → у клиента 2 "shared" v1
-// 4. Клиент 1 удаляет запись "shared" (is_deleted=1, updated_at=T1, T1 > T0)
-// 5. Клиент 2 пересоздает запись "shared" с payload "v2" (is_deleted=0, created_at=T2, updated_at=T2, T2 > T1)
-// 6. Клиент 1 синхронизируется → отправляет удаление (is_deleted=1, updated_at=T1) на сервер
-// 7. Клиент 2 синхронизируется → отправляет новую запись (is_deleted=0, created_at=T2, updated_at=T2) на сервер
-// 8. Сервер применяет LWW: сравнивает updated_at (T2 > T1) → побеждает запись клиента 2
-// 9. Клиент 1 синхронизируется → получает v2 с сервера
-// 10. Все клиенты имеют запись "shared" с payload "v2" (is_deleted=0)
 func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soft delete conflict E2E test in short mode")
@@ -167,9 +155,33 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 		return "", fmt.Errorf("record %q not found", name)
 	}
 
-	// Хелпер для получения payload записи по ID (более надежный, чем по имени)
+	// Хелпер для получения payload записи по ID
 	getRecordPayloadByID := func(dbPath, id string) (string, error) {
 		stdout, _, err := runClient(dbPath, "get", "--id", id)
+		if err != nil {
+			return "", err
+		}
+
+		var resp CLIResponse
+		if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+			return "", err
+		}
+		if !resp.Success {
+			return "", fmt.Errorf("get failed: %s", resp.Error)
+		}
+
+		dataBytes, _ := json.Marshal(resp.Data)
+		var getData GetResponse
+		if err := json.Unmarshal(dataBytes, &getData); err != nil {
+			return "", err
+		}
+		return getData.Payload, nil
+	}
+
+	// Хелпер для получения payload записи по имени
+	getRecordPayloadByName := func(dbPath, name string) (string, error) {
+		fullName := testPrefix + name
+		stdout, _, err := runClient(dbPath, "get", "--name", fullName)
 		if err != nil {
 			return "", err
 		}
@@ -227,10 +239,8 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	)
 	require.NoError(t, err, "client 1 create failed: %s", stderr)
 
-	// Проверяем, что у клиента 1 есть запись
 	assertRecordsEqual(t, dbClient1, []string{recordName})
 
-	// Сохраняем ID записи для последующего использования
 	sharedID, err := getRecordID(dbClient1, recordName)
 	require.NoError(t, err)
 	t.Logf("Record ID: %s", sharedID)
@@ -251,30 +261,26 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	_, stderr, err = runClient(dbClient2, "sync")
 	require.NoError(t, err, "client 2 sync failed: %s", stderr)
 
-	// Проверяем, что у клиента 2 есть запись "shared" с payload "v1"
 	assertRecordsEqual(t, dbClient2, []string{recordName})
 	payload, err := getRecordPayloadByID(dbClient2, sharedID)
 	require.NoError(t, err)
 	assert.Equal(t, "v1", payload, "Client 2 should have payload 'v1'")
 
 	// =========================================================================
-	// ЭТАП 5: КЛИЕНТ 1 УДАЛЯЕТ ЗАПИСЬ "shared" (is_deleted=1, updated_at=T1)
+	// ЭТАП 5: КЛИЕНТ 1 УДАЛЯЕТ ЗАПИСЬ "shared"
 	// =========================================================================
 	t.Log("=== Step 5: Client 1 deletes record 'shared' (is_deleted=1, updated_at=T1) ===")
 
 	_, stderr, err = runClient(dbClient1, "delete", "--id", sharedID)
 	require.NoError(t, err, "client 1 delete failed: %s", stderr)
 
-	// Проверяем, что у клиента 1 запись удалена
 	assertRecordsEqual(t, dbClient1, []string{})
 
 	// =========================================================================
 	// ЭТАП 6: КЛИЕНТ 2 ПЕРЕСОЗДАЕТ ЗАПИСЬ "shared" С PAYLOAD "v2"
-	// (is_deleted=0, created_at=T2, updated_at=T2, T2 > T1)
 	// =========================================================================
 	t.Log("=== Step 6: Client 2 recreates record 'shared' with payload 'v2' (is_deleted=0, created_at=T2, updated_at=T2, T2 > T1) ===")
 
-	// Клиент 2 создает запись с тем же именем, но новым payload
 	_, stderr, err = runClient(dbClient2, "create",
 		"--name", fullName,
 		"--type", "text",
@@ -282,42 +288,66 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	)
 	require.NoError(t, err, "client 2 recreate failed: %s", stderr)
 
-	// Проверяем, что у клиента 2 все еще есть запись с payload "v2"
 	assertRecordsEqual(t, dbClient2, []string{recordName})
 	payload, err = getRecordPayloadByID(dbClient2, sharedID)
 	require.NoError(t, err)
 	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2'")
 
 	// =========================================================================
-	// ЭТАП 7: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ ПЕРВЫМ (отправляет v2 на сервер)
-	// Сервер получает: is_deleted=0, created_at=T2, updated_at=T2
+	// ЭТАП 7: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ ПЕРВЫМ
 	// =========================================================================
 	t.Log("=== Step 7: Client 2 syncs first (sends v2 to server: is_deleted=0, created_at=T2, updated_at=T2) ===")
 
 	_, stderr, err = runClient(dbClient2, "sync")
 	require.NoError(t, err, "client 2 sync after recreate failed: %s", stderr)
 
-	// Клиент 2 все еще имеет v2
 	assertRecordsEqual(t, dbClient2, []string{recordName})
 	payload, err = getRecordPayloadByID(dbClient2, sharedID)
 	require.NoError(t, err)
 	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2'")
 
 	// =========================================================================
-	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (отправляет удаление на сервер)
-	// Сервер получает: is_deleted=1, updated_at=T1
-	// Сервер применяет LWW: T2 > T1 → запись клиента 2 побеждает, удаление игнорируется
-	// Клиент 1 получает v2 с сервера (так как у него нет этой записи локально)
+	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (ОТПРАВЛЯЕТ УДАЛЕНИЕ)
 	// =========================================================================
 	t.Log("=== Step 8: Client 1 syncs (sends deletion to server: is_deleted=1, updated_at=T1) ===")
 	t.Log("=== Server applies LWW: T2 > T1 → Client 2's record wins, deletion is ignored ===")
-	t.Log("=== Client 1 receives v2 from server (record missing locally) ===")
 
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
 
 	// =========================================================================
-	// ЭТАП 9: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ ЕЩЕ РАЗ (убеждаемся, что v2 закрепилась)
+	// ДЕБАГ: ВЫВОДИМ СОСТОЯНИЕ КЛИЕНТА 1 ПОСЛЕ ПЕРВОЙ СИНХРОНИЗАЦИИ
+	// =========================================================================
+	t.Log("=== DEBUG: Client 1 state after first sync ===")
+
+	// 1. Полный вывод list в JSON
+	stdout, _, _ := runClient(dbClient1, "list")
+	t.Logf("Client 1 list (raw): %s", stdout)
+
+	// 2. Проверяем, есть ли запись через get --id
+	t.Logf("Checking get --id %s on client 1", sharedID)
+	payload1, err1 := getRecordPayloadByID(dbClient1, sharedID)
+	if err1 != nil {
+		t.Logf("get --id failed: %v", err1)
+	} else {
+		t.Logf("get --id payload: %q", payload1)
+	}
+
+	// 3. Проверяем, есть ли запись через get --name
+	t.Logf("Checking get --name %s on client 1", recordName)
+	payload2, err2 := getRecordPayloadByName(dbClient1, recordName)
+	if err2 != nil {
+		t.Logf("get --name failed: %v", err2)
+	} else {
+		t.Logf("get --name payload: %q", payload2)
+	}
+
+	// 4. Проверяем список имен
+	names1, _ := getRecordNames(dbClient1)
+	t.Logf("Client 1 record names: %v", names1)
+
+	// =========================================================================
+	// ЭТАП 9: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ ЕЩЕ РАЗ
 	// =========================================================================
 	t.Log("=== Step 9: Client 1 syncs again (ensures v2 is persisted) ===")
 
@@ -325,33 +355,67 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	require.NoError(t, err, "client 1 second sync failed: %s", stderr)
 
 	// =========================================================================
+	// ДЕБАГ: ВЫВОДИМ СОСТОЯНИЕ КЛИЕНТА 1 ПОСЛЕ ВТОРОЙ СИНХРОНИЗАЦИИ
+	// =========================================================================
+	t.Log("=== DEBUG: Client 1 state after second sync ===")
+
+	stdout, _, _ = runClient(dbClient1, "list")
+	t.Logf("Client 1 list (raw): %s", stdout)
+
+	payload1, err1 = getRecordPayloadByID(dbClient1, sharedID)
+	if err1 != nil {
+		t.Logf("get --id failed after second sync: %v", err1)
+	} else {
+		t.Logf("get --id payload after second sync: %q", payload1)
+	}
+
+	names1, _ = getRecordNames(dbClient1)
+	t.Logf("Client 1 record names after second sync: %v", names1)
+
+	// =========================================================================
+	// ДЕБАГ: ВЫВОДИМ СОСТОЯНИЕ КЛИЕНТА 2
+	// =========================================================================
+	t.Log("=== DEBUG: Client 2 state ===")
+
+	stdout, _, _ = runClient(dbClient2, "list")
+	t.Logf("Client 2 list (raw): %s", stdout)
+
+	payload3, err3 := getRecordPayloadByID(dbClient2, sharedID)
+	if err3 != nil {
+		t.Logf("get --id on client 2 failed: %v", err3)
+	} else {
+		t.Logf("get --id on client 2 payload: %q", payload3)
+	}
+
+	names2, _ := getRecordNames(dbClient2)
+	t.Logf("Client 2 record names: %v", names2)
+
+	// =========================================================================
 	// ЭТАП 10: ФИНАЛЬНАЯ ПРОВЕРКА
 	// =========================================================================
 	t.Log("=== Step 10: Final verification ===")
 
-	// У клиента 1 должна быть запись "shared" с payload "v2"
+	// Проверяем, что у клиента 1 есть запись "shared" в list
 	assertRecordsEqual(t, dbClient1, []string{recordName})
-	payload, err = getRecordPayloadByID(dbClient1, sharedID)
-	require.NoError(t, err)
-	assert.Equal(t, "v2", payload, "Client 1 should have payload 'v2' (received from server)")
 
-	// У клиента 2 должна быть запись "shared" с payload "v2"
+	// Проверяем, что у клиента 2 есть запись "shared" в list
 	assertRecordsEqual(t, dbClient2, []string{recordName})
-	payload, err = getRecordPayloadByID(dbClient2, sharedID)
-	require.NoError(t, err)
-	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2'")
 
-	// Проверяем, что сервер имеет v2 (через клиента 1)
-	payload, err = getRecordPayloadByID(dbClient1, sharedID)
-	require.NoError(t, err)
-	assert.Equal(t, "v2", payload, "Server should have payload 'v2'")
+	// Проверяем payload через get --id на клиенте 1
+	payloadFinal, err := getRecordPayloadByID(dbClient1, sharedID)
+	require.NoError(t, err, "Client 1 should have payload via get --id")
+	assert.Equal(t, "v2", payloadFinal, "Client 1 should have payload 'v2'")
+
+	// Проверяем payload через get --id на клиенте 2
+	payloadFinal, err = getRecordPayloadByID(dbClient2, sharedID)
+	require.NoError(t, err, "Client 2 should have payload via get --id")
+	assert.Equal(t, "v2", payloadFinal, "Client 2 should have payload 'v2'")
 
 	// =========================================================================
-	// ЭТАП 11: ОЧИСТКА — удаляем тестовые записи
+	// ОЧИСТКА
 	// =========================================================================
 	t.Log("=== Step 11: Cleanup — removing test records ===")
 
-	// Получаем все записи с нашим префиксом на всех клиентах
 	for _, db := range []string{dbClient1, dbClient2} {
 		names, err := getRecordNames(db)
 		require.NoError(t, err)
