@@ -32,7 +32,7 @@ func TestListResponseFormatting_WithEmptyVault_ShouldRenderUXMessage(t *testing.
 		}
 	})
 
-	assert.Contains(t, buf.String(), "Ваш сейф пуст")
+	assert.Contains(t, buf.String(), "Your vault is empty")
 }
 
 // TestListResponse_MappingToResponseItem проверяет корректность конвертации

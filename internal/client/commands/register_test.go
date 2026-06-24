@@ -40,7 +40,7 @@ func TestRegisterCommandFormatting_WithStandardOutput(t *testing.T) {
 		fmt.Fprintln(buf, "mTLS device passport received.")
 	})
 
-	assert.Contains(t, buf.String(), "[OK] Успех!")
+	assert.Contains(t, buf.String(), "[OK] SUCCESS!")
 	assert.Contains(t, buf.String(), "SHA256:mockfingerprint")
 	assert.Contains(t, buf.String(), "mTLS device passport received.")
 }

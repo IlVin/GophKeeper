@@ -33,10 +33,10 @@ func TestDeleteCommandFormatting_WithStandardOutput(t *testing.T) {
 	}
 
 	cli.PrintResult(buf, mockPayload, func() {
-		fmt.Fprintf(buf, "✔ SUCCESS! Record %q (ID: %s) was permanently deleted.\n", "yandex-token", mockPayload.ID)
+		fmt.Fprintf(buf, "[OK] SUCCESS! Record %q (ID: %s) was permanently deleted.\n", "yandex-token", mockPayload.ID)
 	})
 
-	assert.Contains(t, buf.String(), "✔ Успех!")
+	assert.Contains(t, buf.String(), "[OK] SUCCESS!")
 	assert.Contains(t, buf.String(), "yandex-token")
 	assert.Contains(t, buf.String(), "ID: a1b2c3d4")
 }
