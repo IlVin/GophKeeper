@@ -297,6 +297,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	// =========================================================================
 	t.Log("=== Step 8: Client 1 syncs (receives deletions from client 2) ===")
 
+	// ИСПРАВЛЕНО: используем = вместо :=
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
 
@@ -319,6 +320,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	// =========================================================================
 	t.Log("=== Step 10: Verify deleted records are not accessible via get ===")
 
+	// Проверяем, что client1_rec_2 удален на всех клиентах
 	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
 		fullName := testPrefix + "client1_rec_2"
 		stdout, _, err := runClient(db, "get", "--name", fullName)
