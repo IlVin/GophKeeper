@@ -324,7 +324,7 @@ func executeNetworkSync(
 
 	cli.PrintResult(out, payload, func() {
 		fmt.Fprintln(out, "Establishing mTLS 1.3 session and sync map reconciliation...")
-		fmt.Fprintln(out, "\n✔ Two-way synchronization completed successfully!")
+		fmt.Fprintln(out, "\n[OK] Two-way synchronization completed successfully!")
 		fmt.Fprintf(out, "  Pulled changes from cloud (Pull): %d\n", pulledCount)
 		fmt.Fprintf(out, "  Pushed offline records to cloud (Push): %d\n", pushedCount)
 	})

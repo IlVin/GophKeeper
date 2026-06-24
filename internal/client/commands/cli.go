@@ -58,7 +58,7 @@ func (c *CLI) NewRootCommand() (*cobra.Command, error) {
 	slog.Debug("Building root CLI command tree")
 	cmd := &cobra.Command{
 		Use:           "gophkeeper",
-		Short:         "GophKeeper CLI — консольный криптографический менеджер секретов",
+		Short:         "GophKeeper CLI - console cryptographic secret manager",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

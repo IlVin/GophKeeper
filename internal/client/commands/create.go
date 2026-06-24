@@ -137,7 +137,7 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 
 			cli.PrintResult(out, payloadOut, func() {
 				fmt.Fprintf(out, "Opening master envelope via ssh-agent and sealing record %q...\n", name)
-				fmt.Fprintf(out, "✔ Успех! Запись %q [%s] надежно зашифрована и сохранена под AccountMasterKey.\n", name, secretType)
+				fmt.Fprintf(out, "[OK] SUCCESS! Record %q [%s] securely encrypted and saved under AccountMasterKey.\n", name, secretType)
 			})
 
 			return nil

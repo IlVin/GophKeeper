@@ -27,10 +27,10 @@ func (c *ServerCLI) NewServerRootCommand() (*cobra.Command, error) {
 	// Регистрируем глобальные персистентные флаги рантайма среды сервера
 	pFlags := cmd.PersistentFlags()
 	pFlags.String("config", "", "path to server config file")
-	pFlags.String("bind-http", ":80", "server HTTP bind address for Let's Encrypt challenges")
+	pFlags.String("bind-http", ":80", "server HTTP bind address for Let.s Encrypt challenges")
 	pFlags.String("bind-grpc", ":443", "server gRPC secure listener bind address")
 	pFlags.String("database", "", "postgres connection DSN")
-	pFlags.String("lets-encrypt", "", "domain name for automatic Let's Encrypt TLS")
+	pFlags.String("lets-encrypt", "", "domain name for automatic Let.s Encrypt TLS")
 	pFlags.Bool("proxy-protocol", false, "enable go-proxyproto listener layer for upstream load-balancers")
 
 	pFlags.String("server-ca-key", "", "path to Server CA private key file")

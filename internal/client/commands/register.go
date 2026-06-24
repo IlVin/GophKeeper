@@ -159,7 +159,7 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 				}
 				if !conn.WaitForStateChange(ctx, state) {
 					timeoutErr := errors.New("TLS 1.3 secure handshake timeout expired")
-					return cli.PrintError(out, timeoutErr, "таймаут сети")
+					return cli.PrintError(out, timeoutErr, "network timeout")
 				}
 			}
 
