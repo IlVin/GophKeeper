@@ -30,8 +30,8 @@ func TestDeriveAccountUnlockKey_Success_And_SaltLengthEnforcement(t *testing.T) 
 	}
 
 	unlockKey, err := security.DeriveAccountUnlockKey(mockSignature, validSalt)
-	require.NoError(t, err, "Вывод ключа разблокировки на верных размерах должен пройти успешно")
-	require.Len(t, unlockKey, 32, "Размер выведенного симметричного ключа должен составлять ровно 32 байта")
+	require.NoError(t, err, "Unlock key derivation with correct sizes must succeed")
+	require.Len(t, unlockKey, 32, "Derived symmetric key size must be exactly 32 bytes")
 
 	defer unlockKey.Destroy()
 }

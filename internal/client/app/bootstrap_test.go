@@ -30,15 +30,15 @@ func TestNew_WhenFileDoesNotExist_ShouldReturnDatabaseMissingError(t *testing.T)
 
 	application, err := New(ctx, cfg)
 
-	assert.ErrorIs(t, err, ErrDatabaseMissing, "Должна вернуться каноничная ошибка отсутствия файла БД")
-	assert.Nil(t, application, "Контейнер приложения должен быть nil")
+	assert.ErrorIs(t, err, ErrDatabaseMissing, "should return canonical database missing error")
+	assert.Nil(t, application, "application container should be nil")
 }
 
 // TestShutdown_WithNilApplication_ShouldNotPanic проверяет устойчивость
 // деструктора к передаче пустой ссылки.
 func TestShutdown_WithNilApplication_ShouldNotPanic(t *testing.T) {
 	err := Shutdown(nil)
-	assert.NoError(t, err, "Вызов Shutdown(nil) не должен приводить к панике или ошибкам")
+	assert.NoError(t, err, "calling Shutdown(nil) should not panic or error")
 }
 
 // TestShutdown_WithValidApplication_ShouldClearResources проверяет, что
@@ -46,8 +46,8 @@ func TestShutdown_WithNilApplication_ShouldNotPanic(t *testing.T) {
 func TestShutdown_WithValidApplication_ShouldClearResources(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Обязательный ИБ-шаг для тестов GophKeeper: принудительно выставляем
-	// жесткие права 0700 на временную папку, чтобы пройти валидацию СУБД.
+	// Required security step for GophKeeper tests: forcibly setting
+	// strict 0700 permissions on temp dir to pass DB validation.
 	err := os.Chmod(tmpDir, 0o700)
 	require.NoError(t, err)
 
@@ -66,14 +66,14 @@ func TestShutdown_WithValidApplication_ShouldClearResources(t *testing.T) {
 
 	// Инициализируем живое приложение
 	application, err := New(context.Background(), cfg)
-	require.NoError(t, err, "Приложение должно успешно собраться")
+	require.NoError(t, err, "application should build successfully")
 	require.NotNil(t, application)
 
 	// Вызываем очистку ресурсов
 	err = Shutdown(application)
-	assert.NoError(t, err, "Остановка рантайма должна пройти успешно")
+	assert.NoError(t, err, "runtime shutdown should succeed")
 
 	// Проверяем зануление структуры рантайма с помощью геттеров
-	assert.Nil(t, application.DB(), "Указатель на пул соединений СУБД должен быть стерт")
-	assert.Empty(t, application.Config().Logging().Level(), "Поля структуры конфигурации должны быть очищены")
+	assert.Nil(t, application.DB(), "database connection pool pointer should be cleared")
+	assert.Empty(t, application.Config().Logging().Level(), "config struct fields should be cleared")
 }

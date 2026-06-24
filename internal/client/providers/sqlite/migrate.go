@@ -13,7 +13,7 @@ import (
 
 var (
 	// ErrNilDatabase возвращается, если в мигратор передан пустой пул соединений.
-	ErrNilDatabase = errors.New("пул соединений с базой данных не может быть nil")
+	ErrNilDatabase = errors.New("database connection pool cannot be nil")
 )
 
 // Migrate осуществляет контролируемый накат структуры таблиц СУБД SQLite.
@@ -24,11 +24,11 @@ var (
 func Migrate(db *sql.DB) error {
 	// Защитный барьер предотвращает панику (nil pointer dereference) внутри goose
 	if db == nil {
-		slog.Error("Запрос на миграцию отклонен: передан пустой дескриптор базы данных")
+		slog.Error("Migration request rejected: empty database descriptor provided")
 		return ErrNilDatabase
 	}
 
-	slog.Debug("Старт проверки версий схемы данных и запуска мигратора Goose")
+	slog.Debug("Starting data schema version check and Goose migrator")
 
 	// Намертво привязываем goose к нашей встроенной ИБ-модели файловой системы
 	goose.SetBaseFS(MigrationsFS)
@@ -37,16 +37,16 @@ func Migrate(db *sql.DB) error {
 	goose.SetLogger(goose.NopLogger())
 
 	if err := goose.SetDialect("sqlite"); err != nil {
-		slog.Error("Не удалось установить диалект sqlite для мигратора", "error", err)
-		return fmt.Errorf("установка диалекта sqlite: %w", err)
+		slog.Error("Failed to set sqlite dialect for migrator", "error", err)
+		return fmt.Errorf("set sqlite dialect: %w", err)
 	}
 
-	slog.Debug("Запуск автоматического обновления таблиц device_state и records до актуального состояния")
+	slog.Debug("Starting automatic update of device_state and records tables to current state")
 	if err := goose.Up(db, "migrations"); err != nil {
-		slog.Error("Накат SQL-миграций завершился критическим сбоем схемы", "error", err)
-		return fmt.Errorf("исполнение SQL-миграций контейнера: %w", err)
+		slog.Error("SQL migrations roll completed with critical schema failure", "error", err)
+		return fmt.Errorf("execute container SQL migrations: %w", err)
 	}
 
-	slog.Debug("Схема базы данных успешно приведена к актуальной версии")
+	slog.Debug("Database schema successfully updated to current version")
 	return nil
 }

@@ -51,11 +51,11 @@ func (s *SQLiteDeviceStore) ReadDeviceState(ctx context.Context) (*repository.Lo
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			slog.Debug("Запрос состояния: таблица device_state пуста (требуется init)")
-			return nil, fmt.Errorf("окружение не инициализировано: %w", err)
+			slog.Debug("State query: device_state table empty (init required)")
+			return nil, fmt.Errorf("environment not initialized: %w", err)
 		}
-		slog.Error("Критическая ошибка Scan при чтении device_state", "error", err)
-		return nil, fmt.Errorf("сканирование строки состояния: %w", err)
+		slog.Error("Critical Scan error reading device_state", "error", err)
+		return nil, fmt.Errorf("scan state row: %w", err)
 	}
 
 	if serverURLNull.Valid {
@@ -101,7 +101,7 @@ func (s *SQLiteDeviceStore) SaveDeviceState(ctx context.Context, state *reposito
 		userIDNull.Valid = true
 	}
 
-	slog.Debug("Запись синглтон-состояния в device_state")
+	slog.Debug("Writing singleton state to device_state")
 	_, err := s.db.ExecContext(ctx, query,
 		serverURLNull,
 		userIDNull,
@@ -115,8 +115,8 @@ func (s *SQLiteDeviceStore) SaveDeviceState(ctx context.Context, state *reposito
 		state.CreatedAt,
 	)
 	if err != nil {
-		slog.Error("Не удалось выполнить UPSERT таблицы device_state", "error", err)
-		return fmt.Errorf("сохранение device_state: %w", err)
+		slog.Error("Failed to UPSERT device_state table", "error", err)
+		return fmt.Errorf("save device_state: %w", err)
 	}
 	return nil
 }
@@ -128,11 +128,11 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 	state *repository.LocalDeviceState,
 	records []repository.EncryptedRecord,
 ) error {
-	slog.Info("Запуск изолированной транзакции согласования локального контейнера с сервером (Reconcile Transaction)")
+	slog.Info("Starting isolated local container reconciliation transaction (Reconcile Transaction)")
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return fmt.Errorf("открытие транзакции миграции: %w", err)
+		return fmt.Errorf("open migration transaction: %w", err)
 	}
 
 	// Флаг для предотвращения ложного логирования ошибки Rollback при успешном Commit
@@ -140,7 +140,7 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 	defer func() {
 		if !txCommitted {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-				slog.Error("Критический сбой: не удалось выполнить откат транзакции при аварийном выходе", "error", rollbackErr)
+				slog.Error("Critical failure: could not rollback transaction on emergency exit", "error", rollbackErr)
 			}
 		}
 	}()
@@ -169,7 +169,7 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 		userIDStr.Valid = true
 	}
 
-	slog.Debug("Шаг 1: Обновление глобальных криптографических метаданных синглтона")
+	slog.Debug("Step 1: Updating global cryptographic singleton metadata")
 	_, err = tx.ExecContext(ctx, stateQuery,
 		serverURLStr,
 		userIDStr,
@@ -180,14 +180,14 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 		state.ClientCertificate,
 	)
 	if err != nil {
-		return fmt.Errorf("обновление device_state внутри транзакции: %w", err)
+		return fmt.Errorf("update device_state inside transaction: %w", err)
 	}
 
 	// 2. Если у нас были оффлайн-записи, атомарно перешифровываем и подменяем их под новый канонический вид
 	if len(records) > 0 {
-		slog.Debug("Шаг 2: Полная очистка устаревшей таблицы records перед пакетной вставкой", "count", len(records))
+		slog.Debug("Step 2: Full cleanup of obsolete records table before batch insert", "count", len(records))
 		if _, err = tx.ExecContext(ctx, `DELETE FROM records;`); err != nil {
-			return fmt.Errorf("очистка records перед миграцией: %w", err)
+			return fmt.Errorf("cleanup records before migration: %w", err)
 		}
 
 		recordQuery := `
@@ -196,7 +196,7 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 
 		stmt, err := tx.PrepareContext(ctx, recordQuery)
 		if err != nil {
-			return fmt.Errorf("подготовка стейтмента records миграции: %w", err)
+			return fmt.Errorf("prepare records migration statement: %w", err)
 		}
 
 		stmtClosed := false
@@ -224,23 +224,23 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 				rec.IsDeleted,
 			)
 			if err != nil {
-				return fmt.Errorf("пакетная вставка мигрировавшей записи %s: %w", rec.ID, err)
+				return fmt.Errorf("batch insert migrated record %s: %w", rec.ID, err)
 			}
 		}
 
 		if stmtCloseErr := stmt.Close(); stmtCloseErr != nil {
-			slog.Error("Не удалось закрыть подготовленный стейтмент records миграции", "error", stmtCloseErr)
+			slog.Error("Failed to close prepared records migration statement", "error", stmtCloseErr)
 		}
 		stmtClosed = true
 	}
 
 	// Фиксируем транзакцию на диске
 	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("фиксация транзакции миграции (Commit): %w", err)
+		return fmt.Errorf("commit migration transaction (Commit): %w", err)
 	}
 	txCommitted = true
 
-	slog.Info("Транзакция согласования успешно зафиксирована на диске, целостность обеспечена")
+	slog.Info("Reconciliation transaction successfully committed to disk, integrity guaranteed")
 	return nil
 }
 
@@ -249,8 +249,8 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records;`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		slog.Error("Не удалось выполнить выборку всех записей для миграции", "error", err)
-		return nil, fmt.Errorf("выборка всех записей: %w", err)
+		slog.Error("Failed to fetch all records for migration", "error", err)
+		return nil, fmt.Errorf("fetch all records: %w", err)
 	}
 	defer rows.Close()
 
@@ -262,7 +262,7 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 		var isDeleted int32
 
 		if err := rows.Scan(&r.ID, &uNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr, &isDeleted); err != nil {
-			return nil, fmt.Errorf("сканирование строки ре-энкрипции: %w", err)
+			return nil, fmt.Errorf("scan re-encryption row: %w", err)
 		}
 
 		if uNull.Valid {
@@ -271,12 +271,12 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 
 		r.CreatedAt, err = time.Parse(time.RFC3339Nano, cStr)
 		if err != nil {
-			return nil, fmt.Errorf("парсинг даты создания записи %s: %w", r.ID, err)
+			return nil, fmt.Errorf("parse created_at for record %s: %w", r.ID, err)
 		}
 
 		r.UpdatedAt, err = time.Parse(time.RFC3339Nano, uStr)
 		if err != nil {
-			return nil, fmt.Errorf("парсинг даты обновления записи %s: %w", r.ID, err)
+			return nil, fmt.Errorf("parse updated_at for record %s: %w", r.ID, err)
 		}
 
 		r.IsDeleted = isDeleted
@@ -285,7 +285,7 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("итерация по строкам ре-энкрипции: %w", err)
+		return nil, fmt.Errorf("iterate re-encryption rows: %w", err)
 	}
 
 	return list, nil

@@ -27,8 +27,8 @@ func TestValidateDirPermissions_WithInsecureMask_ShouldReturnError(t *testing.T)
 
 	err = sqlite.ValidateDirPermissions(tmpDir, info)
 	assert.ErrorIs(t, err, sqlite.ErrParentDirInsecurePermissions,
-		"Валидатор должен вернуть ошибку ErrParentDirInsecurePermissions при маске 0755")
-	assert.Contains(t, err.Error(), "expected 0700", "Сообщение должно содержать ожидаемую маску на английском языке")
+		"Validator must return ErrParentDirInsecurePermissions error on 0755 mask")
+	assert.Contains(t, err.Error(), "expected 0700", "Message must contain expected mask in English")
 }
 
 // TestValidateDirPermissions_WithValidMask_ShouldSuccess проверяет прохождение барьера при правах 0700.
@@ -42,7 +42,7 @@ func TestValidateDirPermissions_WithValidMask_ShouldSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	err = sqlite.ValidateDirPermissions(tmpDir, info)
-	assert.NoError(t, err, "При корректных правах 0700 ошибка возвращаться не должна")
+	assert.NoError(t, err, "With correct 0700 permissions error must not be returned")
 }
 
 // TestValidateFilePermissions_WithInsecureMask_ShouldReturnError проверяет реакцию
@@ -63,7 +63,7 @@ func TestValidateFilePermissions_WithInsecureMask_ShouldReturnError(t *testing.T
 
 	err = sqlite.ValidateFilePermissions(dbFile, info)
 	assert.ErrorIs(t, err, sqlite.ErrDatabaseFileInsecurePermissions,
-		"Валидатор должен заблокировать файл с маской 0644")
+		"Validator must block file with 0644 mask")
 	assert.Contains(t, err.Error(), "expected 0600")
 }
 
@@ -81,5 +81,5 @@ func TestValidateFilePermissions_WithValidMask_ShouldSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	err = sqlite.ValidateFilePermissions(dbFile, info)
-	assert.NoError(t, err, "При корректных правах 0600 файл должен успешно пройти проверку")
+	assert.NoError(t, err, "With correct 0600 permissions file must pass validation")
 }

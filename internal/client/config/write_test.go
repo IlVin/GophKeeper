@@ -35,7 +35,7 @@ func TestWriteDefaultConfigFile_Success(t *testing.T) {
 	// Проверяем физическое наличие файла и его права (0600)
 	info, err := os.Stat(configPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "Файл конфигурации должен иметь права строго 0600")
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "Config file must have strict 0600 permissions")
 
 	// Читаем записанный файл для валидации структуры контента
 	bytes, err := os.ReadFile(configPath)
@@ -71,5 +71,5 @@ func TestWriteDefaultConfigFile_FileAlreadyExists_ShouldNotOverwrite(t *testing.
 	// Проверяем, что содержимое файла не изменилось
 	currentContent, err := os.ReadFile(configPath)
 	require.NoError(t, err)
-	assert.Equal(t, originalContent, currentContent, "Функция не должна перезаписывать существующий файл")
+	assert.Equal(t, originalContent, currentContent, "Function should not overwrite existing file")
 }

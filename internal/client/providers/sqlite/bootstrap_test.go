@@ -24,8 +24,8 @@ func TestBootstrap_Success(t *testing.T) {
 
 	// Запускаем bootstrap
 	db, err := sqlite.Bootstrap(dbPath)
-	require.NoError(t, err, "Процедура первичного разворачивания СУБД должна завершиться успешно")
-	require.NotNil(t, db, "Указатель на пул соединений СУБД не должен быть nil")
+	require.NoError(t, err, "Database bootstrap procedure should complete successfully")
+	require.NotNil(t, db, "Database connection pool pointer should not be nil")
 
 	defer func() {
 		_ = db.Close()
@@ -33,12 +33,12 @@ func TestBootstrap_Success(t *testing.T) {
 
 	// Проверяем живое соединение с базой данных
 	err = db.Ping()
-	assert.NoError(t, err, "Созданная база данных должна успешно отвечать на пинг рантайма")
+	assert.NoError(t, err, "Created database must successfully respond to runtime ping")
 
 	// Проверяем, что таблицы физически создались в схеме
 	var tableName string
 	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='records';").Scan(&tableName)
-	require.NoError(t, err, "Таблица records должна присутствовать в созданной схеме данных")
+	require.NoError(t, err, "records table must exist in created data schema")
 	assert.Equal(t, "records", tableName)
 }
 
@@ -48,6 +48,6 @@ func TestBootstrap_WithInvalidPath_ShouldReturnError(t *testing.T) {
 	// Передаем путь к несуществующей директории без прав доступа
 	db, err := sqlite.Bootstrap("/invalid/nonexistent/directory/structure/vault.db")
 
-	assert.Error(t, err, "Попытка создать контейнер по невалидному пути должна возвращать ошибку")
-	assert.Nil(t, db, "При ошибке инициализации указатель на пул СУБД обязан быть nil")
+	assert.Error(t, err, "Attempt to create container at invalid path must return error")
+	assert.Nil(t, db, "On initialization error database pool pointer must be nil")
 }

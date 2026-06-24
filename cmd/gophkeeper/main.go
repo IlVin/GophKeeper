@@ -25,7 +25,7 @@ import (
 func main() {
 	if err := run(); err != nil {
 		// Пользователю в терминал отдается только чистый UX-текст ошибки без системного шума
-		fmt.Fprintf(os.Stderr, "Ошибка: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -33,7 +33,7 @@ func main() {
 // run инкапсулирует весь жизненный цикл инициализации CLI-приложения.
 //
 // Функция настраивает контекст отмены ОС, безопасный барьер перехвата паник,
-// двухэтапное логирование в файл, чтение конфигурации и запуск командного слоя.
+// двухэтапное логирование в файл, read config и запуск командного слоя.
 // Возвращает именованную ошибку для предотвращения маскирования сбоев в defer.
 func run() (err error) {
 	// Контекст прерываний (Ctrl+C, SIGTERM) для корректной отмены сетевых gRPC и СУБД операций
@@ -54,18 +54,18 @@ func run() (err error) {
 		}
 	}()
 
-	slog.Debug("Ранний логгер успешно инициализирован")
+	slog.Debug("early logger initialized successfully")
 
 	// Инициализация загрузчика конфигурации Viper
 	v, err := config.NewViper()
 	if err != nil {
-		slog.Error("не удалось создать загрузчик конфигурации", "error", err)
-		return fmt.Errorf("создание конфигуратора: %w", err)
+		slog.Error("failed to create config loader", "error", err)
+		return fmt.Errorf("create config loader: %w", err)
 	}
 
 	if err := config.ReadConfigFile(v); err != nil {
-		slog.Error("не удалось прочитать файл конфигурации", "error", err)
-		return fmt.Errorf("чтение конфигурации: %w", err)
+		slog.Error("failed to read config file", "error", err)
+		return fmt.Errorf("read config: %w", err)
 	}
 
 	// ЭТАП 2 LOGGING: Динамический пересчет параметров логирования на основе настроек пользователя.
@@ -75,17 +75,17 @@ func run() (err error) {
 
 	// Если пользователь переопределил путь или параметры — атомарно переключаем логгер
 	if customLogPath != defaultLogPath || customLevel != "debug" || customFormat != "text" {
-		slog.Debug("Переконфигурация логгера под пользовательские настройки", "new_path", customLogPath)
+		slog.Debug("reconfiguring logger with user settings", "new_path", customLogPath)
 
 		newFile, err := configureGlobalSlog(customLogPath, customLevel, customFormat)
 		if err != nil {
-			slog.Error("не удалось применить пользовательские настройки логирования, оставлен дефолтный логгер", "error", err)
+			slog.Error("failed to apply user logging settings, keeping default logger", "error", err)
 		} else {
 			if earlyFile != nil {
 				_ = earlyFile.Close()
 			}
 			activeLogFile = newFile
-			slog.Info("Логгер успешно переключен на пользовательский файл конфигурации")
+			slog.Info("logger switched to user config file")
 		}
 	}
 
@@ -95,34 +95,34 @@ func run() (err error) {
 	// Защитный барьер от непредвиденных паник рантайма (предотвращает утечку stack-trace в консоль)
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("перехвачена критическая паника приложения", slog.Any("panic_info", r))
-			err = errors.New("произошла критическая внутренняя ошибка")
+			slog.Error("critical application panic intercepted", slog.Any("panic_info", r))
+			err = errors.New("critical internal error occurred")
 		}
 	}()
 
 	// Контроль освобождения дескрипторов ресурсов и соединений SQLite СУБД
 	defer func() {
 		if closeErr := cli.Close(); closeErr != nil {
-			slog.Error("не удалось безопасно закрыть ресурсы приложения", "error", closeErr)
+			slog.Error("failed to safely close application resources", "error", closeErr)
 			if err == nil {
-				err = fmt.Errorf("закрытие ресурсов: %w", closeErr)
+				err = fmt.Errorf("close resources: %w", closeErr)
 			}
 		}
 	}()
 
 	cmd, err := cli.NewRootCommand()
 	if err != nil {
-		slog.Error("не удалось собрать дерево CLI команд", "error", err)
-		return fmt.Errorf("инициализация CLI: %w", err)
+		slog.Error("failed to build CLI command tree", "error", err)
+		return fmt.Errorf("CLI init: %w", err)
 	}
 
 	// Запуск исполнения дерева команд с передачей контекста отмены сигналов ОС
 	if executeErr := cmd.ExecuteContext(ctx); executeErr != nil {
-		slog.Error("исполнение CLI команды завершилось ошибкой", "error", executeErr)
+		slog.Error("CLI command execution failed", "error", executeErr)
 		return executeErr
 	}
 
-	slog.Info("Работа CLI движка GophKeeper успешно завершена")
+	slog.Info("GophKeeper CLI engine finished successfully")
 	return nil
 }
 

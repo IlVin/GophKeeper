@@ -21,35 +21,35 @@ import (
 func newListCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "Вывести список метаданных всех зашифрованных записей в сейфе",
-		Long:  `Извлекает идентификаторы, имена и типы записей без расшифровки и чтения их секретного содержимого (payload).`,
+		Short: "List metadata of all encrypted records in vault",
+		Long:  `Extracts IDs, names and types without decrypting or reading secret payload.`,
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
-			slog.Info("Старт выполнения команды листинга метаданных секретов")
+			slog.Info("Starting secret metadata listing command")
 
 			// 1. Проверяем базовую доступность SSH-агента в ОС
 			if err := sshcheck.RequireAgent(); err != nil {
-				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
+				return cli.PrintError(out, err, "ssh-agent check error")
 			}
 
 			// 2. Открываем существующее runtime окружение приложения
 			app, err := cli.App(ctx)
 			if err != nil {
-				return cli.PrintError(out, err, "запуск контекста приложения")
+				return cli.PrintError(out, err, "application context startup")
 			}
 
 			// 3. Сборка зависимостей внутри Composition Root команды
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+				return cli.PrintError(out, err, "connect to ssh-agent socket")
 			}
 
 			agentClosedChecked := false
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть UNIX-сокет агента в defer list", "error", closeErr)
+						slog.Error("Failed to close UNIX agent socket in list defer", "error", closeErr)
 					}
 				}
 			}()
@@ -60,19 +60,19 @@ func newListCommand(cli *CLI) *cobra.Command {
 
 			// Криптографический барьер Proof of Possession (Проверка владельца)
 			if err := secretService.VerifyOwner(ctx); err != nil {
-				return cli.PrintError(out, err, "отказ в доступе")
+				return cli.PrintError(out, err, "access denied")
 			}
 
 			// 4. Получаем список метаданных из сервисного слоя
-			slog.Debug("Запрос плоского списка метаданных записей из SQLite")
+			slog.Debug("Requesting flat record metadata list from SQLite")
 			metadataList, err := secretService.ListSecrets(ctx)
 			if err != nil {
-				return cli.PrintError(out, err, "извлечение метаданных записей")
+				return cli.PrintError(out, err, "record metadata extraction")
 			}
 
 			// Безопасно финализируем соединение с агентом до форматирования вывода
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Не удалось закрыть дескриптор сокета агента при успешном выходе из list", "error", closeErr)
+				slog.Error("Failed to close agent socket descriptor on successful exit from list", "error", closeErr)
 			}
 			agentClosedChecked = true
 
@@ -90,11 +90,11 @@ func newListCommand(cli *CLI) *cobra.Command {
 			// Выводим финальный результат работы команды
 			cli.PrintResult(out, items, func() {
 				if len(metadataList) == 0 {
-					fmt.Fprintln(out, "Ваш сейф пуст. Используйте команду 'gophkeeper create' для добавления записей.")
+					fmt.Fprintln(out, "Your vault is empty. Use .gophkeeper create. to add records.")
 					return
 				}
 
-				fmt.Fprintf(out, "Обнаружено %d защищенных записей внутри сейфа:\n\n", len(metadataList))
+				fmt.Fprintf(out, "Found %d protected records inside vault:\n\n", len(metadataList))
 
 				// Использование tabwriter для красивого колоночного вывода в эмулятор терминала
 				w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
@@ -109,7 +109,7 @@ func newListCommand(cli *CLI) *cobra.Command {
 
 				// Контроль финализации буфера tabwriter с логированием ошибок вывода
 				if flushErr := w.Flush(); flushErr != nil {
-					slog.Error("Сбой сброса буфера tabwriter в поток вывода терминала", "error", flushErr)
+					slog.Error("Failed to flush tabwriter buffer to terminal output", "error", flushErr)
 				}
 			})
 

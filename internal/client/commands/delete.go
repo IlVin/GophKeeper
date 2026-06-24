@@ -27,16 +27,16 @@ type DeleteResultPayload struct {
 func newDeleteCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
-		Short: "Удалить зашифрованную запись из локального сейфа по её ID",
-		Long:  `Навсегда вычищает строку записи и её крипто-конверт из локальной базы данных SQLite без возможности восстановления.`,
+		Short: "Delete encrypted record from local vault by its ID",
+		Long:  `Permanently removes the record row and its crypto envelope from the local SQLite database.`,
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
-			slog.Info("Старт выполнения команды деструкции записи")
+			slog.Info("Starting record destruction command")
 
 			// 1. Проверяем базовую доступность SSH-агента в ОС
 			if err := sshcheck.RequireAgent(); err != nil {
-				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
+				return cli.PrintError(out, err, "ssh-agent check error")
 			}
 
 			// Читаем эфемерный флаг ID
@@ -45,26 +45,26 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 			id = strings.TrimSpace(id)
 
 			if id == "" {
-				return cli.PrintError(out, errors.New("параметр --id обязателен и не может быть пустым"), "валидация флагов")
+				return cli.PrintError(out, errors.New("--id parameter is required and cannot be empty"), "flag validation")
 			}
 
 			// 2. Открываем существующее runtime окружение приложения
 			app, err := cli.App(ctx)
 			if err != nil {
-				return cli.PrintError(out, err, "запуск контекста приложения")
+				return cli.PrintError(out, err, "application context startup")
 			}
 
 			// 3. Сборка зависимостей внутри Composition Root команды
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+				return cli.PrintError(out, err, "connect to ssh-agent socket")
 			}
 
 			agentClosedChecked := false
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть UNIX-сокет агента в defer delete", "error", closeErr)
+						slog.Error("Failed to close UNIX agent socket in delete defer", "error", closeErr)
 					}
 				}
 			}()
@@ -75,31 +75,31 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 
 			// Криптографический барьер Proof of Possession (Проверка владельца)
 			if err := secretService.VerifyOwner(ctx); err != nil {
-				return cli.PrintError(out, err, "отказ в доступе")
+				return cli.PrintError(out, err, "access denied")
 			}
 
 			// 4. Проверяем существование записи перед удалением для вменяемого UX
-			slog.Debug("Проверка наличия удаляемого UUID в СУБД SQLite", "id", id)
+			slog.Debug("Checking existence of deleting UUID in SQLite DB", "id", id)
 			record, err := secretStore.GetByID(ctx, id)
 			if err != nil {
-				return cli.PrintError(out, err, "проверка существования записи в БД")
+				return cli.PrintError(out, err, "checking record existence in DB")
 			}
 			if record == nil {
-				statusErr := fmt.Errorf("запись с идентификатором %q не найдена в сейфе", id)
-				slog.Warn("Попытка удаления несуществующей записи отклонена", "id", id)
-				return cli.PrintError(out, statusErr, "ошибка поиска")
+				statusErr := fmt.Errorf("record with identifier %q not found in vault", id)
+				slog.Warn("Attempt to delete non-existent record rejected", "id", id)
+				return cli.PrintError(out, statusErr, "search error")
 			}
 
 			// 5. Вызываем непосредственное удаление в сервисном слое
-			slog.Debug("Исполнение низкоуровневой транзакции удаления строки", "id", id)
+			slog.Debug("Executing low-level row deletion transaction", "id", id)
 			err = secretService.DeleteSecret(ctx, id)
 			if err != nil {
-				return cli.PrintError(out, err, "удаление записи из SQLite")
+				return cli.PrintError(out, err, "delete record from SQLite")
 			}
 
 			// Безопасно финализируем соединение с агентом до вывода результатов
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Не удалось закрыть дескриптор сокета агента при успешном выходе из delete", "error", closeErr)
+				slog.Error("Failed to close agent socket descriptor on successful exit from delete", "error", closeErr)
 			}
 			agentClosedChecked = true
 
@@ -110,7 +110,7 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 			}
 
 			cli.PrintResult(out, payload, func() {
-				fmt.Fprintf(out, "✔ Успех! Запись %q (ID: %s) была безвозвратно удалена из локального сейфа.\n", record.Name, id)
+				fmt.Fprintf(out, "✔ SUCCESS! Record %q (ID: %s) was permanently deleted from local vault.\n", record.Name, id)
 			})
 
 			return nil
@@ -118,7 +118,7 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 	}
 
 	// Регистрируем обязательный эфемерный флаг удаления
-	cmd.Flags().String("id", "", "Уникальный UUID записи для её безвозвратного удаления")
+	cmd.Flags().String("id", "", "Unique UUID of the record for permanent deletion")
 	_ = cmd.MarkFlagRequired("id")
 
 	return cmd

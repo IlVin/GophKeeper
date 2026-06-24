@@ -38,7 +38,7 @@ func TestEnvelope_FullCryptoCycle_ShouldSuccess(t *testing.T) {
 
 	// 4. Расшифровываем конверт обратно
 	decryptedBytes, err := security.OpenEnvelope(mockKey, envelopeJSON, aad)
-	require.NoError(t, err, "Расшифровка на валидном ключе и валидном AAD контексте должна пройти успешно")
+	require.NoError(t, err, "Decryption with valid key and valid AAD context must succeed")
 
 	// 5. Распаковываем структуру монолита
 	extractedPayload, meta, err := security.UnpackRecordPlaintext(decryptedBytes)
@@ -72,6 +72,6 @@ func TestEnvelope_Tampering_ShouldFailPoly1305(t *testing.T) {
 
 	// Попытка открыть поврежденный конверт обязана завершиться аварией
 	decrypted, err := security.OpenEnvelope(mockKey, envelopeJSON, aad)
-	assert.Error(t, err, "Криптографическое ядро обязано заблокировать измененный конверт")
+	assert.Error(t, err, "Cryptographic core must reject tampered envelope")
 	assert.Nil(t, decrypted)
 }

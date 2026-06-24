@@ -36,7 +36,7 @@ func TestSyncHandler_SyncCheck_FailsIfUnauthenticated(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, codes.Unauthenticated, st.Code(), "Код ошибки обязан соответствовать Unauthenticated")
+	assert.Equal(t, codes.Unauthenticated, st.Code(), "Error code must match Unauthenticated")
 	assert.Contains(t, st.Message(), "mTLS identity context missing")
 }
 

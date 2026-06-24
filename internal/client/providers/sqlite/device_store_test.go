@@ -50,7 +50,7 @@ func TestDeviceStore_SaveAndReadState_Success(t *testing.T) {
 
 	// Сохраняем состояние
 	err := store.SaveDeviceState(ctx, mockState)
-	require.NoError(t, err, "Сохранение валидного состояния не должно возвращать ошибок")
+	require.NoError(t, err, "Saving valid state should not return errors")
 
 	// Читаем состояние обратно
 	fetchedState, err := store.ReadDeviceState(ctx)
@@ -123,7 +123,7 @@ func TestDeviceStore_ExecuteReconcileTransaction_Success(t *testing.T) {
 
 	// Запускаем транзакцию Reconcile
 	err = store.ExecuteReconcileTransaction(ctx, stateNew, mockRecords)
-	require.NoError(t, err, "Транзакция согласования должна выполниться успешно на верных плейсхолдерах")
+	require.NoError(t, err, "Reconciliation transaction must succeed on correct placeholders")
 
 	// Проверяем, что синглтон-состояние обновилось
 	checkState, err := store.ReadDeviceState(ctx)
@@ -235,22 +235,22 @@ func TestDeviceStore_ExecuteReconcileTransaction_PreservesIsDeleted(t *testing.T
 	// 5. Проверяем, что после миграции is_deleted сохранился
 	rawActiveAfter, err := secretStore.GetRawByID(ctx, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 	require.NoError(t, err)
-	assert.Equal(t, int32(0), rawActiveAfter.IsDeleted, "Активная запись должна остаться активной")
-	assert.Equal(t, []byte("migrated-active-envelope"), rawActiveAfter.Envelope, "Данные должны обновиться")
+	assert.Equal(t, int32(0), rawActiveAfter.IsDeleted, "Active record must remain active")
+	assert.Equal(t, []byte("migrated-active-envelope"), rawActiveAfter.Envelope, "Data must update")
 
 	rawDeletedAfter, err := secretStore.GetRawByID(ctx, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), rawDeletedAfter.IsDeleted, "Удаленная запись должна остаться удаленной")
-	assert.Equal(t, []byte("migrated-deleted-envelope"), rawDeletedAfter.Envelope, "Данные должны обновиться")
+	assert.Equal(t, int32(1), rawDeletedAfter.IsDeleted, "Deleted record must remain deleted")
+	assert.Equal(t, []byte("migrated-deleted-envelope"), rawDeletedAfter.Envelope, "Data must update")
 
 	// 6. Проверяем, что через обычные методы удаленная запись не видна
 	activeList, err := secretStore.List(ctx)
 	require.NoError(t, err)
-	assert.Len(t, activeList, 1, "В List должна быть только активная запись")
+	assert.Len(t, activeList, 1, "List should contain only active record")
 	assert.Equal(t, "active-record", activeList[0].Name)
 
 	// 7. Проверяем, что удаленная запись не доступна через GetByID
 	deletedByID, err := secretStore.GetByID(ctx, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
 	require.NoError(t, err)
-	assert.Nil(t, deletedByID, "Удаленная запись не должна возвращаться через GetByID")
+	assert.Nil(t, deletedByID, "Deleted record must not be returned via GetByID")
 }

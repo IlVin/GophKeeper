@@ -30,7 +30,7 @@ func TestReadConfigFile_WithNonExistentExplicitPath_ShouldNotReturnError(t *test
 	v.Set("app.config_file", "/non/existent/path/to/config.yaml")
 
 	err = ReadConfigFile(v)
-	assert.NoError(t, err, "Отсутствие файла на диске не должно приводить к ошибкам рантайма")
+	assert.NoError(t, err, "Missing file on disk should not cause runtime errors")
 }
 
 // TestLoadFromViper_WithValidData_ShouldAssembleConfig проверяет сквозную сборку
@@ -46,7 +46,7 @@ func TestLoadFromViper_WithValidData_ShouldAssembleConfig(t *testing.T) {
 	v.Set("logging.level", "error")
 
 	cfg, err := LoadFromViper(v)
-	require.NoError(t, err, "Сборка валидных параметров должна завершаться успехом")
+	require.NoError(t, err, "Building valid params should succeed")
 
 	assert.Equal(t, expectedDBPath, cfg.Storage().SQLitePath())
 	assert.Equal(t, "error", cfg.Logging().Level())
@@ -68,5 +68,5 @@ func TestReadConfigFile_WithCorruptedYaml_ShouldReturnError(t *testing.T) {
 	v.Set("app.config_file", corruptedFile)
 
 	err = ReadConfigFile(v)
-	assert.Error(t, err, "Чтение поврежденного YAML-файла должно возвращать ошибку парсинга")
+	assert.Error(t, err, "Reading corrupted YAML file should return parse error")
 }

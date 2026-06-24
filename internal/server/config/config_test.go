@@ -21,9 +21,9 @@ func TestConfig_Validate_Success(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	assert.NoError(t, err, "Валидная конфигурация должна проходить проверку без ошибок")
-	assert.Equal(t, int32(20), cfg.Storage.MaxConns, "Должен примениться дефолтный лимит максимальных соединений")
-	assert.Equal(t, int32(2), cfg.Storage.MinConns, "Должен примениться дефолтный лимит минимальных соединений")
+	assert.NoError(t, err, "Valid configuration must pass validation without errors")
+	assert.Equal(t, int32(20), cfg.Storage.MaxConns, "Default max connections limit must be applied")
+	assert.Equal(t, int32(2), cfg.Storage.MinConns, "Default min connections limit must be applied")
 }
 
 // TestConfig_Validate_FailsIfPostgresMissing проверяет срабатывание ИБ-барьера при пустом DSN.
@@ -38,5 +38,5 @@ func TestConfig_Validate_FailsIfPostgresMissing(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	assert.ErrorIs(t, err, config.ErrPostgresDSNEmpty, "Валидатор обязан отклонить старт без DSN PostgreSQL")
+	assert.ErrorIs(t, err, config.ErrPostgresDSNEmpty, "Validator must reject startup without PostgreSQL DSN")
 }

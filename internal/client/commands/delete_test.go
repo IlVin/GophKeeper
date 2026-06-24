@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestDeleteResultPayload_Mapping проверяет корректность структуры DTO-ответа для сериализации JSON.
+// TestDeleteResultPayload_Mapping checks DTO response structure correctness for JSON serialization.
 func TestDeleteResultPayload_Mapping(t *testing.T) {
 	payload := DeleteResultPayload{
 		ID:     "test-uuid-12345",
@@ -20,7 +20,7 @@ func TestDeleteResultPayload_Mapping(t *testing.T) {
 	assert.Equal(t, "DELETED", payload.Status)
 }
 
-// TestDeleteCommandFormatting_WithStandardOutput проверяет псевдографический рендер успешного удаления.
+// TestDeleteCommandFormatting_WithStandardOutput checks pseudo-graphic render of successful deletion.
 func TestDeleteCommandFormatting_WithStandardOutput(t *testing.T) {
 	v := viper.New()
 	cli := NewCLI(v)
@@ -33,7 +33,7 @@ func TestDeleteCommandFormatting_WithStandardOutput(t *testing.T) {
 	}
 
 	cli.PrintResult(buf, mockPayload, func() {
-		fmt.Fprintf(buf, "✔ Успех! Запись %q (ID: %s) была безвозвратно удалена.\n", "yandex-token", mockPayload.ID)
+		fmt.Fprintf(buf, "✔ SUCCESS! Record %q (ID: %s) was permanently deleted.\n", "yandex-token", mockPayload.ID)
 	})
 
 	assert.Contains(t, buf.String(), "✔ Успех!")

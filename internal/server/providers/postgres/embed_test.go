@@ -12,8 +12,8 @@ import (
 func TestEmbed_MigrationsFS_ShouldContainCoreSchema(t *testing.T) {
 	// Считываем метаданные виртуальной папки
 	entries, err := migrationsFS.ReadDir("migrations")
-	require.NoError(t, err, "Виртуальная директория migrations должна успешно считываться")
-	require.NotEmpty(t, entries, "Папка со встроенными миграциями не должна быть пустой")
+	require.NoError(t, err, "Virtual migrations directory must be readable")
+	require.NotEmpty(t, entries, "Embedded migrations folder must not be empty")
 
 	var foundCoreSchema bool
 	for _, entry := range entries {
@@ -23,5 +23,5 @@ func TestEmbed_MigrationsFS_ShouldContainCoreSchema(t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundCoreSchema, "Критический файл 00002_core_schema.sql обязан присутствовать в embed FS")
+	assert.True(t, foundCoreSchema, "Critical file 00002_core_schema.sql must be present in embed FS")
 }

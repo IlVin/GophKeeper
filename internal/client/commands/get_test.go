@@ -28,7 +28,7 @@ func TestGetResponse_StructureMapping(t *testing.T) {
 	assert.Equal(t, "https://yandex.ru", payload.Metadata["url"])
 }
 
-// TestGetCommandFormatting_WithStandardOutput проверяет красивый вывод дешифрования.
+// TestGetCommandFormatting_WithStandardOutput checks pretty decryption output.
 func TestGetCommandFormatting_WithStandardOutput(t *testing.T) {
 	v := viper.New()
 	cli := NewCLI(v)
@@ -50,7 +50,7 @@ func TestGetCommandFormatting_WithStandardOutput(t *testing.T) {
 	assert.Contains(t, buf.String(), "Полезная нагрузка (Payload): plain-text-data")
 }
 
-// TestPrintError_InGetStandardMode проверяет проброс ошибки дешифрования наружу для человека.
+// TestPrintError_InGetStandardMode checks decryption error propagation for human readability.
 func TestPrintError_InGetStandardMode(t *testing.T) {
 	v := viper.New()
 	cli := NewCLI(v)
@@ -59,9 +59,9 @@ func TestPrintError_InGetStandardMode(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cryptoErr := errors.New("chacha20poly1305: message authentication failed")
 
-	err := cli.PrintError(buf, cryptoErr, "ошибка дешифрования")
+	err := cli.PrintError(buf, cryptoErr, "decryption error")
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "ошибка дешифрования: chacha20poly1305")
-	assert.Empty(t, buf.String(), "В стандартном режиме буфер вывода должен оставаться пустым")
+	assert.Contains(t, err.Error(), "decryption error: chacha20poly1305")
+	assert.Empty(t, buf.String(), "In standard mode output buffer should remain empty")
 }

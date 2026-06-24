@@ -29,5 +29,5 @@ func TestReadConfigFile_WithMissingExplicitFile_ShouldReturnError(t *testing.T) 
 	v.Set("server.config_file", "/nonexistent/path/to/gophkeeper_config_anomaly.yaml")
 
 	err := config.ReadConfigFile(v)
-	assert.ErrorIs(t, err, config.ErrExplicitConfigMissing, "Лоадер обязан выкинуть ошибку при пропаже явного файла")
+	assert.ErrorIs(t, err, config.ErrExplicitConfigMissing, "Loader must return error when explicit file is missing")
 }

@@ -58,46 +58,46 @@ func NewViper() (*viper.Viper, error) {
 // производится автоматический поиск по путям AddConfigPath. Отсутствие файла не считается ошибкой.
 func ReadConfigFile(v *viper.Viper) error {
 	if v == nil {
-		return errors.New("указатель на viper не может быть nil")
+		return errors.New("viper pointer cannot be nil")
 	}
 
 	configFile := strings.TrimSpace(v.GetString("app.config_file"))
 
 	if configFile != "" {
 		v.SetConfigFile(configFile)
-		slog.Debug("Попытка чтения конфигурации по явно указанному пути", "path", configFile)
+		slog.Debug("Attempting to read config from explicit path", "path", configFile)
 
 		if err := v.ReadInConfig(); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				slog.Debug("Файл конфигурации отсутствует на диске, используются значения по умолчанию")
+				slog.Debug("Config file missing on disk, using default values")
 				return nil
 			}
 			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-				slog.Debug("Файл конфигурации не найден, используются дефолты")
+				slog.Debug("Config file not found, using defaults")
 				return nil
 			}
-			slog.Error("Критическая ошибка при чтении указанного файла конфигурации", "error", err)
-			return fmt.Errorf("чтение файла конфигурации %q: %w", configFile, err)
+			slog.Error("Critical error reading specified config file", "error", err)
+			return fmt.Errorf("read config file %q: %w", configFile, err)
 		}
 
-		slog.Debug("Конфигурационный файл успешно применен", "used_path", v.ConfigFileUsed())
+		slog.Debug("Config file successfully applied", "used_path", v.ConfigFileUsed())
 		return nil
 	}
 
-	slog.Debug("Явный путь не задан, запуск сканирования директорий по умолчанию")
+	slog.Debug("No explicit path set, scanning default directories")
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			slog.Debug("Дефолтные конфигурационные файлы не обнаружены, рантайм использует базовые настройки")
+			slog.Debug("Default config files not found, runtime using base settings")
 			return nil
 		}
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		slog.Error("Ошибка сканирования путей конфигурации", "error", err)
-		return fmt.Errorf("автоматическое чтение конфигурации: %w", err)
+		slog.Error("Error scanning config paths", "error", err)
+		return fmt.Errorf("auto read config: %w", err)
 	}
 
-	slog.Debug("Конфигурационный файл автоматически найден и применен", "used_path", v.ConfigFileUsed())
+	slog.Debug("Config file automatically found and applied", "used_path", v.ConfigFileUsed())
 	return nil
 }
 
@@ -107,10 +107,10 @@ func ReadConfigFile(v *viper.Viper) error {
 // через фабричный метод после валидации, исключая дефекты MVP-маршалинга.
 func LoadFromViper(v *viper.Viper) (Config, error) {
 	if v == nil {
-		return Config{}, errors.New("указатель на viper не может быть nil")
+		return Config{}, errors.New("viper pointer cannot be nil")
 	}
 
-	slog.Debug("Старт сборки и валидации объектного графа конфигурации")
+	slog.Debug("Starting config object graph assembly and validation")
 
 	appCfg := AppConfig{
 		configFile:    v.GetString("app.config_file"),
@@ -131,11 +131,11 @@ func LoadFromViper(v *viper.Viper) (Config, error) {
 
 	// Вызов внешнего валидатора (бизнес-правила)
 	if err := cfg.Validate(); err != nil {
-		slog.Error("Валидация параметров конфигурации провалилась", "error", err)
-		return Config{}, fmt.Errorf("валидация параметров: %w", err)
+		slog.Error("Config parameter validation failed", "error", err)
+		return Config{}, fmt.Errorf("validate params: %w", err)
 	}
 
-	slog.Debug("Сборка конфигурации успешно завершена, инварианты соблюдены")
+	slog.Debug("Config assembly completed successfully, invariants satisfied")
 	return cfg, nil
 }
 
@@ -147,7 +147,7 @@ func defaultConfigPath() string {
 func defaultConfigPathFromFunc(configFile func(string) (string, error)) string {
 	path, err := configFile(defaultConfigRelativePath)
 	if err != nil {
-		slog.Debug("Спецификация XDG не смогла определить путь конфигурации, используется заглушка", "error", err)
+		slog.Debug("XDG spec could not determine config path, using stub", "error", err)
 		return ""
 	}
 	return path
@@ -161,7 +161,7 @@ func defaultSQLitePath() string {
 func defaultSQLitePathFromFunc(stateFile func(string) (string, error)) string {
 	path, err := stateFile(defaultSQLiteRelativePath)
 	if err != nil {
-		slog.Debug("Спецификация XDG не смогла определить путь хранения состояния", "error", err)
+		slog.Debug("XDG spec could not determine state storage path", "error", err)
 		return ""
 	}
 	return path
@@ -172,7 +172,7 @@ func defaultSQLitePathFromFunc(stateFile func(string) (string, error)) string {
 func DefaultLogPath() string {
 	path, err := xdg.StateFile("gophkeeper/client.log")
 	if err != nil {
-		slog.Debug("Спецификация XDG не смогла определить путь файла логов", "error", err)
+		slog.Debug("XDG spec could not determine log file path", "error", err)
 		return ""
 	}
 	return path

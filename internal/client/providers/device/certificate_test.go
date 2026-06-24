@@ -18,22 +18,22 @@ func TestGenerateContainerCSR_Success_And_ParsingVerification(t *testing.T) {
 	// Вызываем генератор паспорта
 	rawPriv, csrBytes, err := device.GenerateContainerCSR(targetDeviceID)
 
-	require.NoError(t, err, "Генерация CSR не должна возвращать ошибок")
-	require.NotEmpty(t, rawPriv, "Бинарный массив приватного ключа PKCS8 не должен быть пустым")
-	require.NotEmpty(t, csrBytes, "Бинарный блок CSR DER не должен быть пустым")
+	require.NoError(t, err, "CSR generation should not return errors")
+	require.NotEmpty(t, rawPriv, "PKCS8 private key binary array must not be empty")
+	require.NotEmpty(t, csrBytes, "CSR DER binary block must not be empty")
 
 	// Десериализуем получившийся CSR средствами стандартной библиотеки x509 для валидации структуры
 	csr, err := x509.ParseCertificateRequest(csrBytes)
-	require.NoError(t, err, "Полученный блоб обязан успешно парситься как x509 Certificate Request")
+	require.NoError(t, err, "Received blob must parse successfully as x509 Certificate Request")
 
 	// 1. Проверяем строгое соответствие CommonName переданному UUID
 	expectedCN := "GophKeeper Client Container " + targetDeviceID
 	assert.Equal(t, expectedCN, csr.Subject.CommonName)
 
 	// 2. Проверяем фиксацию криптографического алгоритма подписи
-	assert.Equal(t, x509.ECDSAWithSHA256, csr.SignatureAlgorithm, "Алгоритм подписи CSR обязан быть строго ECDSA-SHA256")
+	assert.Equal(t, x509.ECDSAWithSHA256, csr.SignatureAlgorithm, "CSR signature algorithm must be strictly ECDSA-SHA256")
 
 	// 3. Проверяем ИБ-инвариант mTLS: наличие защитного идентификатора контейнера в SAN URIs
-	require.Len(t, csr.URIs, 1, "Запрос обязан содержать ровно один SAN URI")
-	assert.Equal(t, "urn:gophkeeper:file:"+targetDeviceID, csr.URIs[0].String(), "Вшитый URN должен точно совпадать с каноничным форматом контейнера")
+	require.Len(t, csr.URIs, 1, "Request must contain exactly one SAN URI")
+	assert.Equal(t, "urn:gophkeeper:file:"+targetDeviceID, csr.URIs[0].String(), "Embedded URN must exactly match canonical container format")
 }

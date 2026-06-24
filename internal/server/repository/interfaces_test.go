@@ -21,9 +21,9 @@ func TestUser_Destroy_ShouldZeroFillSensitiveData(t *testing.T) {
 	user.Destroy()
 
 	// Верифицируем гигиену оперативной памяти
-	assert.Equal(t, byte(0), user.CanonicalAccountSalt[0], "Первый байт соли должен быть занулен")
-	assert.Equal(t, byte(0), user.CanonicalAccountSalt[31], "Последний байт соли должен быть занулен")
-	assert.Nil(t, user.SshPublicKey, "Ссылка на бинарный массив публичного ключа должна быть стерта")
+	assert.Equal(t, byte(0), user.CanonicalAccountSalt[0], "First salt byte must be zeroed")
+	assert.Equal(t, byte(0), user.CanonicalAccountSalt[31], "Last salt byte must be zeroed")
+	assert.Nil(t, user.SshPublicKey, "Public key binary array reference must be cleared")
 }
 
 // TestChallengeSession_Destroy_ShouldClearNonce проверяет очистку одноразовых нонсов.
@@ -34,5 +34,5 @@ func TestChallengeSession_Destroy_ShouldClearNonce(t *testing.T) {
 	}
 
 	session.Destroy()
-	assert.Nil(t, session.ServerNonce, "Ссылка на массив серверного нонса должна быть полностью аннулирована")
+	assert.Nil(t, session.ServerNonce, "Server nonce array reference must be fully cleared")
 }

@@ -32,7 +32,7 @@ func TestOpen_Success_And_PragmaVerification(t *testing.T) {
 
 	// Открываем базу через ядро Open
 	db, err := sqlite.Open(dbPath)
-	require.NoError(t, err, "Безопасное открытие базы данных должно пройти успешно")
+	require.NoError(t, err, "Secure database open must succeed")
 	require.NotNil(t, db)
 
 	defer func() {
@@ -43,11 +43,11 @@ func TestOpen_Success_And_PragmaVerification(t *testing.T) {
 	var foreignKeysEnabled int
 	err = db.QueryRow("PRAGMA foreign_keys;").Scan(&foreignKeysEnabled)
 	require.NoError(t, err)
-	assert.Equal(t, 1, foreignKeysEnabled, "Ограничение внешних ключей СУБД обязано быть принудительно включено")
+	assert.Equal(t, 1, foreignKeysEnabled, "Database foreign key constraint must be forcibly enabled")
 
 	// 2. Верифицируем, что PRAGMA journal_mode на диске честно переведена в WAL
 	var currentJournalMode string
 	err = db.QueryRow("PRAGMA journal_mode;").Scan(&currentJournalMode)
 	require.NoError(t, err)
-	assert.Equal(t, "wal", strings.ToLower(currentJournalMode), "Журналирование транзакций обязано работать в WAL режиме")
+	assert.Equal(t, "wal", strings.ToLower(currentJournalMode), "Transaction journaling must work in WAL mode")
 }

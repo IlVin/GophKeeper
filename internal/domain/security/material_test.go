@@ -21,8 +21,8 @@ func TestSecretBytes_Destroy_ShouldZeroFillMemory(t *testing.T) {
 	secret.Destroy()
 
 	// Верифицируем полное зануление ячеек RAM
-	assert.Equal(t, byte(0), secret[0], "Первый байт секрета обязан быть полностью занулен")
-	assert.Equal(t, byte(0), secret[3], "Последний байт секрета обязан быть полностью занулен")
+	assert.Equal(t, byte(0), secret[0], "First secret byte must be fully zeroed")
+	assert.Equal(t, byte(0), secret[3], "Last secret byte must be fully zeroed")
 }
 
 // TestSecretBytes_Clone_ShouldCreateIndependentCopy проверяет изолированность
@@ -35,14 +35,14 @@ func TestSecretBytes_Clone_ShouldCreateIndependentCopy(t *testing.T) {
 
 	// Модифицируем клон, оригинальный массив не должен измениться
 	cloned[0] = 99
-	assert.Equal(t, byte(1), original[0], "Модификация клонированного среза не должна влиять на оригинал")
+	assert.Equal(t, byte(1), original[0], "Modification of cloned slice must not affect original")
 }
 
 // TestGenerateRandomKey_Success проверяет успешную генерацию случайных ключей нужной длины.
 func TestGenerateRandomKey_Success(t *testing.T) {
 	key, err := security.GenerateRandomKey(32)
 	require.NoError(t, err)
-	require.Len(t, key, 32, "Размер сгенерированного ключа обязан строго соответствовать запросу")
+	require.Len(t, key, 32, "Generated key size must strictly match request")
 
 	defer key.Destroy()
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestApp_Run_FailsIfNil ИБ-барьер Fail-Fast: запуск на nil объектах должен
+// TestApp_Run_FailsIfNil Fail-Fast security barrier: startup on nil objects must
 // сразу возвращать ошибку рантайма, предотвращая неконтролируемые паники.
 func TestApp_Run_FailsIfNil(t *testing.T) {
 	dummyApp := &app.App{
@@ -35,5 +35,5 @@ func TestApp_Shutdown_ShouldNotPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		err := dummyApp.Shutdown()
 		assert.NoError(t, err)
-	}, "Деструктор обязан безопасно обрабатывать nil поля ресурсов")
+	}, "Destructor must safely handle nil resource fields")
 }

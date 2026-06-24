@@ -55,7 +55,7 @@ func TestPostgresCache_Get_CacheMiss(t *testing.T) {
 
 	res, err := cache.Get(ctx, targetKey)
 
-	assert.ErrorIs(t, err, autocert.ErrCacheMiss, "Провайдер обязан транслировать отсутствие строк в ошибку ErrCacheMiss")
+	assert.ErrorIs(t, err, autocert.ErrCacheMiss, "Provider must translate missing rows to ErrCacheMiss error")
 	assert.Nil(t, res)
 	assert.NoError(t, mockPool.ExpectationsWereMet())
 }

@@ -28,23 +28,23 @@ type InitResultPayload struct {
 func newInitCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Инициализировать локальное окружение и криптографический корень доверия",
-		Long:  `Создает защищенный контейнер SQLite, генерирует локальные конверты AccountMasterKey и DeviceKEK под управлением ключа ssh-agent.`,
+		Short: "Initialize local environment and cryptographic root of trust",
+		Long:  `Creates a secure SQLite container, generates local AccountMasterKey and DeviceKEK envelopes under ssh-agent key control.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			slog.Info("Запуск конвейера локальной инициализации контейнера GophKeeper")
+			slog.Info("Starting local GophKeeper container initialization pipeline")
 
 			// 1. Проверяем доступность SSH-агента в операционной системе
 			if err := sshcheck.RequireAgent(); err != nil {
-				slog.Error("Локальная инициализация отклонена: ssh-agent недоступен")
-				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
+				slog.Error("Local initialization rejected: ssh-agent unavailable")
+				return cli.PrintError(out, err, "ssh-agent check error")
 			}
 
 			// 2. Читаем дефолтную конфигурацию приложения из Viper
 			cfg, err := cli.AppConfig()
 			if err != nil {
-				slog.Error("Не удалось прочитать параметры конфигурации для init", "error", err)
-				return cli.PrintError(out, err, "загрузка конфигурации")
+				slog.Error("Failed to read config params for init", "error", err)
+				return cli.PrintError(out, err, "config loading")
 			}
 
 			sqlitePath := cfg.Storage().SQLitePath()
@@ -52,49 +52,49 @@ func newInitCommand(cli *CLI) *cobra.Command {
 
 			// Запрет повторного init: защищаем существующие крипто-конверты от перезаписи
 			if _, err := os.Stat(sqlitePath); err == nil {
-				statusErr := fmt.Errorf("среда GophKeeper уже инициализирована. Контейнер СУБД присутствует по пути: %s. Повторный запуск init уничтожит ваши ключи деривации", sqlitePath)
-				slog.Warn("Попытка повторной инициализации поверх живой базы данных заблокирована")
-				return cli.PrintError(out, statusErr, "ошибка жизненного цикла")
+				statusErr := fmt.Errorf("GophKeeper environment already initialized. DB container exists at: %s. Re-running init will destroy your derivation keys", sqlitePath)
+				slog.Warn("Attempt to re-initialize over live database blocked")
+				return cli.PrintError(out, statusErr, "lifecycle error")
 			}
 
 			// 3. Подключаемся к ssh-agent для сканирования Ed25519 ключей деривации
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+				return cli.PrintError(out, err, "connect to ssh-agent socket")
 			}
 			defer agentClient.Close()
 
 			ed25519Keys, err := agentClient.ListED25519()
 			if err != nil {
-				slog.Error("В ssh-agent не обнаружено детерминированных программных ключей ed25519")
-				return cli.PrintError(out, err, "сканирование ключей в ssh-agent")
+				slog.Error("No deterministic software ed25519 keys found in ssh-agent")
+				return cli.PrintError(out, err, "scanning keys in ssh-agent")
 			}
 
 			// Запуск смарт-селектора для выбора корневого ключа
 			targetKeyInfo, err := cli.selectEngineKey(ed25519Keys)
 			if err != nil {
-				return cli.PrintError(out, err, "селектор корневого ключа")
+				return cli.PrintError(out, err, "root key selector")
 			}
 
-			slog.Info("Для инициализации контейнера успешно выбран корень доверия", "fingerprint", targetKeyInfo.Fingerprint)
+			slog.Info("Root of trust successfully selected for container initialization", "fingerprint", targetKeyInfo.Fingerprint)
 
 			// 4. Записываем персистентный YAML файл конфигурации на диск, если его нет
 			if err := clientconfig.WriteDefaultConfigFile(configPath, cfg); err != nil {
-				return cli.PrintError(out, err, "запись конфигурационного файла")
+				return cli.PrintError(out, err, "config file write")
 			}
 
 			// 5. Создаем файл SQLite, выставляем права 0600/0700 и накатываем схему миграций goose
-			slog.Debug("Запуск процедуры bootstrap и миграции базы данных")
+			slog.Debug("Starting database bootstrap and migration procedure")
 			db, err := sqlite.Bootstrap(sqlitePath)
 			if err != nil {
-				return cli.PrintError(out, err, "разворачивание структуры СУБД")
+				return cli.PrintError(out, err, "database structure deployment")
 			}
 
 			dbClosedCheked := false
 			defer func() {
 				if !dbClosedCheked {
 					if closeErr := db.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть дескриптор базы данных в defer init", "error", closeErr)
+						slog.Error("Failed to close database descriptor in init defer", "error", closeErr)
 					}
 				}
 			}()
@@ -104,7 +104,7 @@ func newInitCommand(cli *CLI) *cobra.Command {
 			initService := service.NewInitService(deviceStore, agentClient)
 
 			// 7. Запускаем криптографический конвейер вывода ключей и создания конвертов (Envelopes)
-			slog.Info("Старт генерации защищенных локальных конвертов (AccountMasterKey, DeviceKEK)")
+			slog.Info("Starting generation of secure local envelopes (AccountMasterKey, DeviceKEK)")
 			defaultServer := cli.Viper().GetString("app.default_server")
 			if strings.TrimSpace(defaultServer) == "" {
 				defaultServer = "localhost:443"
@@ -114,14 +114,14 @@ func newInitCommand(cli *CLI) *cobra.Command {
 
 			err = initService.ExecuteLocalInit(cmd.Context(), defaultServer, targetKeyInfo.Fingerprint, rawPublicKeyBytes)
 			if err != nil {
-				slog.Error("Криптографический конвейер инициализации завершился аварийно", "error", err)
-				return cli.PrintError(out, err, "криптографическая инициализация")
+				slog.Error("Cryptographic initialization pipeline crashed", "error", err)
+				return cli.PrintError(out, err, "cryptographic initialization")
 			}
 
 			// Проверяем явное закрытие пула до вывода результатов
 			if closeErr := db.Close(); closeErr != nil {
-				slog.Error("Не удалось безопасно зафиксировать WAL-сессию при закрытии пула СУБД", "error", closeErr)
-				return cli.PrintError(out, closeErr, "финализация СУБД")
+				slog.Error("Failed to safely commit WAL session during DB pool close", "error", closeErr)
+				return cli.PrintError(out, closeErr, "database finalization")
 			}
 			dbClosedCheked = true
 
@@ -133,12 +133,12 @@ func newInitCommand(cli *CLI) *cobra.Command {
 			}
 
 			cli.PrintResult(out, payload, func() {
-				fmt.Fprintf(out, "Выбран корневой SSH-ключ из агента: %s (%s)\n", targetKeyInfo.Fingerprint, targetKeyInfo.Comment)
-				fmt.Fprintln(out, "Генерация защищенных локальных конвертов завершена успешно.")
-				fmt.Fprintln(out, "\n✔ Окружение GophKeeper успешно инициализировано!")
-				fmt.Fprintln(out, "Конфигурационный YAML-файл записан:", configPath)
-				fmt.Fprintln(out, "Зашифрованный SQLite контейнер создан:", sqlitePath)
-				fmt.Fprintln(out, "Текущий статус жизненного цикла среды: INITIALIZED (Доступен оффлайн-режим)")
+				fmt.Fprintf(out, "Selected root SSH key from agent: %s (%s)\n", targetKeyInfo.Fingerprint, targetKeyInfo.Comment)
+				fmt.Fprintln(out, "Secure local envelope generation completed successfully.")
+				fmt.Fprintln(out, "\n✔ GophKeeper environment successfully initialized!")
+				fmt.Fprintln(out, "Configuration YAML file written:", configPath)
+				fmt.Fprintln(out, "Encrypted SQLite container created:", sqlitePath)
+				fmt.Fprintln(out, "Current environment lifecycle status: INITIALIZED (Offline mode available)")
 			})
 
 			return nil
@@ -146,7 +146,7 @@ func newInitCommand(cli *CLI) *cobra.Command {
 	}
 
 	// Регистрируем локальный флаг, привязанный исключительно к контексту команды init
-	cmd.Flags().String("ssh-fingerprint", "", "SHA256 фингерпринт или комментарий целевого ключа в ssh-agent")
+	cmd.Flags().String("ssh-fingerprint", "", "SHA256 fingerprint or comment of target key in ssh-agent")
 
 	// Связываем локальный флаг с внутренним Viper селектором CLI-рантайма
 	_ = cli.Viper().BindPFlag("app.ssh_key_selector", cmd.Flags().Lookup("ssh-fingerprint"))
@@ -157,7 +157,7 @@ func newInitCommand(cli *CLI) *cobra.Command {
 // selectEngineKey разрешает матрицу условий выбора ключа деривации на основе флага --ssh-fingerprint.
 func (c *CLI) selectEngineKey(keys []sshagent.SignerInfo) (sshagent.SignerInfo, error) {
 	if len(keys) == 0 {
-		return sshagent.SignerInfo{}, errors.New("в ssh-agent отсутствуют доступные программные ed25519 ключи")
+		return sshagent.SignerInfo{}, errors.New("no available software ed25519 keys in ssh-agent")
 	}
 
 	selector := strings.TrimSpace(c.v.GetString("app.ssh_key_selector"))
@@ -165,7 +165,7 @@ func (c *CLI) selectEngineKey(keys []sshagent.SignerInfo) (sshagent.SignerInfo, 
 	// Сценарий 1: В агенте присутствует ровно один совместимый ключ — выбираем его автоматически
 	if len(keys) == 1 {
 		if selector != "" && keys[0].Fingerprint != selector && keys[0].Comment != selector {
-			return sshagent.SignerInfo{}, fmt.Errorf("указанный фингерпринт %q не найден в ssh-agent (доступен только %s)", selector, keys[0].Fingerprint)
+			return sshagent.SignerInfo{}, fmt.Errorf("specified fingerprint %q not found in ssh-agent (only %s available)", selector, keys[0].Fingerprint)
 		}
 		return keys[0], nil
 	}
@@ -177,23 +177,23 @@ func (c *CLI) selectEngineKey(keys []sshagent.SignerInfo) (sshagent.SignerInfo, 
 				return k, nil
 			}
 		}
-		return sshagent.SignerInfo{}, fmt.Errorf("указанный флаг --ssh-fingerprint %q не совпал ни с одним активным ключом в ssh-agent", selector)
+		return sshagent.SignerInfo{}, fmt.Errorf("specified --ssh-fingerprint %q did not match any active key in ssh-agent", selector)
 	}
 
 	// Сценарий 3: В агенте несколько ключей, а флаг не передан — формируем интерактивную диагностическую карту
 	var sb strings.Builder
-	sb.WriteString("В вашем ssh-agent обнаружено несколько совместимых ключей Ed25519.\n")
-	sb.WriteString("Вы должны явно указать корневой ключ с помощью локального флага '--ssh-fingerprint'.\n\n")
-	sb.WriteString("Список доступных ключей внутри агента:\n")
+	sb.WriteString("Multiple compatible Ed25519 keys found in your ssh-agent.\n")
+	sb.WriteString("You must explicitly specify the root key using the .--ssh-fingerprint. flag..\n\n")
+	sb.WriteString("List of available keys in agent:\n")
 
 	for _, k := range keys {
-		sb.WriteString(fmt.Sprintf("  - Фингерпринт: %s\n", k.Fingerprint))
+		sb.WriteString(fmt.Sprintf("  - Fingerprint: %s\n", k.Fingerprint))
 		if k.Comment != "" {
-			sb.WriteString(fmt.Sprintf("    Комментарий: %s\n", k.Comment))
+			sb.WriteString(fmt.Sprintf("    Comment: %s\n", k.Comment))
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString("Пример запуска команды:\n")
+	sb.WriteString("Example command:\n")
 	sb.WriteString(fmt.Sprintf("  gophkeeper init --ssh-fingerprint=%s\n", keys[0].Fingerprint))
 
 	return sshagent.SignerInfo{}, errors.New(sb.String())

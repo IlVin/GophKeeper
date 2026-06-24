@@ -26,9 +26,9 @@ func TestConfigForBootstrap_ShouldEnforceTLS13(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion, "Транспорт обязан требовать строго версию TLS 1.3")
-	assert.NotNil(t, cfg.RootCAs, "Доверенный пул Server CA должен быть инициализирован")
-	assert.Nil(t, cfg.Certificates, "На этапе bootstrap клиентский сертификат должен отсутствовать")
+	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion, "Transport must strictly require TLS 1.3 version")
+	assert.NotNil(t, cfg.RootCAs, "Trusted Server CA pool must be initialized")
+	assert.Nil(t, cfg.Certificates, "Client certificate must be absent at bootstrap phase")
 }
 
 // TestConfigForMTLS_WithEmptyCert_ShouldReturnError проверяет срабатывание fail-fast
@@ -53,7 +53,7 @@ func TestConfigForMTLS_Success(t *testing.T) {
 	require.NotNil(t, cfg)
 
 	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
-	assert.Len(t, cfg.Certificates, 1, "Контекст обязан содержать ровно один клиентский mTLS паспорт")
+	assert.Len(t, cfg.Certificates, 1, "Context must contain exactly one client mTLS passport")
 	assert.Equal(t, dummyCert.Certificate[0], cfg.Certificates[0].Certificate[0])
 }
 

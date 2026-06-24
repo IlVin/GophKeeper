@@ -36,10 +36,10 @@ func TestLogFileSystemIncident_ShouldNotPanic(t *testing.T) {
 
 	assert.NotPanics(t, func() {
 		sqlite.LogFileSystemIncident("file validation check failed", dummyFile, info)
-	}, "Метод логирования инцидентов не должен вызывать панику при валидных параметрах")
+	}, "Incident logging method must not panic with valid parameters")
 
 	// 2. Тест-барьер с nil pointer info protection
 	assert.NotPanics(t, func() {
 		sqlite.LogFileSystemIncident("directory scan boundary layout failed", dummyFile, nil)
-	}, "Метод логирования инцидентов обязан безопасно обрабатывать nil указатели на FileInfo")
+	}, "Incident logging method must safely handle nil FileInfo pointers")
 }

@@ -15,15 +15,15 @@ import (
 // и mTLS соединения от оффлайн-клиентов менеджера паролей GophKeeper.
 func (a *App) Run() error {
 	if a.GRPCServer == nil || a.Listener == nil {
-		slog.Error("Запуск сервера отклонен: gRPC сервер или сетевой Listener не инициализированы")
+		slog.Error("Server startup rejected: gRPC server or Listener not initialized")
 		return errors.New("grpc server or listener not initialized")
 	}
 
-	slog.Info("Облачный gRPC-сервер GophKeeper успешно запущен и начинает вещание",
+	slog.Info("Cloud GophKeeper gRPC server successfully started and broadcasting",
 		"addr", a.Listener.Addr().String())
 
 	if err := a.GRPCServer.Serve(a.Listener); err != nil && !errors.Is(err, errors.New("grpc: the server has been stopped")) {
-		slog.Error("Критический сбой сетевого вещания gRPC службы", "error", err)
+		slog.Error("Critical gRPC network broadcast failure", "error", err)
 		return fmt.Errorf("grpc server serve collapsed: %w", err)
 	}
 
@@ -36,14 +36,14 @@ func (a *App) Run() error {
 // на завершение ACID-транзакций, закрывает порты Let's Encrypt и освобождает пул PostgreSQL,
 // полностью предотвращая утечки дескрипторов файлов и зомби-процессы в операционной системе.
 func (a *App) Shutdown() error {
-	slog.Info("Инициирована процедура безопасной остановки сервера (Graceful Shutdown)")
+	slog.Info("Initiating server graceful shutdown procedure")
 
 	if a.GRPCServer != nil {
 		// Защитный ИБ-барьер: предотвращаем вечное зависание стоппера из-за «мертвых» клиентских стримов
 		shutdownTimeout := 10 * time.Second
 		done := make(chan struct{})
 
-		slog.Debug("Ожидание завершения активных RPC-вызовов синхронизации клиентов", "timeout", shutdownTimeout)
+		slog.Debug("Waiting for active client sync RPC calls to complete", "timeout", shutdownTimeout)
 		go func() {
 			a.GRPCServer.GracefulStop()
 			close(done)
@@ -51,27 +51,27 @@ func (a *App) Shutdown() error {
 
 		select {
 		case <-done:
-			slog.Debug("Все активные клиентские gRPC сессии завершены штатно")
+			slog.Debug("All active client gRPC sessions completed gracefully")
 		case <-time.After(shutdownTimeout):
-			slog.Warn("Таймаут Graceful Shutdown превышен! Запущена принудительная жесткая остановка сокетов сервера.")
+			slog.Warn("Graceful Shutdown timeout exceeded! Forcing hard server socket stop.")
 			a.GRPCServer.Stop() // Жестко рвем зависшие соединения для высвобождения ресурсов
 		}
 	}
 
 	// Освобождаем сетевые порты Let's Encrypt ACME с проверкой ошибок
 	if a.AcmeListener != nil {
-		slog.Debug("Закрытие вспомогательного ACME сокета Let's Encrypt")
+		slog.Debug("Closing auxiliary Let.s Encrypt ACME socket")
 		if closeErr := a.AcmeListener.Close(); closeErr != nil {
-			slog.Error("Сбой деструктора сокета ACME Listener при финализации ресурсов", "error", closeErr)
+			slog.Error("ACME Listener socket destructor failed during resource finalization", "error", closeErr)
 		}
 	}
 
 	// Финализируем пул СУБД PostgreSQL, возвращая коннекты операционной системе
 	if a.Pool != nil {
-		slog.Debug("Закрытие пула соединений PostgreSQL СУБД")
+		slog.Debug("Closing PostgreSQL connection pool")
 		a.Pool.Close()
 	}
 
-	slog.Info("Процедура Graceful Shutdown успешно завершена, все пулы ресурсов очищены")
+	slog.Info("Graceful Shutdown procedure completed successfully, all resource pools cleared")
 	return nil
 }

@@ -20,6 +20,6 @@ func TestPostgresRepository_GetByFingerprint_ReturnsNilIfNotFound(t *testing.T) 
 	// Так как pgxmock.NewPool возвращает структуру, совместимую по методам с pgxpool,
 	// для жестких указателей репозитория *pgxpool.Pool в реальном интеграционном
 	// CI/CD слое мы используем интерфейсное абстрагирование, аналогичное acme_cache.
-	slog.Info("Интеграционный тест СУБД репозитория изолирован")
+	slog.Info("Repository DB integration test isolated")
 	assert.True(t, true)
 }

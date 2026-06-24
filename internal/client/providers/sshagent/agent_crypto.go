@@ -27,9 +27,9 @@ func (c *Client) ListED25519() ([]SignerInfo, error) {
 
 	for _, k := range keys {
 		if k.Algorithm == KeyAlgoED25519 {
-			slog.Debug("Запуск ИБ-тестирования ключа на детерминированность подписи", "fingerprint", k.Fingerprint)
+			slog.Debug("Starting security test for key signature determinism", "fingerprint", k.Fingerprint)
 			if err := c.SelfTestDeterministicED25519(k.Fingerprint, testPayload); err != nil {
-				slog.Warn("Ключ отсечен: обнаружена рандомизированная аппаратная подпись", "fingerprint", k.Fingerprint)
+				slog.Warn("Key rejected: randomized hardware signature detected", "fingerprint", k.Fingerprint)
 				continue
 			}
 			out = append(out, k)
@@ -37,7 +37,7 @@ func (c *Client) ListED25519() ([]SignerInfo, error) {
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%w: в агенте отсутствуют детерминированные программные ed25519 ключи", ErrKeyNotFound)
+		return nil, fmt.Errorf("%w: no deterministic software ed25519 keys in agent", ErrKeyNotFound)
 	}
 
 	return out, nil
@@ -72,7 +72,7 @@ func (c *Client) FindED25519ByFingerprint(fingerprint string) (*SignerInfo, erro
 	}
 
 	if info.Algorithm != KeyAlgoED25519 {
-		slog.Error("Запрошенный ключ не соответствует стандарту ed25519", "algo", info.Algorithm)
+		slog.Error("Requested key does not match ed25519 standard", "algo", info.Algorithm)
 		return nil, ErrUnsupportedKeyAlgorithm
 	}
 	return info, nil
@@ -152,11 +152,11 @@ func ExtractED25519RawSignature(sig *ssh.Signature) ([]byte, error) {
 	}
 
 	if sig.Format != ssh.KeyAlgoED25519 {
-		return nil, fmt.Errorf("%w: получен формат %s, ожидался %s", ErrUnexpectedSignatureFormat, sig.Format, ssh.KeyAlgoED25519)
+		return nil, fmt.Errorf("%w: got format %s, expected %s", ErrUnexpectedSignatureFormat, sig.Format, ssh.KeyAlgoED25519)
 	}
 
 	if len(sig.Blob) != 64 {
-		return nil, fmt.Errorf("%w: некорректный размер бинарного блоба подписи ed25519=%d (ожидалось 64)", ErrUnexpectedSignatureFormat, len(sig.Blob))
+		return nil, fmt.Errorf("%w: invalid ed25519 signature blob size %d (expected 64)", ErrUnexpectedSignatureFormat, len(sig.Blob))
 	}
 
 	out := make([]byte, 64)
@@ -176,9 +176,9 @@ func (c *Client) signWithPublicKey(pub ssh.PublicKey, payload []byte) (*ssh.Sign
 
 	sig, err := c.ag.Sign(pub, payload)
 	if err != nil {
-		slog.Warn("Обрыв связи с сокетом ssh-agent при вызове Sign, попытка реконнекта", "error", err)
+		slog.Warn("Connection lost to ssh-agent socket during Sign, attempting reconnect", "error", err)
 		if reconnectErr := c.reconnectLocked(); reconnectErr != nil {
-			slog.Error("Аварийный реконнект в процессе подписания завершился сбоем", "error", reconnectErr)
+			slog.Error("Emergency reconnect during signing failed", "error", reconnectErr)
 			return nil, err
 		}
 
@@ -199,7 +199,7 @@ func (c *Client) connect() error {
 func (c *Client) connectLocked() error {
 	conn, err := net.Dial("unix", c.socketPath)
 	if err != nil {
-		return fmt.Errorf("установление unix-соединения с сокетом: %w", err)
+		return fmt.Errorf("establish unix connection to socket: %w", err)
 	}
 
 	c.conn = conn

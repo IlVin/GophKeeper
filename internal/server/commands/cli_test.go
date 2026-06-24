@@ -19,7 +19,7 @@ func TestServerCLI_Close_ShouldNotPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		err := serverCLI.Close()
 		assert.NoError(t, err)
-	}, "Деструктор контекста обязан безопасно обрабатывать пустые рантайм-модели")
+	}, "Context destructor must safely handle empty runtime models")
 }
 
 // TestServerCLI_Constructor_Success проверяет сборку фабрики.

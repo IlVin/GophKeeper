@@ -30,7 +30,7 @@ func TestSelectEngineKey_WithSingleKey_ShouldAutoSelect(t *testing.T) {
 func TestSelectEngineKey_WithMultipleKeysAndValidSelector_ShouldSelectTarget(t *testing.T) {
 	v := viper.New()
 	cli := NewCLI(v)
-	v.Set("app.ssh_key_selector", "work-key") // Задаем селектор по комментарию
+	v.Set("app.ssh_key_selector", "work-key") // Set selector by comment
 
 	mockKeys := []sshagent.SignerInfo{
 		{Fingerprint: "SHA256:key1", Comment: "home-key", Algorithm: "ssh-ed25519"},
@@ -54,7 +54,7 @@ func TestSelectEngineKey_WithMultipleKeysAndNoSelector_ShouldReturnDiagnosticMap
 	}
 
 	selected, err := cli.selectEngineKey(mockKeys)
-	assert.Error(t, err, "Должна вернуться ошибка с требованием передать флаг")
-	assert.Contains(t, err.Error(), "В вашем ssh-agent обнаружено несколько совместимых ключей")
+	assert.Error(t, err, "Should return error requiring flag")
+	assert.Contains(t, err.Error(), "Multiple compatible Ed25519 keys found in your ssh-agent")
 	assert.Empty(t, selected.Fingerprint)
 }

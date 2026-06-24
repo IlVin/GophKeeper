@@ -10,9 +10,9 @@ import (
 
 var (
 	// ErrInvalidLogLevel возвращается при передаче неподдерживаемого уровня логирования.
-	ErrInvalidLogLevel = errors.New("неподдерживаемый уровень логирования: допустимы debug, info, warn, error")
+	ErrInvalidLogLevel = errors.New("unsupported log level: allowed debug, info, warn, error")
 	// ErrInvalidLogFormat возвращается при передаче неподдерживаемого формата вывода логов.
-	ErrInvalidLogFormat = errors.New("неподдерживаемый формат логирования: допустимы text, json")
+	ErrInvalidLogFormat = errors.New("unsupported log format: allowed text, json")
 )
 
 // Validate осуществляет комплексную проверку всех параметров конфигурации.

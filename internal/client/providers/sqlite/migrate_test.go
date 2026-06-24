@@ -12,5 +12,5 @@ import (
 // валидации мигратора при передаче пустого пула соединений.
 func TestMigrate_WithNilDatabase_ShouldReturnError(t *testing.T) {
 	err := sqlite.Migrate(nil)
-	assert.ErrorIs(t, err, sqlite.ErrNilDatabase, "Мигратор должен вернуть каноничную ошибку ErrNilDatabase при nil параметре")
+	assert.ErrorIs(t, err, sqlite.ErrNilDatabase, "Migrator must return canonical ErrNilDatabase error on nil param")
 }

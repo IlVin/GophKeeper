@@ -46,7 +46,7 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 	createdAtStr := record.CreatedAt.UTC().Format(time.RFC3339Nano)
 	updatedAtStr := record.UpdatedAt.UTC().Format(time.RFC3339Nano)
 
-	slog.Debug("Сохранение или обновление локальной зашифрованной записи", "record_id", record.ID, "is_deleted", record.IsDeleted)
+	slog.Debug("Saving or updating local encrypted record", "record_id", record.ID, "is_deleted", record.IsDeleted)
 	_, err := s.db.ExecContext(ctx, query,
 		record.ID,
 		record.UserID,
@@ -58,7 +58,7 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 		record.IsDeleted,
 	)
 	if err != nil {
-		slog.Error("Не удалось выполнить UPSERT секретной записи", "record_id", record.ID, "error", err)
+		slog.Error("Failed to UPSERT secret record", "record_id", record.ID, "error", err)
 		return fmt.Errorf("failed to insert/update record into sqlite: %w", err)
 	}
 
@@ -85,11 +85,11 @@ func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository
 		&r.IsDeleted,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		slog.Debug("Запрос GetByID: запись не найдена", "id", id)
+		slog.Debug("GetByID query: record not found", "id", id)
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("Ошибка чтения строки по ID из SQLite", "id", id, "error", err)
+		slog.Error("Error reading row by ID from SQLite", "id", id, "error", err)
 		return nil, fmt.Errorf("failed to scan record by id from sqlite: %w", err)
 	}
 
@@ -129,11 +129,11 @@ func (s *SQLiteSecretStore) GetByName(ctx context.Context, name string) (*reposi
 		&r.IsDeleted,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		slog.Debug("Запрос GetByName: запись не найдена", "name", name)
+		slog.Debug("GetByName query: record not found", "name", name)
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("Ошибка чтения строки по имени из SQLite", "name", name, "error", err)
+		slog.Error("Error reading row by name from SQLite", "name", name, "error", err)
 		return nil, fmt.Errorf("failed to scan record by name from sqlite: %w", err)
 	}
 
@@ -160,7 +160,7 @@ func (s *SQLiteSecretStore) List(ctx context.Context) ([]repository.RecordMetada
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		slog.Error("Не удалось вычитать плоский список метаданных из SQLite", "error", err)
+		slog.Error("Failed to read flat metadata list from SQLite", "error", err)
 		return nil, fmt.Errorf("failed to query records list from sqlite: %w", err)
 	}
 	defer rows.Close()
@@ -196,11 +196,11 @@ func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 	// 2. Сериализуем его в канонический текстовый формат RFC3339 для SQLite
 	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
 
-	slog.Debug("Мягкое удаление локальной записи (флаг is_deleted)", "id", id, "updated_at", nowStr)
+	slog.Debug("Soft delete local record (is_deleted flag)", "id", id, "updated_at", nowStr)
 
 	_, err := s.db.ExecContext(ctx, query, nowStr, id)
 	if err != nil {
-		slog.Error("Не удалось выполнить мягкое удаление секретной записи", "id", id, "error", err)
+		slog.Error("Failed to soft delete secret record", "id", id, "error", err)
 		return fmt.Errorf("failed to delete record from sqlite: %w", err)
 	}
 
@@ -287,7 +287,7 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		userIDStr.Valid = true
 	}
 
-	slog.Debug("Сетевая синхронизация (SaveRaw): применение LWW конверта из облака", "id", r.ID)
+	slog.Debug("Network sync (SaveRaw): applying LWW envelope from cloud", "id", r.ID)
 	_, err := s.db.ExecContext(ctx, query,
 		r.ID,
 		userIDStr,
@@ -299,7 +299,7 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		r.IsDeleted,
 	)
 	if err != nil {
-		slog.Error("Не удалось выполнить SaveRaw для входящего сетевого пакета", "id", r.ID, "error", err)
+		slog.Error("Failed to execute SaveRaw for incoming network packet", "id", r.ID, "error", err)
 		return fmt.Errorf("failed to save raw synchronised record: %w", err)
 	}
 	return nil
@@ -321,7 +321,7 @@ func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*reposit
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
-		slog.Error("Ошибка вызова GetRawByID для сборки сетевого push-пакета", "id", id, "error", err)
+		slog.Error("Error calling GetRawByID for network push packet assembly", "id", id, "error", err)
 		return nil, fmt.Errorf("failed to fetch raw record by id: %w", err)
 	}
 

@@ -34,60 +34,60 @@ import (
 func newSyncCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Синхронизировать локальный зашифрованный сейф с облачным хранилищем",
-		Long:  `Выполняет сверку версий по протоколу LWW (Last-Write-Wins), скачивает свежие облачные конверты и публикует локальные изменения через защищенный mTLS 1.3 канал.`,
+		Short: "Synchronize local encrypted vault with cloud storage",
+		Long:  `Performs LWW (Last-Write-Wins) version reconciliation, downloads fresh cloud envelopes and publishes local changes via secure mTLS 1.3 channel.`,
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
-			slog.Info("Старт сквозного процесса синхронизации данных с облаком")
+			slog.Info("Starting end-to-end cloud data synchronization process")
 
 			app, err := cli.App(ctx)
 			if err != nil {
-				return cli.PrintError(out, err, "ошибка рантайма приложения")
+				return cli.PrintError(out, err, "application runtime error")
 			}
 
 			deviceStore := sqlite.NewSQLiteDeviceStore(app.DB())
 			state, err := deviceStore.ReadDeviceState(ctx)
 			if err != nil {
-				return cli.PrintError(out, err, "чтение локального состояния контейнера")
+				return cli.PrintError(out, err, "reading local container state")
 			}
 
 			// Проверка инварианта сетевой готовности: для выполнения sync необходим активный mTLS-паспорт
 			if state.ServerURL == nil || *state.ServerURL == "" || state.ClientCertificate == nil || state.EncryptedMtlsPrivateKey == nil {
-				statusErr := errors.New("контейнер не связан с сервером: пожалуйста, выполните сначала команду 'gophkeeper register'")
-				slog.Warn("Попытка синхронизации отклонена: отсутствует mTLS-паспорт устройства")
-				return cli.PrintError(out, statusErr, "ошибка валидации")
+				statusErr := errors.New("container not linked to server: please run .gophkeeper register. first")
+				slog.Warn("Sync attempt rejected: missing device mTLS passport")
+				return cli.PrintError(out, statusErr, "validation error")
 			}
 
 			// =================================================================
 			// КРИПТОГРАФИЧЕСКИЙ ВЫВОД КЛЮЧЕЙ И ВСКРЫТИЕ mTLS КЛЮЧА
 			// =================================================================
-			slog.Debug("Запуск криптографического конвейера извлечения mTLS-паспорта из контейнера")
+			slog.Debug("Starting cryptographic pipeline for mTLS passport extraction from container")
 
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+				return cli.PrintError(out, err, "connect to ssh-agent socket")
 			}
 
 			agentClosedChecked := false
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть UNIX-сокет агента в defer sync", "error", closeErr)
+						slog.Error("Failed to close UNIX agent socket in sync defer", "error", closeErr)
 					}
 				}
 			}()
 
 			dbPubKey, err := ssh.ParsePublicKey(state.SshPublicKey)
 			if err != nil {
-				return cli.PrintError(out, err, "структура публичного ключа СУБД повреждена")
+				return cli.PrintError(out, err, "DB public key structure corrupted")
 			}
 			fingerprint := sshagent.FingerprintSHA256(dbPubKey)
 
 			derivationPayload := security.NewDerivationPayload(fingerprint)
 			rawDerivationSig, err := agentClient.SignED25519Raw(fingerprint, derivationPayload.Marshal())
 			if err != nil {
-				return cli.PrintError(out, err, "ssh-agent отклонил подпись payload деривации")
+				return cli.PrintError(out, err, "ssh-agent rejected derivation payload signing")
 			}
 			derivationSignature := security.SecretBytes(rawDerivationSig)
 			defer derivationSignature.Destroy()
@@ -95,13 +95,13 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 			// Вывод AccountUnlockKey и DeviceKEK
 			unlockKey, err := security.DeriveAccountUnlockKey(derivationSignature, state.AccountSalt)
 			if err != nil {
-				return cli.PrintError(out, err, "вывод ключа разблокировки аккаунта")
+				return cli.PrintError(out, err, "account unlock key derivation")
 			}
 			defer unlockKey.Destroy()
 
 			deviceKEK, err := security.DeriveDeviceKEK(unlockKey, []byte(state.DeviceID))
 			if err != nil {
-				return cli.PrintError(out, err, "вывод симметричного ключа устройства DeviceKEK")
+				return cli.PrintError(out, err, "device symmetric key DeviceKEK derivation")
 			}
 			defer deviceKEK.Destroy()
 
@@ -109,7 +109,7 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 			deviceAAD := security.BuildDeviceMasterKeyAAD(state.UserID, state.DeviceID)
 			rawMtlsKeyBytes, err := security.OpenEnvelope(deviceKEK, *state.EncryptedMtlsPrivateKey, deviceAAD)
 			if err != nil {
-				return cli.PrintError(out, err, "криптографическое вскрытие конверта mTLS приватного ключа провалено (泄露/tampering)")
+				return cli.PrintError(out, err, "cryptographic opening of mTLS private key envelope failed (泄露/tampering)")
 			}
 			mtlsSecret := security.SecretBytes(rawMtlsKeyBytes)
 			defer mtlsSecret.Destroy()
@@ -117,11 +117,11 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 			// Десериализуем ecdsa.PrivateKey из стандарта PKCS#8
 			parsedPrivKey, err := x509.ParsePKCS8PrivateKey(mtlsSecret)
 			if err != nil {
-				return cli.PrintError(out, err, "структура расшифрованного mTLS приватного ключа некорректна")
+				return cli.PrintError(out, err, "decrypted mTLS private key structure invalid")
 			}
 			mtlsPrivKey, ok := parsedPrivKey.(*ecdsa.PrivateKey)
 			if !ok {
-				return cli.PrintError(out, errors.New("mTLS закрытый ключ не принадлежит семейству эллиптических кривых ECDSA"), "криптографическая ошибка")
+				return cli.PrintError(out, errors.New("mTLS private key is not of ECDSA elliptic curve family"), "cryptographic error")
 			}
 
 			// ГАРАНТИЯ ИБ (RAM Hygiene): Обеспечиваем тотальное зануление больших чисел закрытого ключа в куче Go
@@ -130,18 +130,18 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 					mtlsPrivKey.D.SetInt64(0)
 					mtlsPrivKey.D = big.NewInt(0)
 				}
-				slog.Debug("Структура приватного ключа ECDSA полностью обнулена в памяти (RAM Hygiene)")
+				slog.Debug("ECDSA private key structure fully zeroed in memory (RAM Hygiene)")
 			}()
 
 			// Восстановление цепочки x509 DER-сертификата
 			x509Cert, err := x509.ParseCertificate(*state.ClientCertificate)
 			if err != nil {
-				return cli.PrintError(out, err, "cached x509 DER паспорт устройства поврежден")
+				return cli.PrintError(out, err, "cached x509 DER device passport corrupted")
 			}
 
 			block, _ := pem.Decode(certs.DeviceCAPEM())
 			if block == nil || block.Type != "CERTIFICATE" {
-				return cli.PrintError(out, errors.New("не удалось декодировать встроенный Device CA PEM для mTLS цепочки доверия"), "криптографическая ошибка")
+				return cli.PrintError(out, errors.New("failed to decode embedded Device CA PEM for mTLS trust chain"), "cryptographic error")
 			}
 
 			clientCert := tls.Certificate{
@@ -177,7 +177,7 @@ func executeNetworkSync(
 	// =================================================================
 	serverCAPool, err := certs.LoadServerCAPool()
 	if err != nil {
-		return cli.PrintError(out, err, "загрузка пула Server CA")
+		return cli.PrintError(out, err, "loading Server CA pool")
 	}
 
 	tlsCfg := &tls.Config{
@@ -187,7 +187,7 @@ func executeNetworkSync(
 		ServerName:   "localhost",
 	}
 
-	slog.Debug("Установление защищенной mTLS 1.3 gRPC сессии синхронизации", "url", *state.ServerURL)
+	slog.Debug("Establishing secure mTLS 1.3 gRPC sync session", "url", *state.ServerURL)
 	conn, err := grpc.NewClient(
 		*state.ServerURL,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
@@ -197,14 +197,14 @@ func executeNetworkSync(
 		),
 	)
 	if err != nil {
-		return cli.PrintError(out, err, "сетевое подключение к gRPC узлу синхронизации")
+		return cli.PrintError(out, err, "network connection to gRPC sync node")
 	}
 
 	connClosedChecked := false
 	defer func() {
 		if !connClosedChecked {
 			if closeErr := conn.Close(); closeErr != nil {
-				slog.Error("Не удалось закрыть gRPC соединение в defer sync", "error", closeErr)
+				slog.Error("Failed to close gRPC connection in sync defer", "error", closeErr)
 			}
 		}
 	}()
@@ -215,7 +215,7 @@ func executeNetworkSync(
 	// Извлекаем карту версий локальных секретов
 	localMeta, err := secretStore.GetSyncMetadataWithDeleted(ctx)
 	if err != nil {
-		return cli.PrintError(out, err, "чтение карты версий из локального SQLite")
+		return cli.PrintError(out, err, "reading version map from local SQLite")
 	}
 
 	var protoVersions []*pb.RecordVersion
@@ -228,15 +228,15 @@ func executeNetworkSync(
 	}
 
 	// Сетевой вызов SyncCheck (Сверка версий Last-Write-Wins)
-	slog.Debug("RPC Вызов SyncCheck: отправка локальной карты версий в облако", "count", len(protoVersions))
+	slog.Debug("RPC SyncCheck call: sending local version map to cloud", "count", len(protoVersions))
 	checkResp, err := syncClient.SyncCheck(ctx, &pb.SyncCheckRequest{LocalVersions: protoVersions})
 	if err != nil {
-		return cli.PrintError(out, err, "удаленный вызов SyncCheck провален")
+		return cli.PrintError(out, err, "remote SyncCheck call failed")
 	}
 
 	// Безопасно финализируем сокет агента, так как криптооперации деривации завершены
 	if closeErr := agentClient.Close(); closeErr != nil {
-		slog.Error("Не удалось закрыть UNIX-сокет агента в процессе обмена", "error", closeErr)
+		slog.Error("Failed to close UNIX agent socket during exchange", "error", closeErr)
 	}
 	*agentClosedChecked = true
 
@@ -244,16 +244,16 @@ func executeNetworkSync(
 	pulledCount := 0
 	idsToPull := checkResp.GetIdsToPull()
 	if len(idsToPull) > 0 {
-		slog.Debug("Обнаружены устаревшие локальные записи, инициирован RPC PullRecords", "count", len(idsToPull))
+		slog.Debug("Outdated local records found, initiating RPC PullRecords", "count", len(idsToPull))
 		pullResp, err := syncClient.PullRecords(ctx, &pb.PullRecordsRequest{RecordIds: idsToPull})
 		if err != nil {
-			return cli.PrintError(out, err, "удаленная фаза PullRecords отклонена сервером")
+			return cli.PrintError(out, err, "remote PullRecords phase rejected by server")
 		}
 
 		for _, r := range pullResp.GetRecords() {
 			// Даты извлекаются нативно через .AsTime() без риска Scan Errors
 			if r.GetCreatedAt() == nil || r.GetUpdatedAt() == nil {
-				slog.Error("Сервер прислал пустой блок Timestamp для pulled записи, пакет пропущен", "record_id", r.GetRecordId())
+				slog.Error("Server sent empty Timestamp block for pulled record, packet skipped", "record_id", r.GetRecordId())
 				continue
 			}
 
@@ -270,8 +270,8 @@ func executeNetworkSync(
 				IsDeleted: r.GetIsDeleted(),
 			})
 			if err != nil {
-				slog.Error("Не удалось сохранить выкачанный конверт в SQLite", "record_id", r.GetRecordId(), "error", err)
-				return cli.PrintError(out, err, "сохранение pulled записи в хранилище")
+				slog.Error("Failed to save pulled envelope to SQLite", "record_id", r.GetRecordId(), "error", err)
+				return cli.PrintError(out, err, "saving pulled record to storage")
 			}
 			pulledCount++
 		}
@@ -281,13 +281,13 @@ func executeNetworkSync(
 	pushedCount := 0
 	idsToPush := checkResp.GetIdsToPush()
 	if len(idsToPush) > 0 {
-		slog.Debug("Обнаружены свежие оффлайн-изменения, сборка пакета для RPC PushRecords", "count", len(idsToPush))
+		slog.Debug("Fresh offline changes found, building packet for RPC PushRecords", "count", len(idsToPush))
 		var recordsToPush []*pb.EncryptedRecordPayload
 
 		for _, id := range idsToPush {
 			localRec, err := secretStore.GetRawByID(ctx, id)
 			if err != nil {
-				slog.Error("Не удалось извлечь сырой конверт для push", "id", id, "error", err)
+				slog.Error("Failed to extract raw envelope for push", "id", id, "error", err)
 				continue
 			}
 
@@ -305,7 +305,7 @@ func executeNetworkSync(
 		if len(recordsToPush) > 0 {
 			_, err = syncClient.PushRecords(ctx, &pb.PushRecordsRequest{Records: recordsToPush})
 			if err != nil {
-				return cli.PrintError(out, err, "удаленная фаза PushRecords отклонена сервером")
+				return cli.PrintError(out, err, "remote PushRecords phase rejected by server")
 			}
 			pushedCount = len(recordsToPush)
 		}
@@ -313,7 +313,7 @@ func executeNetworkSync(
 
 	// Безопасно закрываем сетевой канал gRPC до рендеринга вывода
 	if closeErr := conn.Close(); closeErr != nil {
-		slog.Error("Не удалось закрыть gRPC транспорт при чистом выходе из sync", "error", closeErr)
+		slog.Error("Failed to close gRPC transport on clean sync exit", "error", closeErr)
 	}
 	connClosedChecked = true
 
@@ -323,10 +323,10 @@ func executeNetworkSync(
 	}
 
 	cli.PrintResult(out, payload, func() {
-		fmt.Fprintln(out, "Установление mTLS 1.3 сессии и сверка карт синхронизации...")
-		fmt.Fprintln(out, "\n✔ Двусторонняя синхронизация завершена успешно!")
-		fmt.Fprintf(out, "  Скачано изменений из облака (Pull): %d\n", pulledCount)
-		fmt.Fprintf(out, "  Загружено оффлайн-записей в облако (Push): %d\n", pushedCount)
+		fmt.Fprintln(out, "Establishing mTLS 1.3 session and sync map reconciliation...")
+		fmt.Fprintln(out, "\n✔ Two-way synchronization completed successfully!")
+		fmt.Fprintf(out, "  Pulled changes from cloud (Pull): %d\n", pulledCount)
+		fmt.Fprintf(out, "  Pushed offline records to cloud (Push): %d\n", pushedCount)
 	})
 
 	return nil

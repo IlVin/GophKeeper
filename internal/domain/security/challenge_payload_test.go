@@ -22,7 +22,7 @@ func TestChallengePayload_Marshal_Success(t *testing.T) {
 
 	// 1. Проверяем первые 4 байта версии протокола (должна быть 1)
 	version := binary.BigEndian.Uint32(buf[0:4])
-	assert.Equal(t, uint32(1), version, "Первые 4 байта обязаны кодировать версию 1 в Big-Endian")
+	assert.Equal(t, uint32(1), version, "First 4 bytes must encode version 1 in Big-Endian")
 
 	// 2. Проверяем заголовок длины контекста (6-й байт)
 	ctxLen := binary.BigEndian.Uint16(buf[4:6])
@@ -43,7 +43,7 @@ func TestChallengePayload_Destroy_ShouldZeroFillNonce(t *testing.T) {
 	payload.Destroy()
 
 	// Верифицируем очистку памяти
-	assert.Nil(t, payload.ServerNonce, "Ссылка на массив nonce должна быть аннулирована")
+	assert.Nil(t, payload.ServerNonce, "Nonce array reference must be cleared")
 }
 
 // TestChallengePayload_Marshal_FieldTooLong_ShouldReturnNil проверяет барьер
@@ -59,5 +59,5 @@ func TestChallengePayload_Marshal_FieldTooLong_ShouldReturnNil(t *testing.T) {
 
 	// Маршалинг должен безопасно вернуть nil вместо паники переполнения буфера
 	buf := payload.Marshal()
-	assert.Nil(t, buf, "Функция обязана вернуть nil, предотвращая integer overflow и некорректное выделение памяти")
+	assert.Nil(t, buf, "Function must return nil, preventing integer overflow and incorrect memory allocation")
 }

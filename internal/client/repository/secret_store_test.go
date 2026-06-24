@@ -31,8 +31,8 @@ func TestEncryptedRecord_Destroy_ShouldClearReferences(t *testing.T) {
 	record.Destroy()
 
 	// Верифицируем результат ИБ-гигиены
-	assert.Nil(t, record.Envelope, "Ссылка на бинарный массив шифртекста должна быть аннулирована")
-	assert.Nil(t, record.UserID, "Ссылка на идентификатор пользователя должна быть стерта")
+	assert.Nil(t, record.Envelope, "Ciphertext binary array reference must be cleared")
+	assert.Nil(t, record.UserID, "User ID reference must be cleared")
 }
 
 // TestEncryptedRecord_DestroyWithNil_ShouldNotPanic проверяет nil pointer protection деструктора.

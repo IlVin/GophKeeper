@@ -33,6 +33,6 @@ func TestRegistrationHandler_RegisterBegin_FailsIfEmptyKey(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, codes.InvalidArgument, st.Code(), "Код ошибки обязан соответствовать InvalidArgument")
+	assert.Equal(t, codes.InvalidArgument, st.Code(), "Error code must match InvalidArgument")
 	assert.Equal(t, "ssh public key cannot be empty", st.Message())
 }

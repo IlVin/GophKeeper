@@ -46,7 +46,7 @@ func TestRun_WithHelpFlag_ShouldSuccess(t *testing.T) {
 	os.Args = []string{"gophkeeper", "--help"}
 
 	err := run()
-	assert.NoError(t, err, "Выполнение клиента с флагом --help не должно возвращать ошибку")
+	assert.NoError(t, err, "execution with --help should not return error")
 }
 
 // TestRun_WithInvalidFlag_ShouldReturnError проверяет обработку ошибок парсинга Cobra.
@@ -58,14 +58,14 @@ func TestRun_WithInvalidFlag_ShouldReturnError(t *testing.T) {
 	os.Args = []string{"gophkeeper", "--invalid-unknown-client-flag"}
 
 	err := run()
-	assert.Error(t, err, "Выполнение клиента с неизвестными флагами должно возвращать ошибку парсинга")
+	assert.Error(t, err, "execution with unknown flags should return parse error")
 }
 
 // TestConfigureGlobalSlog_InvalidPath проверяет реакцию инициализатора логирования на некорректный путь.
 // Функция должна вернуть ошибку, если ей передан пустой путь.
 func TestConfigureGlobalSlog_InvalidPath(t *testing.T) {
 	f, err := configureGlobalSlog("", "debug", "text")
-	assert.Error(t, err, "Передача пустого пути в логгер должна вызывать ошибку")
+	assert.Error(t, err, "empty path should cause error")
 	assert.Nil(t, f, "Дескриптор файла при ошибке должен быть nil")
 }
 
@@ -89,15 +89,15 @@ func TestConfigureGlobalSlog_ValidFormats(t *testing.T) {
 			logPath := filepath.Join(tmpDir, t.Name(), "client.log")
 
 			f, err := configureGlobalSlog(logPath, tt.level, tt.format)
-			require.NoError(t, err, "Создание логгера по валидному пути не должно вызывать ошибок")
+			require.NoError(t, err, "valid path should not cause error")
 			require.NotNil(t, f, "Файл должен быть успешно открыт")
 
 			_ = f.Close()
 
 			// Проверяем, что файл физически создался на диске
 			info, err := os.Stat(logPath)
-			assert.NoError(t, err, "Файл лога должен существовать на диске")
-			assert.True(t, info.Mode().IsRegular(), "Лог должен быть стандартным файлом")
+			assert.NoError(t, err, "log file should exist")
+			assert.True(t, info.Mode().IsRegular(), "log should be a regular file")
 		})
 	}
 }

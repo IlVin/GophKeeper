@@ -24,8 +24,8 @@ func TestRequireAgent_WhenEnvMissing_ShouldReturnError_And_HelpVerify(t *testing
 	}()
 
 	err = sshcheck.RequireAgent()
-	assert.ErrorIs(t, err, sshcheck.ErrSSHAgentUnavailable, "Функция обязана вернуть ошибку недоступности агента")
-	assert.Contains(t, err.Error(), "SSH_AUTH_SOCK environment variable is not set", "Текст ошибки должен быть на английском языке")
+	assert.ErrorIs(t, err, sshcheck.ErrSSHAgentUnavailable, "Function must return agent unavailable error")
+	assert.Contains(t, err.Error(), "SSH_AUTH_SOCK environment variable is not set", "Error text must be in English")
 
 	// Проверяем формат возвращаемой справки спасения
 	helpText := sshcheck.FormatSSHAgentHelp()

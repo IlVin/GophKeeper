@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRegisterResponse_Mapping проверяет корректность полей DTO структуры для JSON-автоматизации.
+// TestRegisterResponse_Mapping checks DTO fields correctness for JSON automation.
 func TestRegisterResponse_Mapping(t *testing.T) {
 	payload := RegisterResponse{
 		UserID:    "SHA256:rootkey12345",
@@ -22,7 +22,7 @@ func TestRegisterResponse_Mapping(t *testing.T) {
 	assert.Equal(t, "REGISTERED", payload.Status)
 }
 
-// TestRegisterCommandFormatting_WithStandardOutput проверяет UX-рендер для человека.
+// TestRegisterCommandFormatting_WithStandardOutput checks UX render for human.
 func TestRegisterCommandFormatting_WithStandardOutput(t *testing.T) {
 	v := viper.New()
 	cli := NewCLI(v)
@@ -36,11 +36,11 @@ func TestRegisterCommandFormatting_WithStandardOutput(t *testing.T) {
 	}
 
 	cli.PrintResult(buf, mockPayload, func() {
-		fmt.Fprintf(buf, "✔ Успех! Контейнер успешно привязан к облачному аккаунту %q.\n", mockPayload.UserID)
-		fmt.Fprintln(buf, "mTLS-паспорт устройства получен.")
+		fmt.Fprintf(buf, "✔ SUCCESS! Container successfully attached to cloud account %q.\n", mockPayload.UserID)
+		fmt.Fprintln(buf, "mTLS device passport received.")
 	})
 
 	assert.Contains(t, buf.String(), "✔ Успех!")
 	assert.Contains(t, buf.String(), "SHA256:mockfingerprint")
-	assert.Contains(t, buf.String(), "mTLS-паспорт устройства получен")
+	assert.Contains(t, buf.String(), "mTLS device passport received.)
 }

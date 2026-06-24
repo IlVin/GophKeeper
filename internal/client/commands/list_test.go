@@ -27,7 +27,7 @@ func TestListResponseFormatting_WithEmptyVault_ShouldRenderUXMessage(t *testing.
 
 	cli.PrintResult(buf, items, func() {
 		if len(emptyMetadataList) == 0 {
-			fmt.Fprintln(buf, "Ваш сейф пуст. Используйте команду 'gophkeeper create' для добавления записей.")
+			fmt.Fprintln(buf, "Your vault is empty. Use .gophkeeper create. to add records.")
 			return
 		}
 	})
@@ -58,5 +58,5 @@ func TestListResponse_MappingToResponseItem(t *testing.T) {
 	assert.Equal(t, "a1b2c3d4", item.ID)
 	assert.Equal(t, "yandex-mail", item.Name)
 	assert.Equal(t, "credentials", item.Type)
-	assert.Equal(t, "2026-06-23T12:00:00Z", item.LastUpdated, "Временная метка должна строго соответствовать стандарту RFC3339")
+	assert.Equal(t, "2026-06-23T12:00:00Z", item.LastUpdated, "Timestamp should strictly conform to RFC3339 standard")
 }

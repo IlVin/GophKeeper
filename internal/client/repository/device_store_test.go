@@ -25,9 +25,9 @@ func TestLocalDeviceState_Destroy_ShouldZeroFillSensitiveData(t *testing.T) {
 	state.Destroy()
 
 	// Верифицируем ИБ-гигиену
-	assert.Equal(t, byte(0), state.AccountSalt[0], "Первый байт соли должен быть выжжен нулем")
-	assert.Equal(t, byte(0), state.AccountSalt[31], "Последний байт соли должен быть выжжен нулем")
-	assert.Nil(t, state.DeviceMasterKeyEnvelope, "Ссылка на конверт мастер-ключа должна быть стерта")
+	assert.Equal(t, byte(0), state.AccountSalt[0], "First salt byte must be zeroed")
+	assert.Equal(t, byte(0), state.AccountSalt[31], "Last salt byte must be zeroed")
+	assert.Nil(t, state.DeviceMasterKeyEnvelope, "Master key envelope reference must be cleared")
 }
 
 // TestLocalDeviceState_DestroyWithNil_ShouldNotPanic проверяет nil pointer protection деструктора.

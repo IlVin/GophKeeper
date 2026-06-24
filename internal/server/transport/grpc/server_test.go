@@ -23,7 +23,7 @@ func TestNewGRPCServer_Success_Compilation_Check(t *testing.T) {
 	// Вызываем фабрику (передаем nil пул и nil интерцептор для изоляции теста)
 	server := NewGRPCServer(cfg, dummyTLSConfig, nil, nil)
 
-	require.NotNil(t, server, "Фабрика обязана успешно вернуть готовый сконфигурированный объект gRPC сервера")
+	require.NotNil(t, server, "Factory must successfully return configured gRPC server object")
 
 	t.Cleanup(func() {
 		server.Stop() // Безопасно финализируем дескрипторы сервера после теста

@@ -9,7 +9,7 @@ import "errors"
 
 var (
 	// ErrSQLitePathNotSet возвращается, если в конфигурации не указан путь к базе данных SQLite.
-	ErrSQLitePathNotSet = errors.New("путь к базе данных sqlite (sqlite_path) не задан")
+	ErrSQLitePathNotSet = errors.New("sqlite database path (sqlite_path) is not set")
 )
 
 // Config является корневым контейнером конфигурации приложения.

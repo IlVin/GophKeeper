@@ -44,11 +44,11 @@ func (c *ServerCLI) App(ctx context.Context) (*serverapp.App, error) {
 
 	// Защита от циклической инициализации при фатальных сбоях
 	if c.appErr != nil {
-		slog.Warn("Повторный запрос инициализации отклонен: кэширован статус фатального сбоя старта")
+		slog.Warn("Repeated init request rejected: cached fatal startup failure status")
 		return nil, c.appErr
 	}
 
-	slog.Info("Запуск ленивой инициализации контейнера ресурсов облачного сервера")
+	slog.Info("Starting lazy initialization of cloud server resource container")
 	_, app, err := serverapp.Bootstrap(ctx, c.v)
 	if err != nil {
 		c.appErr = fmt.Errorf("server initialization failed: %w", err)
@@ -66,11 +66,11 @@ func (c *ServerCLI) Close() error {
 	defer c.appMu.Unlock()
 
 	if c.app == nil {
-		slog.Debug("Запрос деструктора пропущен: серверный контейнер не был инициализирован")
+		slog.Debug("Destructor request skipped: server container not initialized")
 		return nil
 	}
 
-	slog.Info("Инициировано принудительное закрытие контекста CLI и финализация пулов")
+	slog.Info("Initiating forced CLI context shutdown and pool finalization")
 	err := c.app.Shutdown()
 
 	// Полностью очищаем ссылки для помощи сборщику мусора (RAM Hygiene)
@@ -91,7 +91,7 @@ func (c *ServerCLI) PrintError(out io.Writer, err error, contextMessage string) 
 	}
 
 	fullErr := fmt.Errorf("%s: %w", contextMessage, err)
-	slog.Error("Регистрация системного сбоя рантайма команды", "context", contextMessage, "error", err)
+	slog.Error("Registering system command runtime failure", "context", contextMessage, "error", err)
 
 	return fullErr
 }

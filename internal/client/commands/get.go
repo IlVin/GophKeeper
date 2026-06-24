@@ -25,16 +25,16 @@ import (
 func newGetCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
-		Short: "Расшифровать и прочитать приватный секрет из сейфа по его имени или ID",
-		Long:  `Вскрывает крипто-конверт XChaCha20-Poly1305, верифицирует целостность через AAD, выводит plaintext в терминал или выгружает в файл.`,
+		Short: "Decrypt and read a private secret from vault by name or ID",
+		Long:  `Opens XChaCha20-Poly1305 crypto envelope, verifies integrity via AAD, outputs plaintext to terminal or file.`,
 		RunE: cli.withOwnerCheck(func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
-			slog.Info("Старт выполнения команды дешифрования и чтения секрета")
+			slog.Info("Starting secret decryption and reading command")
 
 			// 1. Проверяем базовую доступность SSH-агента в ОС
 			if err := sshcheck.RequireAgent(); err != nil {
-				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
+				return cli.PrintError(out, err, "ssh-agent check error")
 			}
 
 			// Читаем эфемерные флаги поиска записи и выгрузки
@@ -48,26 +48,26 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			exportPath = strings.TrimSpace(exportPath)
 
 			if id == "" && name == "" {
-				return cli.PrintError(out, errors.New("вы должны указать либо флаг --name, либо флаг --id для поиска записи"), "валидация флагов")
+				return cli.PrintError(out, errors.New("you must specify either --name or --id flag to find the record"), "flag validation")
 			}
 
 			// 2. Открываем существующее runtime окружение приложения
 			app, err := cli.App(ctx)
 			if err != nil {
-				return cli.PrintError(out, err, "запуск контекста приложения")
+				return cli.PrintError(out, err, "application context startup")
 			}
 
 			// 3. Сборка зависимостей внутри Composition Root команды
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+				return cli.PrintError(out, err, "connect to ssh-agent socket")
 			}
 
 			agentClosedChecked := false
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть UNIX-сокет агента в defer get", "error", closeErr)
+						slog.Error("Failed to close UNIX agent socket in get defer", "error", closeErr)
 					}
 				}
 			}()
@@ -83,18 +83,18 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			if id != "" {
 				targetKey = id
 				isFindByID = true
-				slog.Debug("Инициирован поиск записи по уникальному UUID идентификатору")
+				slog.Debug("Initiating record lookup by unique UUID identifier")
 			} else {
 				targetKey = name
 				isFindByID = false
-				slog.Debug("Инициирован детерминированный поиск записи по текстовому имени")
+				slog.Debug("Initiating deterministic record lookup by text name")
 			}
 
 			// Вызов криптографического конвейера дешифрования
 			recordName, plainBytes, err := secretService.UnsealSecret(ctx, targetKey, isFindByID)
 			if err != nil {
-				slog.Error("Криптографический конвейер не смог вскрыть конверт записи", "error", err)
-				return cli.PrintError(out, err, "ошибка дешифрования секрета")
+				slog.Error("Cryptographic pipeline failed to open record envelope", "error", err)
+				return cli.PrintError(out, err, "secret decryption error")
 			}
 
 			// Создаем объект безопасности над расшифрованными байтами
@@ -104,8 +104,8 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			var plain security.RecordPlaintext
 			if err := json.Unmarshal(plainBytes, &plain); err != nil {
 				secretBlock.Destroy() // Стираем расшифрованные байты при сбое парсинга
-				slog.Error("Сбой десериализации расшифрованного монолитного JSON-блока", "error", err)
-				return cli.PrintError(out, err, "структура plaintext повреждена")
+				slog.Error("Failed to deserialize decrypted monolithic JSON block", "error", err)
+				return cli.PrintError(out, err, "plaintext structure corrupted")
 			}
 
 			// Объявляем объекты безопасности над вложенными элементами структуры
@@ -127,18 +127,18 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			if secretType == "binary" && exportPath == "" && !cli.JSONOutput {
 				secretBlock.Destroy()
 				payloadBlock.Destroy()
-				statusErr := errors.New("отказ вывода: секрет имеет тип 'binary' и не может быть отображен в терминале в виде текста. Пожалуйста, укажите путь выгрузки через флаг '--file /path/to/output'")
-				return cli.PrintError(out, statusErr, "защита консоли")
+				statusErr := errors.New("output rejected: secret has type .binary. and cannot be displayed as text. Please specify export path via .--file /path/to/output.")
+				return cli.PrintError(out, statusErr, "console protection")
 			}
 
 			// Если указан флаг --file — производим принудительную выгрузку сырых байт на диск
 			if exportPath != "" {
-				slog.Info("Инициирована персистентная выгрузка plaintext контента на диск", "path", exportPath)
+				slog.Info("Initiating persistent plaintext content export to disk", "path", exportPath)
 				if err := os.WriteFile(exportPath, plain.Payload, 0o600); err != nil {
 					secretBlock.Destroy()
 					payloadBlock.Destroy()
-					slog.Error("Сбой записи расшифрованного файла на диск", "path", exportPath, "error", err)
-					return cli.PrintError(out, err, "экспорт в файл")
+					slog.Error("Failed to write decrypted file to disk", "path", exportPath, "error", err)
+					return cli.PrintError(out, err, "file export")
 				}
 			}
 
@@ -149,12 +149,12 @@ func newGetCommand(cli *CLI) *cobra.Command {
 				for k := range plain.Metadata {
 					delete(plain.Metadata, k)
 				}
-				slog.Debug("Расшифрованные байты секрета полностью стерты из оперативной памяти (RAM Hygiene)")
+				slog.Debug("Decrypted secret bytes fully wiped from RAM (RAM Hygiene)")
 			}()
 
 			// Безопасно финализируем соединение с агентом до вывода результатов на экран
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Не удалось закрыть дескриптор сокета агента при успешном выходе из get", "error", closeErr)
+				slog.Error("Failed to close agent socket descriptor on successful exit from get", "error", closeErr)
 			}
 			agentClosedChecked = true
 
@@ -177,26 +177,26 @@ func newGetCommand(cli *CLI) *cobra.Command {
 
 			cli.PrintResult(out, payloadOut, func() {
 				// 6. Человекочитаемый псевдографический вывод для оператора CLI
-				fmt.Fprintln(out, "\n✔ Дешифрование конверта выполнено успешно!")
+				fmt.Fprintln(out, "\n✔ Envelope decryption completed successfully!")
 				fmt.Fprintln(out, "================================================================================")
-				fmt.Fprintf(out, "  Имя секрета  : %s\n", recordName)
-				fmt.Fprintf(out, "  Тип секрета  : %s\n", secretType)
+				fmt.Fprintf(out, "  Secret Name  : %s\n", recordName)
+				fmt.Fprintf(out, "  Secret Type  : %s\n", secretType)
 				fmt.Fprintln(out, "================================================================================")
 
 				if exportPath != "" {
-					fmt.Fprintf(out, "  ✔ Контент успешно расшифрован и сохранен на диск: %s\n", exportPath)
+					fmt.Fprintf(out, "  ✔ Content successfully decrypted and saved to disk: %s\n", exportPath)
 				} else {
-					fmt.Fprintf(out, "  Полезная нагрузка (Payload): %s\n", string(plain.Payload))
+					fmt.Fprintf(out, "  Payload: %s\n", string(plain.Payload))
 				}
 				fmt.Fprintln(out, "================================================================================")
 
 				if len(plain.Metadata) > 0 {
-					fmt.Fprintln(out, "  Расшифрованные метаданные:")
+					fmt.Fprintln(out, "  Decrypted Metadata:")
 					for key, val := range plain.Metadata {
 						fmt.Fprintf(out, "    [+] %s : %s\n", key, val)
 					}
 				} else {
-					fmt.Fprintln(out, "  Дополнительные метаданные: <отсутствуют>")
+					fmt.Fprintln(out, "  Additional metadata: <none>")
 				}
 				fmt.Fprintln(out, "================================================================================")
 			})
@@ -206,9 +206,9 @@ func newGetCommand(cli *CLI) *cobra.Command {
 	}
 
 	// Регистрация эфемерных флагов поиска и выгрузки
-	cmd.Flags().String("id", "", "Поиск и вскрытие записи по её UUID идентификатору")
-	cmd.Flags().String("name", "", "Поиск и вскрытие записи по её уникальному текстовому имени")
-	cmd.Flags().String("file", "", "Абсолютный путь на диске для выгрузки расшифрованного plaintext контента")
+	cmd.Flags().String("id", "", "Find and open record by its UUID identifier")
+	cmd.Flags().String("name", "", "Find and open record by its unique text name")
+	cmd.Flags().String("file", "", "Absolute path on disk to export decrypted plaintext content")
 
 	return cmd
 }

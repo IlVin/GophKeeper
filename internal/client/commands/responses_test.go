@@ -28,8 +28,8 @@ func TestGetResponse_Destroy_ShouldClearMetadata(t *testing.T) {
 	resp.Destroy()
 
 	// Проверяем финальное состояние ИБ-гигиены
-	assert.Empty(t, resp.Payload, "Строковое поле payload должно быть сброшено")
-	assert.Len(t, resp.Metadata, 0, "Все элементы из карты метаданных должны быть безвозвратно удалены")
+	assert.Empty(t, resp.Payload, "Payload string field should be cleared")
+	assert.Len(t, resp.Metadata, 0, "All metadata map elements should be permanently removed")
 }
 
 // TestGetResponse_DestroyWithNil_ShouldNotPanic проверяет устойчивость
@@ -37,7 +37,7 @@ func TestGetResponse_Destroy_ShouldClearMetadata(t *testing.T) {
 func TestGetResponse_DestroyWithNil_ShouldNotPanic(t *testing.T) {
 	var resp *GetResponse = nil
 
-	// Вызов на nil объекте не должен приводить к panic рантайма
+	// Call on nil object should not cause runtime panic
 	assert.NotPanics(t, func() {
 		resp.Destroy()
 	})

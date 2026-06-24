@@ -27,7 +27,7 @@ func TestValidateFilePermissions_Windows_Success(t *testing.T) {
 
 	// На платформе Windows созданный файл наследует права текущего юзера, тест обязан пройти
 	err = sqlite.ValidateFilePermissions(dbFile, info)
-	assert.NoError(t, err, "Файл, созданный текущим пользователем, должен успешно проходить ACL-контроль")
+	assert.NoError(t, err, "File created by current user must pass ACL validation")
 }
 
 // TestValidateDirPermissions_Windows_Success проверяет ACL-валидацию для папки.
@@ -38,5 +38,5 @@ func TestValidateDirPermissions_Windows_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	err = sqlite.ValidateDirPermissions(tmpDir, info)
-	assert.NoError(t, err, "Временная папка пользователя должна отвечать критериям безопасности ACL")
+	assert.NoError(t, err, "User temporary directory must meet ACL security criteria")
 }

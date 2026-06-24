@@ -28,6 +28,6 @@ func TestReconcile_AbortsIfReadFails(t *testing.T) {
 
 	err := initServ.ReconcileContainer(ctx, nil, nil, nil, nil, "", nil)
 
-	assert.Error(t, err, "Метод обязан вернуть ошибку, если база данных вернула сбой чтения")
-	assert.Contains(t, err.Error(), "read current state for reconcile", "Контекст ошибки должен указывать на сбой чтения")
+	assert.Error(t, err, "Method must return error if database returns read failure")
+	assert.Contains(t, err.Error(), "read current state for reconcile", "Error context must point to read failure")
 }

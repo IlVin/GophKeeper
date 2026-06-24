@@ -24,6 +24,6 @@ func TestNewStartCommand_Compilation_And_Name_Check(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, startCmd)
 
-	assert.Equal(t, "start", startCmd.Name(), "Имя команды должно быть строго 'start'")
-	assert.NotEmpty(t, startCmd.Short, "Команда должна содержать краткое UX описание")
+	assert.Equal(t, "start", startCmd.Name(), "Command name must be strictly .start.")
+	assert.NotEmpty(t, startCmd.Short, "Command must contain brief UX description")
 }

@@ -29,5 +29,5 @@ func TestInitService_Constructor(t *testing.T) {
 	store := &mockDeviceStore{}
 	initServ := service.NewInitService(store, nil)
 
-	assert.NotNil(t, initServ, "Конструктор сервиса инициализации должен успешно собирать объект")
+	assert.NotNil(t, initServ, "Init service constructor must build object successfully")
 }

@@ -31,7 +31,7 @@ func (g *GetResponse) Destroy() {
 		delete(g.Metadata, k)
 	}
 	g.Payload = ""
-	slog.Debug("Конфиденциальный DTO GetResponse успешно зачищен в памяти")
+	slog.Debug("Confidential GetResponse DTO successfully cleared from memory")
 }
 
 // ListResponseItem определяет структуру одной строки таблицы метаданных

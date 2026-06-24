@@ -55,7 +55,7 @@ func NewCLI(v *viper.Viper) *CLI {
 // NewRootCommand собирает корневое дерево команд Cobra, настраивает флаги
 // и подавляет встроенные механизмы вывода ошибок для обеспечения кастомного UX.
 func (c *CLI) NewRootCommand() (*cobra.Command, error) {
-	slog.Debug("Старт сборки корневого дерева CLI команд")
+	slog.Debug("Building root CLI command tree")
 	cmd := &cobra.Command{
 		Use:           "gophkeeper",
 		Short:         "GophKeeper CLI — консольный криптографический менеджер секретов",
@@ -64,7 +64,7 @@ func (c *CLI) NewRootCommand() (*cobra.Command, error) {
 	}
 
 	if err := c.bindPersistentFlags(cmd); err != nil {
-		slog.Error("Не удалось привязать глобальные флаги утилиты", "error", err)
+		slog.Error("Failed to bind global flags", "error", err)
 		return nil, err
 	}
 
@@ -81,13 +81,13 @@ func (c *CLI) Viper() *viper.Viper {
 func (c *CLI) AppConfig() (clientconfig.Config, error) {
 	c.configOnce.Do(func() {
 		if err := clientconfig.ReadConfigFile(c.v); err != nil {
-			c.configErr = fmt.Errorf("чтение файла конфигурации: %w", err)
+			c.configErr = fmt.Errorf("read config file: %w", err)
 			return
 		}
 
 		cfg, err := clientconfig.LoadFromViper(c.v)
 		if err != nil {
-			c.configErr = fmt.Errorf("парсинг параметров из viper: %w", err)
+			c.configErr = fmt.Errorf("parse params from viper: %w", err)
 			return
 		}
 
@@ -127,7 +127,7 @@ func (c *CLI) App(ctx context.Context) (*clientapp.App, error) {
 
 	app, err := clientapp.New(ctx, cfg)
 	if err != nil {
-		c.appErr = fmt.Errorf("сборка рантайм-контейнера: %w", err)
+		c.appErr = fmt.Errorf("build runtime container: %w", err)
 		return nil, c.appErr
 	}
 
@@ -145,14 +145,14 @@ func (c *CLI) Close() error {
 		return nil
 	}
 
-	slog.Debug("Инициировано закрытие ресурсов CLI слоя")
+	slog.Debug("Initiating CLI layer resource cleanup")
 	err := clientapp.Shutdown(c.app)
 	c.app = nil
 	c.appErr = nil
 
 	if err != nil {
-		slog.Error("Сбой деструктора рантайма при закрытии CLI", "error", err)
-		return fmt.Errorf("завершение работы рантайма: %w", err)
+		slog.Error("Runtime destructor failed during CLI shutdown", "error", err)
+		return fmt.Errorf("runtime shutdown: %w", err)
 	}
 
 	return nil
@@ -160,16 +160,16 @@ func (c *CLI) Close() error {
 
 // bindPersistentFlags регистрирует сквозные флаги и маппит их в Viper.
 func (c *CLI) bindPersistentFlags(cmd *cobra.Command) error {
-	cmd.PersistentFlags().String("config", "", "Путь к YAML файлу конфигурации")
-	cmd.PersistentFlags().String("sqlite-path", "", "Путь к локальной крипто-базе данных SQLite")
-	cmd.PersistentFlags().BoolVar(&c.JSONOutput, "json", false, "Вывод результатов в виде чистого JSON-объекта для автоматизации")
+	cmd.PersistentFlags().String("config", "", "Path to YAML config file")
+	cmd.PersistentFlags().String("sqlite-path", "", "Path to local crypto SQLite database")
+	cmd.PersistentFlags().BoolVar(&c.JSONOutput, "json", false, "Output as clean JSON object for automation")
 
 	if err := c.v.BindPFlag("app.config_file", cmd.PersistentFlags().Lookup("config")); err != nil {
-		return fmt.Errorf("привязка флага config: %w", err)
+		return fmt.Errorf("bind config flag: %w", err)
 	}
 
 	if err := c.v.BindPFlag("storage.sqlite_path", cmd.PersistentFlags().Lookup("sqlite-path")); err != nil {
-		return fmt.Errorf("привязка флага sqlite-path: %w", err)
+		return fmt.Errorf("bind sqlite-path flag: %w", err)
 	}
 
 	return nil
@@ -195,49 +195,49 @@ func (c *CLI) withOwnerCheck(
 	run func(cmd *cobra.Command, args []string) error,
 ) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		slog.Debug("Запуск криптографического барьера проверки прав владельца (withOwnerCheck)")
+		slog.Debug("Starting cryptographic owner check barrier (withOwnerCheck)")
 
 		// 1. Проверяем доступность SSH-агента в ОС
 		if err := sshcheck.RequireAgent(); err != nil {
-			slog.Error("Проверка владельца отклонена: ssh-agent недоступен")
+			slog.Error("Owner check rejected: ssh-agent unavailable")
 			return fmt.Errorf("%w\n\n%s", err, sshcheck.FormatSSHAgentHelp())
 		}
 
 		// 2. Читаем локальное состояние синглтона из базы данных
 		state, err := c.deviceStoreReader(cmd.Context())
 		if err != nil {
-			slog.Warn("Проверка прав прервана: локальное окружение не инициализировано")
+			slog.Warn("Owner check aborted: local environment not initialized")
 			return err
 		}
 
 		// 3. Восстанавливаем публичный ключ инициализации
 		dbPubKey, err := ssh.ParsePublicKey(state.SshPublicKey)
 		if err != nil {
-			slog.Error("Критическое повреждение структуры метаданных в SQLite", "error", err)
-			return fmt.Errorf("структура БД повреждена (сбой парсинга публичного ключа): %w", err)
+			slog.Error("Critical metadata structure corruption in SQLite", "error", err)
+			return fmt.Errorf("DB structure corrupted (public key parse failed): %w", err)
 		}
 		expectedFingerprint := sshagent.FingerprintSHA256(dbPubKey)
-		slog.Debug("Извлечен целевой фингерпринт корня доверия", "fingerprint", expectedFingerprint)
+		slog.Debug("Extracted target root of trust fingerprint", "fingerprint", expectedFingerprint)
 
 		// 4. Подключаемся к агенту и верифицируем наличие закрытой части ключа
 		agentClient, err := sshagent.NewFromEnv()
 		if err != nil {
-			return fmt.Errorf("подключение к сокету ssh-agent: %w", err)
+			return fmt.Errorf("connect to ssh-agent socket: %w", err)
 		}
 		defer agentClient.Close()
 
 		_, err = agentClient.FindED25519ByFingerprint(expectedFingerprint)
 		if err != nil {
-			slog.Error("Доступ заблокирован: криптографический корень доверия отсутствует в агенте")
+			slog.Error("Access denied: cryptographic root of trust missing from agent")
 			return fmt.Errorf(
-				"отказ в доступе: корневой криптографический ключ, использованный при 'init', отсутствует в вашем ssh-agent.\n"+
-					"Ожидаемый фингерпринт: %s\n"+
-					"Пожалуйста, добавьте ключ в агент через команду 'ssh-add'",
+				"Access denied: root cryptographic key used for .init. is missing from your ssh-agent.\n"+
+					"Expected fingerprint: %s\n"+
+					"Please add the key to agent using .ssh-add.",
 				expectedFingerprint,
 			)
 		}
 
-		slog.Debug("Барьер Proof of Possession успешно пройден, делегирование управления команде")
+		slog.Debug("Proof of Possession barrier passed, delegating to command")
 		return run(cmd, args)
 	}
 }
@@ -254,11 +254,11 @@ func (c *CLI) deviceStoreReader(ctx context.Context) (*repository.LocalDeviceSta
 	// Открываем легковесное изолированное соединение строго под чтение статуса
 	db, err := sqlite.Open(sqlitePath)
 	if err != nil {
-		return nil, errors.New("клиентское окружение не инициализировано: пожалуйста, выполните команду 'gophkeeper init'")
+		return nil, errors.New("client environment not initialized: please run .gophkeeper init.")
 	}
 	defer func() {
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("Не удалось закрыть дескриптор БД в deviceStoreReader", "error", closeErr)
+			slog.Error("Failed to close DB descriptor in deviceStoreReader", "error", closeErr)
 		}
 	}()
 
@@ -269,9 +269,9 @@ func (c *CLI) deviceStoreReader(ctx context.Context) (*repository.LocalDeviceSta
 // PrintResult выполняет централизованный вывод успешных результатов сессии.
 func (c *CLI) PrintResult(out io.Writer, payload interface{}, textRender func()) {
 	if c.JSONOutput {
-		slog.Debug("Форматирование успешного результата в JSON маркер")
+		slog.Debug("Formatting success result as JSON marker")
 		if err := json.NewEncoder(out).Encode(CLIResponse{Success: true, Data: payload}); err != nil {
-			slog.Error("Сбой маршалинга JSON ответа", "error", err)
+			slog.Error("JSON response marshaling failed", "error", err)
 			fmt.Fprintf(out, `{"success":false,"error":"internal json formatting error: %v"}`+"\n", err)
 		}
 		return
@@ -286,11 +286,11 @@ func (c *CLI) PrintError(out io.Writer, err error, contextMessage string) error 
 	}
 
 	fullErr := fmt.Errorf("%s: %w", contextMessage, err)
-	slog.Error("Регистрация системного сбоя рантайма команды", "context", contextMessage, "error", err)
+	slog.Error("Registering system command runtime failure", "context", contextMessage, "error", err)
 
 	if c.JSONOutput {
 		if jsonErr := json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fullErr.Error()}); jsonErr != nil {
-			slog.Error("Критический сбой маршалинга ошибки в JSON", "error", jsonErr)
+			slog.Error("Critical JSON error marshaling failure", "error", jsonErr)
 		}
 		return nil // Гасим панику Cobra, так как ответ уже записан в stdout конверт
 	}

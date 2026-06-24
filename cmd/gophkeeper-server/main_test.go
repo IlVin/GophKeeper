@@ -15,6 +15,6 @@ func TestServerMain_Run_ShouldNotPanic(t *testing.T) {
 		// Для изоляции теста мы не вызываем run() напрямую, так как rootCmd.Execute()
 		// начнет парсить флаги текущего go test, но верифицируем, что основная логика run
 		// защищена от nil pointer dereference.
-		slog.Info("Инфраструктурный тест boot-фазы сервера пройден")
+		slog.Info("Infrastructure test of server boot phase passed")
 	})
 }

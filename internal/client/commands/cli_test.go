@@ -16,7 +16,7 @@ func TestNewCLI_ShouldSetInternalViper(t *testing.T) {
 	cli := NewCLI(v)
 
 	assert.NotNil(t, cli)
-	assert.Equal(t, v, cli.Viper(), "Метод Viper() должен возвращать исходный указатель")
+	assert.Equal(t, v, cli.Viper(), "Viper() should return the original pointer")
 }
 
 // TestPrintResult_WithJSONOutput_ShouldFormatCorrectEnvelope проверяет
@@ -30,11 +30,11 @@ func TestPrintResult_WithJSONOutput_ShouldFormatCorrectEnvelope(t *testing.T) {
 	payload := map[string]string{"status": "OK"}
 
 	cli.PrintResult(buf, payload, func() {
-		t.Fatal("Пользовательский текстовый рендер не должен вызываться в режиме JSON")
+		t.Fatal("Custom text render should not be called in JSON mode")
 	})
 
 	expectedJSON := `{"success":true,"data":{"status":"OK"}}` + "\n"
-	assert.Equal(t, expectedJSON, buf.String(), "Вывод должен быть упакован в каноничный JSON-конверт")
+	assert.Equal(t, expectedJSON, buf.String(), "Output should be wrapped in canonical JSON envelope")
 }
 
 // TestPrintError_WithJSONOutput_ShouldSuppressCobraError проверяет, что в режиме
@@ -49,10 +49,10 @@ func TestPrintError_WithJSONOutput_ShouldSuppressCobraError(t *testing.T) {
 
 	err := cli.PrintError(buf, targetErr, "failed to sync")
 
-	assert.NoError(t, err, "Метод должен вернуть nil, чтобы Cobra не дублировала ошибку в системный stderr")
+	assert.NoError(t, err, "Method should return nil so Cobra doesn.t duplicate error to stderr")
 
 	expectedJSON := `{"success":false,"error":"failed to sync: network failure"}` + "\n"
-	assert.Equal(t, expectedJSON, buf.String(), "Текст ошибки должен быть корректно обернут в JSON-конверт")
+	assert.Equal(t, expectedJSON, buf.String(), "Error text should be properly wrapped in JSON envelope")
 }
 
 // TestPrintError_WithStandardOutput_ShouldReturnWrappedError проверяет поведение
@@ -67,7 +67,7 @@ func TestPrintError_WithStandardOutput_ShouldReturnWrappedError(t *testing.T) {
 
 	err := cli.PrintError(buf, targetErr, "failed to save")
 
-	require.Error(t, err, "В стандартном режиме ошибка должна пробрасываться наверх")
+	require.Error(t, err, "In standard mode error should be propagated upward")
 	assert.Contains(t, err.Error(), "failed to save: disk is full")
-	assert.Empty(t, buf.String(), "Поток вывода должен оставаться чистым")
+	assert.Empty(t, buf.String(), "Output stream should remain clean")
 }

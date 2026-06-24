@@ -42,24 +42,24 @@ type loggingDTO struct {
 func WriteDefaultConfigFile(path string, cfg Config) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		slog.Debug("Запрос на запись конфигурации отклонен: передан пустой путь")
+		slog.Debug("Config write request rejected: empty path provided")
 		return nil
 	}
 
 	dir := filepath.Dir(path)
-	slog.Debug("Подготовка директории для конфигурационного файла", "dir", dir)
+	slog.Debug("Preparing directory for config file", "dir", dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		slog.Error("Не удалось создать директорию конфигурации", "dir", dir, "error", err)
-		return fmt.Errorf("создание директории конфигурации %q: %w", dir, err)
+		slog.Error("Failed to create config directory", "dir", dir, "error", err)
+		return fmt.Errorf("create config directory %q: %w", dir, err)
 	}
 
 	// Если конфиг уже существует, защищаем пользовательские правки от перезаписи
 	if _, err := os.Stat(path); err == nil {
-		slog.Debug("Запись конфигурации по умолчанию пропущена: файл уже присутствует на диске")
+		slog.Debug("Default config write skipped: file already exists on disk")
 		return nil
 	} else if !os.IsNotExist(err) {
-		slog.Error("Не удалось проверить статус файла конфигурации", "path", path, "error", err)
-		return fmt.Errorf("проверка статуса файла конфигурации %q: %w", path, err)
+		slog.Error("Failed to check config file status", "path", path, "error", err)
+		return fmt.Errorf("check config file status %q: %w", path, err)
 	}
 
 	// Наполняем экспортируемую DTO-структуру из иммутабельных геттеров
@@ -80,16 +80,16 @@ func WriteDefaultConfigFile(path string, cfg Config) error {
 	// Честный маршалинг структуры со всеми отступами
 	content, err := yaml.Marshal(dto)
 	if err != nil {
-		slog.Error("Критическая ошибка сериализации конфигурации в YAML", "error", err)
-		return fmt.Errorf("маршалинг конфигурации в yaml: %w", err)
+		slog.Error("Critical config YAML serialization error", "error", err)
+		return fmt.Errorf("marshal config to yaml: %w", err)
 	}
 
-	slog.Debug("Запись параметров конфигурации на диск со строгими правами доступа 0600")
+	slog.Debug("Writing config params to disk with strict 0600 permissions")
 	if err := os.WriteFile(path, content, 0o600); err != nil {
-		slog.Error("Не удалось записать конфигурационный файл на диск", "path", path, "error", err)
-		return fmt.Errorf("запись файла конфигурации %q: %w", path, err)
+		slog.Error("Failed to write config file to disk", "path", path, "error", err)
+		return fmt.Errorf("write config file %q: %w", path, err)
 	}
 
-	slog.Info("Конфигурационный файл по умолчанию успешно сгенерирован")
+	slog.Info("Default config file successfully generated")
 	return nil
 }

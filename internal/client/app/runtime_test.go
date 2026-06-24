@@ -25,12 +25,12 @@ func TestNewApp_WithValidParams_ShouldSuccess(t *testing.T) {
 
 	appContainer, err := NewApp(fakeCfg, fakeDB)
 
-	require.NoError(t, err, "Конструктор не должен возвращать ошибку при валидных параметрах")
-	require.NotNil(t, appContainer, "Контейнер приложения должен быть успешно создан")
+	require.NoError(t, err, "constructor should not return error with valid parameters")
+	require.NotNil(t, appContainer, "application container should be created successfully")
 
 	// Проверяем работу инкапсулированных геттеров
-	assert.Equal(t, fakeDB, appContainer.DB(), "Геттер DB() должен возвращать тот же указатель")
-	assert.Equal(t, "debug", appContainer.Config().Logging().Level(), "Геттер Config() должен возвращать корректную структуру данных")
+	assert.Equal(t, fakeDB, appContainer.DB(), "DB() getter should return the same pointer")
+	assert.Equal(t, "debug", appContainer.Config().Logging().Level(), "Config() getter should return correct data structure")
 }
 
 // TestNewApp_WithNilDB_ShouldReturnError проверяет срабатывание барьера fail-fast
@@ -44,6 +44,6 @@ func TestNewApp_WithNilDB_ShouldReturnError(t *testing.T) {
 
 	appContainer, err := NewApp(fakeCfg, nil)
 
-	assert.ErrorIs(t, err, ErrNilDatabase, "Конструктор должен вернуть специфичную ошибку ErrNilDatabase")
-	assert.Nil(t, appContainer, "При ошибке валидации контейнер приложения должен быть nil")
+	assert.ErrorIs(t, err, ErrNilDatabase, "constructor should return specific ErrNilDatabase error")
+	assert.Nil(t, appContainer, "on validation error application container should be nil")
 }

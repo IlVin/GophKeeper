@@ -56,7 +56,7 @@ func (c *ServerCLI) newStartCommand() *cobra.Command {
 				serverErrChan <- application.Run()
 			}()
 
-			fmt.Fprintln(out, "✔ GophKeeper secure daemon initialized. Listen channel open.")
+			fmt.Fprintln(out, "[OK] GophKeeper secure daemon initialized. Listen channel open.")
 
 			// Ожидаем либо критической ошибки рантайма gRPC, либо сигнала остановки от ОС
 			select {
@@ -74,7 +74,7 @@ func (c *ServerCLI) newStartCommand() *cobra.Command {
 				}
 
 				slog.Info("GophKeeper cloud daemon stopped clean. Active descriptors released.")
-				fmt.Fprintln(out, "✔ GophKeeper server stopped clean.")
+				fmt.Fprintln(out, "[OK] GophKeeper server stopped clean.")
 			}
 
 			return nil

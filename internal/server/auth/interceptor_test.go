@@ -80,6 +80,6 @@ func TestAuthInterceptor_ProtectedEndpoints_FailsIfNoCertificate(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, codes.Unauthenticated, st.Code(), "Интерцептор обязан вернуть код Unauthenticated для защиты от TLS-Bypass")
+	assert.Equal(t, codes.Unauthenticated, st.Code(), "Interceptor must return Unauthenticated code to protect against TLS-Bypass")
 	assert.Contains(t, st.Message(), "mutual TLS authentication is strictly required")
 }

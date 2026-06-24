@@ -14,8 +14,8 @@ import (
 func TestMigrationsFS_ShouldContainCanonicalFiles(t *testing.T) {
 	// Считываем содержимое встроенной директории migrations
 	entries, err := sqlite.MigrationsFS.ReadDir("migrations")
-	require.NoError(t, err, "Встроенная директория migrations должна быть доступна для чтения")
-	require.Len(t, entries, 2, "Внутри встроенной папки должно находиться строго 2 файла миграций")
+	require.NoError(t, err, "Embedded migrations directory must be readable")
+	require.Len(t, entries, 2, "Embedded folder must contain exactly 2 migration files")
 
 	// Массив ожидаемых канонических имен файлов
 	expectedFiles := map[string]bool{
@@ -24,7 +24,7 @@ func TestMigrationsFS_ShouldContainCanonicalFiles(t *testing.T) {
 	}
 
 	for _, entry := range entries {
-		assert.False(t, entry.IsDir(), "Файловая система не должна содержать вложенных папок")
-		assert.True(t, expectedFiles[entry.Name()], "Обнаружен недокументированный или сторонний SQL-файл в миграциях: %s", entry.Name())
+		assert.False(t, entry.IsDir(), "File system must not contain nested folders")
+		assert.True(t, expectedFiles[entry.Name()], "Undocumented or third-party SQL file found in migrations: %s", entry.Name())
 	}
 }

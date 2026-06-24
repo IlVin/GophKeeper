@@ -16,7 +16,7 @@ func TestRegisterService_Constructor(t *testing.T) {
 	// Конструируем сервис с nil сетевыми зависимостями чисто под проверку контракта сборки
 	regServ := service.NewRegisterService(store, nil, nil, nil)
 
-	assert.NotNil(t, regServ, "Конструктор сервиса регистрации обязан успешно собирать объект")
+	assert.NotNil(t, regServ, "Registration service constructor must build object successfully")
 }
 
 // TestRunRegistration_AbortsIfEnvironmentMissing проверяет срабатывание защитного ИБ-барьера,
@@ -28,5 +28,5 @@ func TestRunRegistration_AbortsIfEnvironmentMissing(t *testing.T) {
 
 	err := regServ.RunRegistration(ctx, "localhost:443")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "environment is not initialized", "Метод должен упасть с понятной ошибкой до gRPC вызовов")
+	assert.Contains(t, err.Error(), "environment is not initialized", "Method must fail with clear error before gRPC calls")
 }

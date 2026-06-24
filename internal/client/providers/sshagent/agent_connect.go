@@ -29,15 +29,15 @@ const (
 )
 
 var (
-	ErrSSHAuthSockNotSet         = errors.New("переменная окружения SSH_AUTH_SOCK не задана")
-	ErrAgentHasNoKeys            = errors.New("в ssh-agent отсутствуют загруженные ключи")
-	ErrKeyNotFound               = errors.New("указанный SSH-ключ не найден в агенте")
-	ErrUnsupportedKeyAlgorithm   = errors.New("неподдерживаемый алгоритм SSH-ключа: необходим Ed25519")
-	ErrUnexpectedSignatureFormat = errors.New("неверный или поврежденный формат OpenSSH подписи")
-	ErrNonDeterministicSignature = errors.New("подпись не детерминирована: обнаружен аппаратный токен")
-	ErrEmptyPayload              = errors.New("полезная нагрузка для подписи не может быть пустой")
-	ErrNilPublicKey              = errors.New("публичный ключ не может быть nil")
-	ErrEmptyFingerprint          = errors.New("фингерпринт ключа не может быть пустым")
+	ErrSSHAuthSockNotSet         = errors.New("SSH_AUTH_SOCK environment variable is not set")
+	ErrAgentHasNoKeys            = errors.New("no keys loaded in ssh-agent")
+	ErrKeyNotFound               = errors.New("specified SSH key not found in agent")
+	ErrUnsupportedKeyAlgorithm   = errors.New("unsupported SSH key algorithm: Ed25519 required")
+	ErrUnexpectedSignatureFormat = errors.New("invalid or corrupted OpenSSH signature format")
+	ErrNonDeterministicSignature = errors.New("signature is not deterministic: hardware token detected")
+	ErrEmptyPayload              = errors.New("signing payload cannot be empty")
+	ErrNilPublicKey              = errors.New("public key cannot be nil")
+	ErrEmptyFingerprint          = errors.New("key fingerprint cannot be empty")
 )
 
 // SignerInfo инкапсулирует метаданные и публичную часть извлеченного SSH-ключа.
@@ -62,7 +62,7 @@ type Client struct {
 func NewFromEnv() (*Client, error) {
 	socketPath := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
 	if socketPath == "" {
-		slog.Error("Инициализация крипто-сокета отклонена: SSH_AUTH_SOCK отсутствует")
+		slog.Error("Crypto socket initialization rejected: SSH_AUTH_SOCK missing")
 		return nil, ErrSSHAuthSockNotSet
 	}
 	return New(socketPath)
@@ -94,7 +94,7 @@ func (c *Client) Close() error {
 		return nil
 	}
 
-	slog.Debug("Закрытие сессии UNIX-сокета ssh-agent")
+	slog.Debug("Closing ssh-agent UNIX socket session")
 	err := c.conn.Close()
 	c.conn = nil
 	c.ag = nil
@@ -118,9 +118,9 @@ func (c *Client) List() ([]SignerInfo, error) {
 
 	keys, err := c.ag.List()
 	if err != nil {
-		slog.Warn("Потеря связи с сокетом ssh-agent при вызове List, попытка реконнекта", "error", err)
+		slog.Warn("Lost connection to ssh-agent socket during List, attempting reconnect", "error", err)
 		if reconnectErr := c.reconnectLocked(); reconnectErr != nil {
-			slog.Error("Аварийное переподключение к сокету агента завершилось сбоем", "error", reconnectErr)
+			slog.Error("Emergency agent socket reconnect failed", "error", reconnectErr)
 			return nil, err
 		}
 
@@ -138,7 +138,7 @@ func (c *Client) List() ([]SignerInfo, error) {
 	for _, k := range keys {
 		pub, err := ssh.ParsePublicKey(k.Blob)
 		if err != nil {
-			slog.Debug("Пропущен невалидный блоб ключа при парсинге в агенте", "error", err)
+			slog.Debug("Skipped invalid key blob during agent parsing", "error", err)
 			continue
 		}
 

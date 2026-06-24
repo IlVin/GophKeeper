@@ -30,15 +30,15 @@ import (
 func newRegisterCommand(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register",
-		Short: "Привязать локальный сейф к облачному аккаунту через криптографический вызов SSH",
-		Long:  `Выполняет двухэтапную авторизацию облачного владения ключом Ed25519 через шифрованный канал TLS 1.3 и импортирует mTLS-паспорт.`,
+		Short: "Attach local vault to cloud account via cryptographic SSH challenge",
+		Long:  `Performs two-step cloud Ed25519 key ownership authorization via encrypted TLS 1.3 channel and imports mTLS passport.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			slog.Info("Старт выполнения команды сетевой регистрации устройства")
+			slog.Info("Starting network device registration command")
 
 			// 1. ПРОВЕРКА МАТРИЦЫ PRECONDITIONS
 			if err := sshcheck.RequireAgent(); err != nil {
-				return cli.PrintError(out, err, "ошибка проверки ssh-agent")
+				return cli.PrintError(out, err, "ssh-agent check error")
 			}
 
 			// Разбираем эфемерные параметры вызова
@@ -47,19 +47,19 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 			serverAddr = strings.TrimSpace(serverAddr)
 
 			if serverAddr == "" {
-				return cli.PrintError(out, errors.New("параметр --server обязателен и не может быть пустым"), "валидация флагов")
+				return cli.PrintError(out, errors.New("--server parameter is required and cannot be empty"), "flag validation")
 			}
 
 			// 2. ПРОВЕРКА СОСТОЯНИЯ КОНТЕЙНЕРА (Барьер конечного автомата жизненного цикла)
 			app, err := cli.App(cmd.Context())
 			if err != nil {
-				return cli.PrintError(out, err, "запуск контекста приложения")
+				return cli.PrintError(out, err, "application context startup")
 			}
 
 			deviceStore := sqlite.NewSQLiteDeviceStore(app.DB())
 			localState, err := deviceStore.ReadDeviceState(cmd.Context())
 			if err != nil {
-				return cli.PrintError(out, err, "чтение локального статуса устройства")
+				return cli.PrintError(out, err, "reading local device status")
 			}
 
 			// Критерий успешной сетевой регистрации — наличие mTLS паспорта устройства
@@ -68,36 +68,36 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 				if localState.ServerURL != nil {
 					serverURLStr = *localState.ServerURL
 				}
-				statusErr := fmt.Errorf("контейнер уже зарегистрирован и содержит активный mTLS-паспорт (Сервер: %s, UserID: %s)", serverURLStr, *localState.UserID)
-				slog.Warn("Попытка повторной регистрации заблокирована конечным автоматом", "user_id", *localState.UserID)
-				return cli.PrintError(out, statusErr, "валидация статуса")
+				statusErr := fmt.Errorf("container already registered and contains active mTLS passport (Server: %s, UserID: %s)", serverURLStr, *localState.UserID)
+				slog.Warn("Attempted re-registration blocked by state machine", "user_id", *localState.UserID)
+				return cli.PrintError(out, statusErr, "status validation")
 			}
 
 			// 3. РАБОТА С SSH КЛЮЧОМ И АГЕНТОМ
 			dbPubKey, err := ssh.ParsePublicKey(localState.SshPublicKey)
 			if err != nil {
-				return cli.PrintError(out, err, "структура метаданных публичного ключа повреждена")
+				return cli.PrintError(out, err, "public key metadata structure corrupted")
 			}
 			expectedFingerprint := sshagent.FingerprintSHA256(dbPubKey)
 
 			// Проверяем реальное наличие в ssh-agent ключа, с которым делали init
 			agentClient, err := sshagent.NewFromEnv()
 			if err != nil {
-				return cli.PrintError(out, err, "подключение к сокету ssh-agent")
+				return cli.PrintError(out, err, "connect to ssh-agent socket")
 			}
 
 			agentClosedChecked := false
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть UNIX-сокет агента в defer register", "error", closeErr)
+						slog.Error("Failed to close UNIX agent socket in register defer", "error", closeErr)
 					}
 				}
 			}()
 
 			if _, err = agentClient.FindED25519ByFingerprint(expectedFingerprint); err != nil {
-				agentErr := fmt.Errorf("корневой криптографический ключ инициализации (%s) должен быть загружен в ваш ssh-agent. Выполните 'ssh-add'", expectedFingerprint)
-				return cli.PrintError(out, agentErr, "отказ в доступе")
+				agentErr := fmt.Errorf("root cryptographic initialization key (%s) must be loaded in your ssh-agent. Run .ssh-add.", expectedFingerprint)
+				return cli.PrintError(out, agentErr, "access denied")
 			}
 
 			// 4. НАСТРОЙКА СЕТЕВОГО ТРАНСПОРТА (Строго изолированный TLS 1.3 с динамическим Hostname)
@@ -108,7 +108,7 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 
 			serverCAPool, err := certs.LoadServerCAPool()
 			if err != nil {
-				return cli.PrintError(out, err, "загрузка встроенного пула доверенных сертификатов")
+				return cli.PrintError(out, err, "loading embedded trusted certificate pool")
 			}
 
 			tlsCfg := &tls.Config{
@@ -117,7 +117,7 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 				RootCAs:    serverCAPool, // Намертво привязываем клиента к нашему Server CA
 			}
 
-			slog.Debug("Открытие изолированного защищенного канала gRPC TLS 1.3", "sni", targetHost)
+			slog.Debug("Opening isolated secure gRPC TLS 1.3 channel", "sni", targetHost)
 			conn, err := grpc.NewClient(
 				serverAddr,
 				grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
@@ -127,14 +127,14 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 				),
 			)
 			if err != nil {
-				return cli.PrintError(out, err, "инициализация сетевого gRPC клиента")
+				return cli.PrintError(out, err, "gRPC network client initialization")
 			}
 
 			connClosedChecked := false
 			defer func() {
 				if !connClosedChecked {
 					if closeErr := conn.Close(); closeErr != nil {
-						slog.Error("Не удалось закрыть gRPC-соединение в defer register", "error", closeErr)
+						slog.Error("Failed to close gRPC connection in register defer", "error", closeErr)
 					}
 				}
 			}()
@@ -148,22 +148,22 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 
 			for {
 				state := conn.GetState()
-				slog.Debug("Сдвиг состояния gRPC-транспорта авторизации", "state", state.String())
+				slog.Debug("gRPC transport auth state transition", "state", state.String())
 
 				if state == connectivity.Ready {
 					break
 				}
 				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
-					connErr := fmt.Errorf("установление защищенного TLS-канала gRPC прервано (системный статус: %s)", state)
-					return cli.PrintError(out, connErr, "сетевой сбой")
+					connErr := fmt.Errorf("secure gRPC TLS channel establishment aborted (system status: %s)", state)
+					return cli.PrintError(out, connErr, "network failure")
 				}
 				if !conn.WaitForStateChange(ctx, state) {
-					timeoutErr := errors.New("таймаут ожидания безопасного рукопожатия TLS 1.3 истек")
+					timeoutErr := errors.New("TLS 1.3 secure handshake timeout expired")
 					return cli.PrintError(out, timeoutErr, "таймаут сети")
 				}
 			}
 
-			slog.Info("Физический TLS 1.3 канал успешно верифицирован, запуск Composition Root")
+			slog.Info("Physical TLS 1.3 channel verified, starting Composition Root")
 
 			// 5. ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ И ЗАПУСК КРИПТОГРАФИЧЕСКОГО КОНВЕЙЕРА РЕГИСТРАЦИИ
 			initService := service.NewInitService(deviceStore, agentClient)
@@ -171,18 +171,18 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 
 			err = regService.RunRegistration(cmd.Context(), serverAddr)
 			if err != nil {
-				slog.Error("Криптографический конвейер сетевой регистрации завершился крахом", "error", err)
-				return cli.PrintError(out, err, "сбой пайплайна регистрации")
+				slog.Error("Cryptographic registration pipeline crashed", "error", err)
+				return cli.PrintError(out, err, "registration pipeline failure")
 			}
 
 			// Безопасно финализируем ресурсы до вывода результатов на экран
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Не удалось закрыть сокет агента при успешном выходе из register", "error", closeErr)
+				slog.Error("Failed to close agent socket on successful exit from register", "error", closeErr)
 			}
 			agentClosedChecked = true
 
 			if closeErr := conn.Close(); closeErr != nil {
-				slog.Error("Не удалось закрыть транспорт gRPC при успешном выходе из register", "error", closeErr)
+				slog.Error("Failed to close gRPC transport on successful exit from register", "error", closeErr)
 			}
 			connClosedChecked = true
 
@@ -194,10 +194,10 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 			}
 
 			cli.PrintResult(out, payload, func() {
-				fmt.Fprintf(out, "Установление канала TLS 1.3 до узла %s [TLS SNI: %s]...\n", serverAddr, targetHost)
-				fmt.Fprintln(out, "Запуск двухэтапного беспарольного протокола взаимной верификации...")
-				fmt.Fprintf(out, "\n✔ Успех! Контейнер успешно привязан к облачному аккаунту %q.\n", expectedFingerprint)
-				fmt.Fprintln(out, "mTLS-паспорт устройства получен и сохранен. Статус изменен на: REGISTERED")
+				fmt.Fprintf(out, "Establishing TLS 1.3 channel to node %s [TLS SNI: %s]...\n", serverAddr, targetHost)
+				fmt.Fprintln(out, "Starting two-step passwordless mutual verification protocol...")
+				fmt.Fprintf(out, "\n✔ SUCCESS! Container successfully attached to cloud account %q.\n", expectedFingerprint)
+				fmt.Fprintln(out, "mTLS device passport received and saved. Status changed to: REGISTERED")
 			})
 
 			return nil
@@ -205,7 +205,7 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 	}
 
 	// Регистрация флага вызова
-	cmd.Flags().String("server", "", "Адрес доверенного сервера GophKeeper в формате HOST:PORT")
+	cmd.Flags().String("server", "", "Address of trusted GophKeeper server in HOST:PORT format")
 	_ = cmd.MarkFlagRequired("server")
 
 	return cmd

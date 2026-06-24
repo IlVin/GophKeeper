@@ -22,7 +22,7 @@ func TestDerivationPayload_Marshal_Success(t *testing.T) {
 
 	// 1. Проверяем первые 4 байта версии протокола (должна быть 1)
 	version := binary.BigEndian.Uint32(buf[0:4])
-	assert.Equal(t, uint32(1), version, "Первые 4 байта обязаны кодировать Version1 (1) в Big-Endian")
+	assert.Equal(t, uint32(1), version, "First 4 bytes must encode Version1 (1) in Big-Endian")
 
 	// 2. Проверяем заголовок длины контекста (байты 4-6)
 	ctxLen := binary.BigEndian.Uint16(buf[4:6])
@@ -30,7 +30,7 @@ func TestDerivationPayload_Marshal_Success(t *testing.T) {
 
 	// 3. Проверяем извлечение самого контекстного маркера деривации
 	extractedCtx := string(buf[6 : 6+ctxLen])
-	assert.Equal(t, security.ContextAccountUnlock, extractedCtx, "Маркер контекста должен точно совпадать")
+	assert.Equal(t, security.ContextAccountUnlock, extractedCtx, "Context marker must match exactly")
 
 	// 4. Проверяем заголовок длины фингерпринта на правильном смещении
 	offset := 6 + int(ctxLen)
@@ -39,7 +39,7 @@ func TestDerivationPayload_Marshal_Success(t *testing.T) {
 
 	// 5. Проверяем извлечение самого фингерпринта из хвоста буфера
 	extractedFp := string(buf[offset+2:])
-	assert.Equal(t, mockFingerprint, extractedFp, "Фингерпринт в буфере должен совпадать с исходным")
+	assert.Equal(t, mockFingerprint, extractedFp, "Fingerprint in buffer must match original")
 }
 
 // TestDerivationPayload_Marshal_FieldTooLong_ShouldReturnNil проверяет барьер
@@ -55,5 +55,5 @@ func TestDerivationPayload_Marshal_FieldTooLong_ShouldReturnNil(t *testing.T) {
 
 	// Конвейер обязан вернуть nil вместо паники нарушения границ среза буфера
 	buf := payload.Marshal()
-	assert.Nil(t, buf, "Функция обязана вернуть nil, предотвращая integer overflow паники")
+	assert.Nil(t, buf, "Function must return nil, preventing integer overflow panic")
 }

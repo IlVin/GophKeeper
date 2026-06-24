@@ -13,7 +13,7 @@ import (
 
 var (
 	// ErrNilDatabase Connection возвращается, если в конструктор передана пустая ссылка на СУБД.
-	ErrNilDatabase = errors.New("пул соединений с базой данных не может быть nil")
+	ErrNilDatabase = errors.New("database connection pool cannot be nil")
 )
 
 // App представляет собой изолированный рантайм-контейнер ресурсов приложения.

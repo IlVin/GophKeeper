@@ -22,9 +22,9 @@ func TestNewServerRootCommand_Success_FlagsVerification(t *testing.T) {
 
 	// Проверяем наличие персистентных флагов в собранном объекте
 	pFlags := rootCmd.PersistentFlags()
-	assert.NotNil(t, pFlags.Lookup("config"), "Флаг --config должен быть зарегистрирован")
-	assert.NotNil(t, pFlags.Lookup("database"), "Флаг --database должен быть зарегистрирован")
-	assert.NotNil(t, pFlags.Lookup("bind-grpc"), "Флаг --bind-grpc должен быть зарегистрирован")
+	assert.NotNil(t, pFlags.Lookup("config"), "--config flag must be registered")
+	assert.NotNil(t, pFlags.Lookup("database"), "--database flag must be registered")
+	assert.NotNil(t, pFlags.Lookup("bind-grpc"), "--bind-grpc flag must be registered")
 
 	// Проверяем базовые дефолты флагов
 	assert.Equal(t, ":443", pFlags.Lookup("bind-grpc").DefValue)

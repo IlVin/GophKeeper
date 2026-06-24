@@ -152,7 +152,7 @@ func TestSecretService_CreateSecret_FailsIfEmptyPayload(t *testing.T) {
 	ctx := context.Background()
 
 	err := serv.CreateSecret(ctx, "google-pass", "credentials", []byte(""))
-	assert.Error(t, err, "Метод должен вернуть ошибку при пустом plaintextPayload")
+	assert.Error(t, err, "Method must return error on empty plaintextPayload")
 	assert.Contains(t, err.Error(), "secret payload cannot be empty")
 }
 

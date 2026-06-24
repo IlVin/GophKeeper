@@ -26,7 +26,7 @@ func TestApp_Context_Lifecycle_ShouldSuccess(t *testing.T) {
 	// Извлекаем обратно
 	fetchedApp, err := AppFromContext(ctx)
 	require.NoError(t, err)
-	assert.Same(t, originApp, fetchedApp, "Извлеченный из контекста объект должен быть идентичен исходному указателю")
+	assert.Same(t, originApp, fetchedApp, "Extracted object must be identical to original pointer")
 }
 
 // TestAppFromContext_WithEmptyContext_ShouldReturnError проверяет барьер безопасности при пустом контексте.

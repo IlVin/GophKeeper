@@ -34,7 +34,7 @@ func TestSecretStore_SaveAndGet_Success(t *testing.T) {
 
 	// Тест Save (Insert)
 	err := store.Save(ctx, mockRecord)
-	require.NoError(t, err, "Сохранение записи на исправленных плейсхолдерах должно проходить без ошибок")
+	require.NoError(t, err, "Saving record on corrected placeholders must succeed without errors")
 
 	// Тест GetByID
 	fetchedByID, err := store.GetByID(ctx, mockRecord.ID)
@@ -42,7 +42,7 @@ func TestSecretStore_SaveAndGet_Success(t *testing.T) {
 	require.NotNil(t, fetchedByID)
 	assert.Equal(t, mockRecord.Name, fetchedByID.Name)
 	assert.Equal(t, mockRecord.Envelope, fetchedByID.Envelope)
-	assert.True(t, mockRecord.CreatedAt.Equal(fetchedByID.CreatedAt), "Временные метки создания должны совпадать до секунды")
+	assert.True(t, mockRecord.CreatedAt.Equal(fetchedByID.CreatedAt), "Created timestamps must match up to second")
 
 	// Тест GetByName
 	fetchedByName, err := store.GetByName(ctx, mockRecord.Name)
@@ -90,7 +90,7 @@ func TestSecretStore_SaveRaw_LWW_Enforcement(t *testing.T) {
 	// Верифицируем, что данные в базе НЕ изменились (LWW защитил локальную копию)
 	checkRec, err := store.GetByID(ctx, recordID)
 	require.NoError(t, err)
-	assert.Equal(t, []byte("local-version-payload"), checkRec.Envelope, "LWW обязан отклонить устаревший сетевой пакет")
+	assert.Equal(t, []byte("local-version-payload"), checkRec.Envelope, "LWW must reject outdated network packet")
 
 	// 3. Сценарий Б: С сервера пришел пакет, который СВЕЖЕЕ локального (LWW должен ОБНОВИТЬ)
 	newerServerRec := &repository.EncryptedRecord{
@@ -107,7 +107,7 @@ func TestSecretStore_SaveRaw_LWW_Enforcement(t *testing.T) {
 	// Верифицируем, что данные обновились серверными значениями
 	checkRecUpdated, err := store.GetByID(ctx, recordID)
 	require.NoError(t, err)
-	assert.Equal(t, []byte("fresh-server-payload"), checkRecUpdated.Envelope, "LWW обязан применить свежий сетевой пакет")
+	assert.Equal(t, []byte("fresh-server-payload"), checkRecUpdated.Envelope, "LWW must apply fresh network packet")
 }
 
 // TestSecretStore_SoftDelete проверяет мягкое удаление и фильтрацию записей.
@@ -148,30 +148,30 @@ func TestSecretStore_SoftDelete(t *testing.T) {
 	// 4. Проверяем, что запись НЕ доступна через GetByID (фильтр is_deleted=0)
 	deletedByID, err := store.GetByID(ctx, record.ID)
 	require.NoError(t, err)
-	assert.Nil(t, deletedByID, "Удаленная запись не должна возвращаться через GetByID")
+	assert.Nil(t, deletedByID, "Deleted record must not be returned via GetByID")
 
 	// 5. Проверяем, что запись НЕ доступна через GetByName (фильтр is_deleted=0)
 	deletedByName, err := store.GetByName(ctx, record.Name)
 	require.NoError(t, err)
-	assert.Nil(t, deletedByName, "Удаленная запись не должна возвращаться через GetByName")
+	assert.Nil(t, deletedByName, "Deleted record must not be returned via GetByName")
 
 	// 6. Проверяем, что запись НЕ отображается в List (фильтр is_deleted=0)
 	list, err := store.List(ctx)
 	require.NoError(t, err)
-	assert.Empty(t, list, "Удаленная запись не должна отображаться в List")
+	assert.Empty(t, list, "Deleted record must not appear in List")
 
 	// 7. Проверяем, что запись ДОСТУПНА через GetRawByID (без фильтра)
 	rawRecord, err := store.GetRawByID(ctx, record.ID)
 	require.NoError(t, err)
 	require.NotNil(t, rawRecord)
-	assert.Equal(t, int32(1), rawRecord.IsDeleted, "GetRawByID должен возвращать is_deleted=1")
+	assert.Equal(t, int32(1), rawRecord.IsDeleted, "GetRawByID must return is_deleted=1")
 	assert.Equal(t, record.ID, rawRecord.ID)
 	assert.Equal(t, record.Name, rawRecord.Name)
 
 	// 8. Проверяем, что запись присутствует в SyncMetadata (для синхронизации)
 	syncMeta, err := store.GetSyncMetadata(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, syncMeta, record.ID, "Удаленная запись должна присутствовать в SyncMetadata")
+	assert.Contains(t, syncMeta, record.ID, "Deleted record must be present in SyncMetadata")
 }
 
 // TestSecretStore_SoftDelete_Restore проверяет восстановление мягко удаленной записи.
@@ -223,13 +223,13 @@ func TestSecretStore_SoftDelete_Restore(t *testing.T) {
 	fetched, err := store.GetByID(ctx, recordID)
 	require.NoError(t, err)
 	require.NotNil(t, fetched)
-	assert.Equal(t, int32(0), fetched.IsDeleted, "Запись должна быть восстановлена (is_deleted=0)")
-	assert.Equal(t, []byte("restored-envelope"), fetched.Envelope, "Данные должны обновиться")
+	assert.Equal(t, int32(0), fetched.IsDeleted, "Record must be restored (is_deleted=0)")
+	assert.Equal(t, []byte("restored-envelope"), fetched.Envelope, "Data must update")
 
 	// 5. Проверяем, что запись отображается в List
 	list, err := store.List(ctx)
 	require.NoError(t, err)
-	assert.Len(t, list, 1, "Восстановленная запись должна отображаться в List")
+	assert.Len(t, list, 1, "Restored record must appear in List")
 	assert.Equal(t, recordID, list[0].ID)
 }
 
@@ -278,11 +278,11 @@ func TestSecretStore_Save_PreservesIsDeleted(t *testing.T) {
 	rawRecord, err := store.GetRawByID(ctx, recordID)
 	require.NoError(t, err)
 	require.NotNil(t, rawRecord)
-	assert.Equal(t, int32(1), rawRecord.IsDeleted, "Save должен сохранять is_deleted как есть")
-	assert.Equal(t, []byte("updated-envelope"), rawRecord.Envelope, "Данные должны обновиться")
+	assert.Equal(t, int32(1), rawRecord.IsDeleted, "Save must preserve is_deleted as is")
+	assert.Equal(t, []byte("updated-envelope"), rawRecord.Envelope, "Data must update")
 
 	// 4. Проверяем, что через обычный GetByID запись не видна
 	fetched, err := store.GetByID(ctx, recordID)
 	require.NoError(t, err)
-	assert.Nil(t, fetched, "Запись с is_deleted=1 не должна возвращаться через GetByID")
+	assert.Nil(t, fetched, "Record with is_deleted=1 must not be returned via GetByID")
 }

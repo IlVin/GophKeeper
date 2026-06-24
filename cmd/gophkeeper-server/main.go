@@ -15,7 +15,7 @@ func main() {
 	// Инициируем сквозной запуск сервера с перехватом критических исключений
 	if err := run(); err != nil {
 		// Фиксируем ИБ-инцидент падения сервера в системный логгер
-		slog.Error("Критический сбой рантайма: работа сервера аварийно завершена", "error", err)
+		slog.Error("Critical runtime failure: server terminated abnormally", "error", err)
 
 		// Дублируем чистый трейс в stderr для системных демонов ОС (systemd/docker logs)
 		fmt.Fprintf(os.Stderr, "FATAL: server terminated with error: %v\n", err)
@@ -36,7 +36,7 @@ func run() error {
 	defer func() {
 		if closeErr := serverCLI.Close(); closeErr != nil {
 			// Явно перехватываем ошибку закрытия ресурсов для исключения зомби-дескрипторов в ОС
-			slog.Error("Ошибка финализации ресурсов сервера при выполнении Graceful Shutdown", "error", closeErr)
+			slog.Error("Error finalizing server resources during Graceful Shutdown", "error", closeErr)
 		}
 	}()
 

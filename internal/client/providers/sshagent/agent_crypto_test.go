@@ -21,7 +21,7 @@ func TestClient_ListED25519_Success(t *testing.T) {
 	}()
 
 	keys, err := client.ListED25519()
-	require.NoError(t, err, "Программный ключ ed25519 обязан успешно пройти проверку детерминированности")
+	require.NoError(t, err, "Software ed25519 key must successfully pass determinism test")
 	require.Len(t, keys, 1)
 	assert.Equal(t, "deterministic-software-key", keys[0].Comment)
 }
@@ -45,8 +45,8 @@ func TestClient_SignED25519Raw_Success(t *testing.T) {
 	payload := []byte("gophkeeper-secure-derivation-block-v1")
 	rawSignature, err := client.SignED25519Raw(targetFingerprint, payload)
 
-	require.NoError(t, err, "Запрос подписи у агента должен пройти успешно")
-	assert.Len(t, rawSignature, 64, "Бинарный массив сырой подписи Ed25519 должен составлять ровно 64 байта")
+	require.NoError(t, err, "Signing request to agent must succeed")
+	assert.Len(t, rawSignature, 64, "Raw Ed25519 signature binary must be exactly 64 bytes")
 }
 
 // TestClient_FindED25519ByFingerprint_NotFound проверяет генерацию ошибки,
@@ -62,7 +62,7 @@ func TestClient_FindED25519ByFingerprint_NotFound(t *testing.T) {
 	}()
 
 	info, err := client.FindED25519ByFingerprint("SHA256:nonexistentfingerprintvalue")
-	assert.ErrorIs(t, err, ErrKeyNotFound, "Должна вернуться каноничная ошибка ErrKeyNotFound")
+	assert.ErrorIs(t, err, ErrKeyNotFound, "Must return canonical ErrKeyNotFound error")
 	assert.Nil(t, info)
 }
 
@@ -76,6 +76,6 @@ func TestExtractED25519RawSignature_WithInvalidBlob_ShouldReturnError(t *testing
 	}
 
 	raw, err := ExtractED25519RawSignature(corruptedSignature)
-	assert.Error(t, err, "Попытка распарсить невалидный блоб должна вызвать ошибку формата")
+	assert.Error(t, err, "Attempt to parse invalid blob must cause format error")
 	assert.Nil(t, raw)
 }

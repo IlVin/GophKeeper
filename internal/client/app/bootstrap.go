@@ -15,7 +15,7 @@ import (
 
 var (
 	// ErrDatabaseMissing возвращается, если файл контейнера SQLite отсутствует на диске.
-	ErrDatabaseMissing = errors.New("файл базы данных не найден: пожалуйста, выполните сначала команду 'gophkeeper init'")
+	ErrDatabaseMissing = errors.New("database file not found: please run .gophkeeper init. first")
 )
 
 // New инициализирует, проверяет права и собирает рантайм-контейнер для уже созданного окружения.
@@ -23,42 +23,42 @@ var (
 // Функция выполняет fail-fast проверку наличия файла на диске, открывает безопасное
 // WAL-соединение с СУБД SQLite и верифицирует его через PingContext.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
-	slog.Debug("Запуск проверки окружения и инициализации контейнера базы данных")
+	slog.Debug("Starting environment check and database container initialization")
 
 	// Извлекаем путь к базе данных через каноническую цепочку иммутабельных геттеров
 	sqlitePath := cfg.Storage().SQLitePath()
 
 	// Проверяем физическое наличие файла БД перед открытием.
 	if _, err := os.Stat(sqlitePath); os.IsNotExist(err) {
-		slog.Error("инициализация рантайма отклонена: контейнер SQLite не создан", "path", sqlitePath)
+		slog.Error("runtime initialization rejected: SQLite container not created", "path", sqlitePath)
 		return nil, fmt.Errorf("%w (путь: %s)", ErrDatabaseMissing, sqlitePath)
 	}
 
 	// Открываем существующую БД. Внутренний метод sqlite.Open проверит права доступа 0600/0700.
 	db, err := sqlite.Open(sqlitePath)
 	if err != nil {
-		slog.Error("не удалось открыть локальный контейнер хранения", "error", err)
-		return nil, fmt.Errorf("открытие sqlite контейнера: %w", err)
+		slog.Error("failed to open local storage container", "error", err)
+		return nil, fmt.Errorf("open sqlite container: %w", err)
 	}
 
 	// Проверяем живое соединение с учетом контекста прерывания сессии (Ctrl+C)
 	if err := db.PingContext(ctx); err != nil {
-		slog.Error("верификация соединения с SQLite провалилась", "error", err)
+		slog.Error("SQLite connection verification failed", "error", err)
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("не удалось закрыть дескриптор БД после неудачного пинга", "close_error", closeErr)
-			return nil, fmt.Errorf("пинг базы данных (%w), закрытие дескриптора: %w", err, closeErr)
+			slog.Error("failed to close DB descriptor after failed ping", "close_error", closeErr)
+			return nil, fmt.Errorf("database ping (%w), closing descriptor: %w", err, closeErr)
 		}
-		return nil, fmt.Errorf("проверка соединения с sqlite: %w", err)
+		return nil, fmt.Errorf("sqlite connection check: %w", err)
 	}
 
-	slog.Debug("Локальный контейнер хранения успешно верифицирован и подключен")
+	slog.Debug("Local storage container successfully verified and connected")
 
 	// Собираем валидированный инкапсулированный объект приложения
 	application, err := NewApp(cfg, db)
 	if err != nil {
-		slog.Error("ошибка фабричной сборки контейнера приложения", "error", err)
+		slog.Error("failed to build application container", "error", err)
 		_ = db.Close()
-		return nil, fmt.Errorf("сборка рантайма: %w", err)
+		return nil, fmt.Errorf("runtime build: %w", err)
 	}
 
 	return application, nil
@@ -73,13 +73,13 @@ func Shutdown(application *App) error {
 		return nil
 	}
 
-	slog.Debug("Инициирован процесс остановки рантайма и очистки памяти контейнера")
+	slog.Debug("Initiating runtime shutdown and container memory cleanup")
 
 	var dbErr error
 	if application.db != nil {
 		dbErr = application.db.Close()
 		if dbErr != nil {
-			slog.Error("деструктор СУБД завершился с ошибкой", "error", dbErr)
+			slog.Error("database destructor failed", "error", dbErr)
 		}
 		application.db = nil // Принудительно очищаем указатель на пул соединений
 	}
@@ -87,6 +87,6 @@ func Shutdown(application *App) error {
 	// Зануляем конфигурацию для предотвращения утечек путей и метаданных в оперативной памяти
 	application.config = config.Config{}
 
-	slog.Debug("Ресурсы контейнера успешно освобождены, оперативная память зачищена")
+	slog.Debug("Container resources successfully released, memory cleared")
 	return dbErr
 }
