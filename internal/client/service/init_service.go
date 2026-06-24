@@ -138,7 +138,7 @@ func (s *InitService) ExecuteLocalInit(ctx context.Context, serverURL string, fi
 		DeviceMasterKeyEnvelope:  deviceMasterKeyEnvelopeJSON,
 		EncryptedMtlsPrivateKey:  nil, // Генерируется на этапе register
 		ClientCertificate:        nil,
-		CreatedAt:                time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:                time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	// 10. Атомарное персистентное сохранение состояния в СУБД SQLite

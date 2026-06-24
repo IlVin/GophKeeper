@@ -43,8 +43,8 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 			updated_at = excluded.updated_at,
 			is_deleted = excluded.is_deleted;`
 
-	createdAtStr := record.CreatedAt.UTC().Format(time.RFC3339)
-	updatedAtStr := record.UpdatedAt.UTC().Format(time.RFC3339)
+	createdAtStr := record.CreatedAt.UTC().Format(time.RFC3339Nano)
+	updatedAtStr := record.UpdatedAt.UTC().Format(time.RFC3339Nano)
 
 	slog.Debug("Сохранение или обновление локальной зашифрованной записи", "record_id", record.ID, "is_deleted", record.IsDeleted)
 	_, err := s.db.ExecContext(ctx, query,
@@ -97,11 +97,11 @@ func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository
 		r.UserID = &userIDNull.String
 	}
 
-	r.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr)
+	r.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created_at timestamp for record %s: %w", r.ID, err)
 	}
-	r.UpdatedAt, err = time.Parse(time.RFC3339, updatedAtStr)
+	r.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse updated_at timestamp for record %s: %w", r.ID, err)
 	}
@@ -141,11 +141,11 @@ func (s *SQLiteSecretStore) GetByName(ctx context.Context, name string) (*reposi
 		r.UserID = &userIDNull.String
 	}
 
-	r.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr)
+	r.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created_at timestamp for record %s: %w", r.ID, err)
 	}
-	r.UpdatedAt, err = time.Parse(time.RFC3339, updatedAtStr)
+	r.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse updated_at timestamp for record %s: %w", r.ID, err)
 	}
@@ -173,7 +173,7 @@ func (s *SQLiteSecretStore) List(ctx context.Context) ([]repository.RecordMetada
 			return nil, fmt.Errorf("failed to scan record metadata row: %w", err)
 		}
 
-		m.UpdatedAt, err = time.Parse(time.RFC3339, updatedAtStr)
+		m.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAtStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse updated_at timestamp in list loop: %w", err)
 		}
@@ -194,7 +194,7 @@ func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 
 	// 1. Генерируем точное монотонное UTC-время на стороне рантайма Go
 	// 2. Сериализуем его в канонический текстовый формат RFC3339 для SQLite
-	nowStr := time.Now().UTC().Format(time.RFC3339)
+	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
 
 	slog.Debug("Мягкое удаление локальной записи (флаг is_deleted)", "id", id, "updated_at", nowStr)
 
@@ -224,7 +224,7 @@ func (s *SQLiteSecretStore) GetSyncMetadata(ctx context.Context) (map[string]tim
 			return nil, fmt.Errorf("failed to scan sync row metadata: %w", err)
 		}
 
-		t, err := time.Parse(time.RFC3339, uStr)
+		t, err := time.Parse(time.RFC3339Nano, uStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse sync updated_at string: %w", err)
 		}
@@ -251,7 +251,7 @@ func (s *SQLiteSecretStore) GetSyncMetadataWithDeleted(ctx context.Context) (map
 			return nil, fmt.Errorf("failed to scan sync row metadata: %w", err)
 		}
 
-		t, err := time.Parse(time.RFC3339, uStr)
+		t, err := time.Parse(time.RFC3339Nano, uStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse sync updated_at string: %w", err)
 		}
@@ -294,8 +294,8 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		r.Name,
 		r.Type,
 		r.Envelope,
-		r.CreatedAt.Format(time.RFC3339),
-		r.UpdatedAt.Format(time.RFC3339),
+		r.CreatedAt.Format(time.RFC3339Nano),
+		r.UpdatedAt.Format(time.RFC3339Nano),
 		r.IsDeleted,
 	)
 	if err != nil {
@@ -329,11 +329,11 @@ func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*reposit
 		r.UserID = &userIDNull.String
 	}
 
-	r.CreatedAt, err = time.Parse(time.RFC3339, cStr)
+	r.CreatedAt, err = time.Parse(time.RFC3339Nano, cStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse raw created_at string: %w", err)
 	}
-	r.UpdatedAt, err = time.Parse(time.RFC3339, uStr)
+	r.UpdatedAt, err = time.Parse(time.RFC3339Nano, uStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse raw updated_at string: %w", err)
 	}

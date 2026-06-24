@@ -52,7 +52,7 @@ func TestListResponse_MappingToResponseItem(t *testing.T) {
 		ID:          mockMetadata.ID,
 		Name:        mockMetadata.Name,
 		Type:        mockMetadata.Type,
-		LastUpdated: mockMetadata.UpdatedAt.Format(time.RFC3339),
+		LastUpdated: mockMetadata.UpdatedAt.Format(time.RFC3339Nano),
 	}
 
 	assert.Equal(t, "a1b2c3d4", item.ID)

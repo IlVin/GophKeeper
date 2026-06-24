@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     canonical_account_salt BYTEA NOT NULL,       -- 32 байта соли аккаунта, присланные клиентом
     canonical_bootstrap_envelope BYTEA NOT NULL, -- Облачный конверт мастер-ключа под AccountUnlockKey
     
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_ssh_fingerprint ON users(ssh_fingerprint);
@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS devices (
     cert_serial_number NUMERIC NOT NULL UNIQUE,  -- Уникальный серийный номер для запрета reuse (mTLS инвариант)
     
     status VARCHAR(32) NOT NULL DEFAULT 'active', 
-    registered_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    last_sync_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    registered_at TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_sync_at TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
     -- Жесткий ИБ-контроль статусов на уровне СУБД
     CONSTRAINT check_device_status CHECK (status IN ('active', 'revoked'))
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS challenge_sessions (
     operation VARCHAR(64) NOT NULL,               -- register | attach-device
     state VARCHAR(32) NOT NULL DEFAULT 'Unused',  -- Текущее состояние конечного автомата
     
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Строго CreatedAt + 5 минут
+    created_at TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP(9) WITH TIME ZONE NOT NULL, -- Строго CreatedAt + 5 минут
     
     -- Ограничение автомата состояний сессии челленджа
     CONSTRAINT check_challenge_state CHECK (state IN ('Unused', 'Authenticated', 'Used', 'Completed', 'Expired')),
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS records (
     name VARCHAR(255) NOT NULL,                   -- Открытое имя для локального поиска и вывода в list
     type VARCHAR(32) NOT NULL,                    -- Тип записи (credentials, binary, text, card)
     envelope BYTEA NOT NULL,                      -- Бинарный конверт Poly1305 (шифртекст + nonce + tag)
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Время создания, переданное клиентом
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Время модификации для LWW-сверки
+    created_at TIMESTAMP(9) WITH TIME ZONE NOT NULL, -- Время создания, переданное клиентом
+    updated_at TIMESTAMP(9) WITH TIME ZONE NOT NULL, -- Время модификации для LWW-сверки
     is_deleted INTEGER NOT NULL DEFAULT 0,
     
     -- Жесткий ИБ-контроль типов секретов на стороне PostgreSQL
@@ -83,8 +83,8 @@ CREATE TABLE IF NOT EXISTS records_history (
     name VARCHAR(255) NOT NULL,
     type VARCHAR(32) NOT NULL,
     envelope BYTEA NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    archived_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP(9) WITH TIME ZONE NOT NULL,
+    archived_at TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_records_history_lookup ON records_history(record_
 -- 6. Таблица логирования системных событий (Device Audit Log)
 CREATE TABLE IF NOT EXISTS audit_device_events (
     event_id BIGSERIAL PRIMARY KEY,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP(9) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     user_id VARCHAR(255),
     device_id UUID,
     action VARCHAR(255) NOT NULL,                -- register_attempt | register_success | device_revoked

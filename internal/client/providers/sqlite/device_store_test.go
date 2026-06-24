@@ -45,7 +45,7 @@ func TestDeviceStore_SaveAndReadState_Success(t *testing.T) {
 		AccountSalt:              make([]byte, 32),
 		DeviceMasterKeyEnvelope:  []byte("device-envelope"),
 		AccountBootstrapEnvelope: []byte("bootstrap-envelope"),
-		CreatedAt:                time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:                time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	// Сохраняем состояние
@@ -81,7 +81,7 @@ func TestDeviceStore_ExecuteReconcileTransaction_Success(t *testing.T) {
 		AccountSalt:              make([]byte, 32),
 		DeviceMasterKeyEnvelope:  []byte("env1"),
 		AccountBootstrapEnvelope: []byte("env2"),
-		CreatedAt:                time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:                time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	err := store.SaveDeviceState(ctx, stateBase)
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestDeviceStore_ExecuteReconcileTransaction_PreservesIsDeleted(t *testing.T
 		AccountSalt:              make([]byte, 32),
 		DeviceMasterKeyEnvelope:  []byte("env1"),
 		AccountBootstrapEnvelope: []byte("env2"),
-		CreatedAt:                time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:                time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	err := store.SaveDeviceState(ctx, stateBase)
 	require.NoError(t, err)

@@ -219,8 +219,8 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 				rec.Name,
 				rec.Type,
 				rec.Envelope,
-				rec.CreatedAt.Format(time.RFC3339),
-				rec.UpdatedAt.Format(time.RFC3339),
+				rec.CreatedAt.Format(time.RFC3339Nano),
+				rec.UpdatedAt.Format(time.RFC3339Nano),
 				rec.IsDeleted,
 			)
 			if err != nil {
@@ -269,12 +269,12 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 			r.UserID = &uNull.String
 		}
 
-		r.CreatedAt, err = time.Parse(time.RFC3339, cStr)
+		r.CreatedAt, err = time.Parse(time.RFC3339Nano, cStr)
 		if err != nil {
 			return nil, fmt.Errorf("парсинг даты создания записи %s: %w", r.ID, err)
 		}
 
-		r.UpdatedAt, err = time.Parse(time.RFC3339, uStr)
+		r.UpdatedAt, err = time.Parse(time.RFC3339Nano, uStr)
 		if err != nil {
 			return nil, fmt.Errorf("парсинг даты обновления записи %s: %w", r.ID, err)
 		}

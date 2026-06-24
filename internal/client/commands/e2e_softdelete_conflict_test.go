@@ -94,7 +94,7 @@ func dumpPostgresTable(t *testing.T, dsn string, userID string, label string) {
 		}
 		count++
 		t.Logf("  [%d] id=%s name=%s type=%s created=%s updated=%s is_deleted=%d",
-			count, id, name, typ, createdAt.Format(time.RFC3339), updatedAt.Format(time.RFC3339), isDeleted)
+			count, id, name, typ, createdAt.Format(time.RFC3339Nano), updatedAt.Format(time.RFC3339Nano), isDeleted)
 	}
 	if count == 0 {
 		t.Logf("  (empty)")

@@ -83,7 +83,7 @@ func newListCommand(cli *CLI) *cobra.Command {
 					ID:          s.ID,
 					Name:        s.Name,
 					Type:        s.Type,
-					LastUpdated: s.UpdatedAt.Format(time.RFC3339),
+					LastUpdated: s.UpdatedAt.Format(time.RFC3339Nano),
 				})
 			}
 
