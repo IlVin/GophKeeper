@@ -1,0 +1,392 @@
+//go:build e2e
+
+package commands
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestE2E_SoftDelete_Synchronization проверяет сквозную синхронизацию мягкого удаления
+// между тремя клиентами. Сценарий:
+// 1. 3 клиента, каждый создает по 5 записей
+// 2. Клиент 1 синхронизируется → на сервере 5 записей
+// 3. Клиент 2 синхронизируется → у клиента 2: 5 своих + 5 с сервера = 10 записей
+// 4. Клиент 2 удаляет 2 записи (1 свою, 1 с клиента 1)
+// 5. Клиент 2 синхронизируется → удаления уходят на сервер
+// 6. Клиент 3 синхронизируется → у клиента 3: 5 своих + 4 с клиента 1 + 4 с клиента 2 = 13 записей
+// 7. Клиент 1 синхронизируется → получает удаления от клиента 2
+func TestE2E_SoftDelete_Synchronization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping soft delete E2E tests in short mode")
+	}
+
+	// 1. ИЗОЛЯЦИЯ ОКРУЖЕНИЯ
+	tmpDir, err := os.MkdirTemp("", "gophkeeper-e2e-softdelete-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Пути к базам данных трех клиентов
+	dbClient1 := filepath.Join(tmpDir, "client_1.db")
+	dbClient2 := filepath.Join(tmpDir, "client_2.db")
+	dbClient3 := filepath.Join(tmpDir, "client_3.db")
+
+	// Пути к бинарникам
+	clientBinary, err := filepath.Abs("../../../build/linux/gophkeeper")
+	require.NoError(t, err)
+	serverBinary, err := filepath.Abs("../../../build/linux/gophkeeper-server")
+	require.NoError(t, err)
+
+	// Проверяем наличие бинарников
+	_, err = os.Stat(clientBinary)
+	require.NoError(t, err, "client binary not found at %q. Run 'make build-linux' first", clientBinary)
+	_, err = os.Stat(serverBinary)
+	require.NoError(t, err, "server binary not found at %q. Run 'make build-linux' first", serverBinary)
+
+	// 2. ЗАПУСК СЕРВЕРА
+	serverTargetAddr := "127.0.0.1:9555"
+	postgresDSN := os.Getenv("DATABASE_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://gophkeeper:gophkeeper_pswd@127.0.0.1:5432/gophkeeper?sslmode=disable"
+	}
+
+	serverCAKeyAbs, _ := filepath.Abs("../../../.certs_private/server-ca.key")
+	deviceCAKeyAbs, _ := filepath.Abs("../../../.certs_private/device-ca.key")
+
+	serverCmd := exec.Command(serverBinary, "start",
+		"--bind-grpc", serverTargetAddr,
+		"--database", postgresDSN,
+		"--server-ca-key", serverCAKeyAbs,
+		"--device-ca-key", deviceCAKeyAbs,
+	)
+	serverCmd.Env = os.Environ()
+
+	var serverStderr bytes.Buffer
+	serverCmd.Stderr = &serverStderr
+
+	err = serverCmd.Start()
+	require.NoError(t, err, "failed to boot server")
+	defer func() {
+		if serverCmd.Process != nil {
+			_ = serverCmd.Process.Kill()
+		}
+	}()
+
+	time.Sleep(600 * time.Millisecond)
+
+	// Утилитарный хелпер для выполнения команд клиента
+	runClient := func(dbPath string, args ...string) (string, string, error) {
+		baseArgs := []string{"--sqlite-path", dbPath, "--json"}
+		finalArgs := append(baseArgs, args...)
+
+		cmd := exec.Command(clientBinary, finalArgs...)
+		cmd.Env = os.Environ()
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+		return stdout.String(), stderr.String(), err
+	}
+
+	// Хелпер для получения списка записей с клиента
+	getRecordNames := func(dbPath string) ([]string, error) {
+		stdout, _, err := runClient(dbPath, "list")
+		if err != nil {
+			return nil, err
+		}
+
+		var resp CLIResponse
+		if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+			return nil, err
+		}
+		if !resp.Success {
+			return nil, fmt.Errorf("list failed: %s", resp.Error)
+		}
+
+		dataBytes, _ := json.Marshal(resp.Data)
+		var items []ListResponseItem
+		if err := json.Unmarshal(dataBytes, &items); err != nil {
+			return nil, err
+		}
+
+		names := make([]string, 0, len(items))
+		for _, item := range items {
+			names = append(names, item.Name)
+		}
+		return names, nil
+	}
+
+	// Хелпер для получения ID записи по имени
+	getRecordID := func(dbPath, name string) (string, error) {
+		stdout, _, err := runClient(dbPath, "list")
+		if err != nil {
+			return "", err
+		}
+
+		var resp CLIResponse
+		if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+			return "", err
+		}
+		if !resp.Success {
+			return "", fmt.Errorf("list failed: %s", resp.Error)
+		}
+
+		dataBytes, _ := json.Marshal(resp.Data)
+		var items []ListResponseItem
+		if err := json.Unmarshal(dataBytes, &items); err != nil {
+			return "", err
+		}
+
+		for _, item := range items {
+			if item.Name == name {
+				return item.ID, nil
+			}
+		}
+		return "", fmt.Errorf("record %q not found", name)
+	}
+
+	// Хелпер для проверки наличия записей
+	assertRecordsEqual := func(t *testing.T, dbPath string, expected []string) {
+		t.Helper()
+		names, err := getRecordNames(dbPath)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, expected, names, "DB: %s", dbPath)
+	}
+
+	// =========================================================================
+	// ЭТАП 1: ИНИЦИАЛИЗАЦИЯ И РЕГИСТРАЦИЯ ТРЕХ КЛИЕНТОВ
+	// =========================================================================
+	t.Log("=== Step 1: Initialize and register 3 clients ===")
+
+	clients := []string{dbClient1, dbClient2, dbClient3}
+	for i, db := range clients {
+		_, _, err := runClient(db, "init")
+		require.NoError(t, err, "client %d init failed", i+1)
+
+		_, stderr, err := runClient(db, "register", "--server", serverTargetAddr)
+		require.NoError(t, err, "client %d register failed: %s", i+1, stderr)
+	}
+
+	// =========================================================================
+	// ЭТАП 2: КАЖДЫЙ КЛИЕНТ СОЗДАЕТ ПО 5 ЗАПИСЕЙ
+	// =========================================================================
+	t.Log("=== Step 2: Each client creates 5 records ===")
+
+	// Клиент 1: records_1_1 ... records_1_5
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("client1_rec_%d", i)
+		_, stderr, err := runClient(dbClient1, "create",
+			"--name", name,
+			"--type", "text",
+			"--payload", fmt.Sprintf("payload_1_%d", i),
+		)
+		require.NoError(t, err, "client 1 create %s failed: %s", name, stderr)
+	}
+
+	// Клиент 2: records_2_1 ... records_2_5
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("client2_rec_%d", i)
+		_, stderr, err := runClient(dbClient2, "create",
+			"--name", name,
+			"--type", "text",
+			"--payload", fmt.Sprintf("payload_2_%d", i),
+		)
+		require.NoError(t, err, "client 2 create %s failed: %s", name, stderr)
+	}
+
+	// Клиент 3: records_3_1 ... records_3_5
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("client3_rec_%d", i)
+		_, stderr, err := runClient(dbClient3, "create",
+			"--name", name,
+			"--type", "text",
+			"--payload", fmt.Sprintf("payload_3_%d", i),
+		)
+		require.NoError(t, err, "client 3 create %s failed: %s", name, stderr)
+	}
+
+	// Проверяем, что у каждого клиента по 5 записей
+	assertRecordsEqual(t, dbClient1, []string{
+		"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	})
+	assertRecordsEqual(t, dbClient2, []string{
+		"client2_rec_1", "client2_rec_2", "client2_rec_3", "client2_rec_4", "client2_rec_5",
+	})
+	assertRecordsEqual(t, dbClient3, []string{
+		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
+	})
+
+	// =========================================================================
+	// ЭТАП 3: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (5 записей на сервер)
+	// =========================================================================
+	t.Log("=== Step 3: Client 1 syncs (5 records to server) ===")
+
+	_, stderr, err := runClient(dbClient1, "sync")
+	require.NoError(t, err, "client 1 sync failed: %s", stderr)
+
+	// Клиент 1 все еще имеет 5 записей
+	assertRecordsEqual(t, dbClient1, []string{
+		"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	})
+
+	// =========================================================================
+	// ЭТАП 4: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (10 записей: 5 своих + 5 с клиента 1)
+	// =========================================================================
+	t.Log("=== Step 4: Client 2 syncs (10 records: 5 own + 5 from client 1) ===")
+
+	_, stderr, err = runClient(dbClient2, "sync")
+	require.NoError(t, err, "client 2 sync failed: %s", stderr)
+
+	// Клиент 2 должен иметь 10 записей: 5 своих + 5 с клиента 1
+	expectedClient2 := []string{
+		"client2_rec_1", "client2_rec_2", "client2_rec_3", "client2_rec_4", "client2_rec_5",
+		"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	}
+	assertRecordsEqual(t, dbClient2, expectedClient2)
+
+	// =========================================================================
+	// ЭТАП 5: КЛИЕНТ 2 УДАЛЯЕТ 2 ЗАПИСИ (1 свою, 1 с клиента 1)
+	// =========================================================================
+	t.Log("=== Step 5: Client 2 deletes 2 records (1 own, 1 from client 1) ===")
+
+	// Получаем ID записей для удаления
+	client2OwnID, err := getRecordID(dbClient2, "client2_rec_3")
+	require.NoError(t, err)
+
+	client1RecID, err := getRecordID(dbClient2, "client1_rec_2")
+	require.NoError(t, err)
+
+	// Удаляем записи
+	_, stderr, err = runClient(dbClient2, "delete", "--id", client2OwnID)
+	require.NoError(t, err, "delete client2_rec_3 failed: %s", stderr)
+
+	_, stderr, err = runClient(dbClient2, "delete", "--id", client1RecID)
+	require.NoError(t, err, "delete client1_rec_2 failed: %s", stderr)
+
+	// Проверяем, что у клиента 2 осталось 8 записей (удалились client2_rec_3 и client1_rec_2)
+	expectedClient2AfterDelete := []string{
+		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
+		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	}
+	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
+
+	// =========================================================================
+	// ЭТАП 6: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (удаления уходят на сервер)
+	// =========================================================================
+	t.Log("=== Step 6: Client 2 syncs (deletions go to server) ===")
+
+	_, stderr, err = runClient(dbClient2, "sync")
+	require.NoError(t, err, "client 2 sync after delete failed: %s", stderr)
+
+	// Клиент 2 все еще имеет 8 записей
+	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
+
+	// =========================================================================
+	// ЭТАП 7: КЛИЕНТ 3 СИНХРОНИЗИРУЕТСЯ (13 записей: 5 своих + 4 с клиента 1 + 4 с клиента 2)
+	// =========================================================================
+	t.Log("=== Step 7: Client 3 syncs (13 records: 5 own + 4 from client 1 + 4 from client 2) ===")
+
+	_, stderr, err = runClient(dbClient3, "sync")
+	require.NoError(t, err, "client 3 sync failed: %s", stderr)
+
+	// Клиент 3 должен иметь 13 записей:
+	// - 5 своих (client3_rec_1..5)
+	// - 4 с клиента 1 (все кроме client1_rec_2, который удалил клиент 2)
+	// - 4 с клиента 2 (все кроме client2_rec_3, который удалил клиент 2)
+	expectedClient3 := []string{
+		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
+		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
+	}
+	assertRecordsEqual(t, dbClient3, expectedClient3)
+
+	// =========================================================================
+	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (получает удаления от клиента 2)
+	// =========================================================================
+	t.Log("=== Step 8: Client 1 syncs (receives deletions from client 2) ===")
+
+	_, stderr, err = runClient(dbClient1, "sync")
+	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
+
+	// Клиент 1 должен иметь 4 записи (все кроме client1_rec_2, который удалил клиент 2)
+	expectedClient1 := []string{
+		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	}
+	assertRecordsEqual(t, dbClient1, expectedClient1)
+
+	// =========================================================================
+	// ЭТАП 9: ФИНАЛЬНАЯ ПРОВЕРКА ВСЕХ КЛИЕНТОВ
+	// =========================================================================
+	t.Log("=== Step 9: Final verification of all clients ===")
+
+	// Клиент 1: 4 записи (без client1_rec_2)
+	assertRecordsEqual(t, dbClient1, []string{
+		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	})
+
+	// Клиент 2: 8 записей (без client2_rec_3 и client1_rec_2)
+	assertRecordsEqual(t, dbClient2, []string{
+		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
+		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+	})
+
+	// Клиент 3: 13 записей (все кроме удаленных)
+	assertRecordsEqual(t, dbClient3, []string{
+		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
+		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
+		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
+	})
+
+	// =========================================================================
+	// ЭТАП 10: ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА — УДАЛЕННЫЕ ЗАПИСИ НЕ ДОСТУПНЫ ЧЕРЕЗ GET
+	// =========================================================================
+	t.Log("=== Step 10: Verify deleted records are not accessible via get ===")
+
+	// Проверяем, что client1_rec_2 удален на всех клиентах
+	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
+		stdout, _, err := runClient(db, "get", "--name", "client1_rec_2")
+		require.NoError(t, err)
+
+		var resp CLIResponse
+		err = json.Unmarshal([]byte(stdout), &resp)
+		require.NoError(t, err)
+		assert.False(t, resp.Success, "client1_rec_2 should be deleted on %s", db)
+		assert.Contains(t, resp.Error, "secret record not found", "error should indicate not found on %s", db)
+	}
+
+	// Проверяем, что client2_rec_3 удален на всех клиентах
+	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
+		stdout, _, err := runClient(db, "get", "--name", "client2_rec_3")
+		require.NoError(t, err)
+
+		var resp CLIResponse
+		err = json.Unmarshal([]byte(stdout), &resp)
+		require.NoError(t, err)
+		assert.False(t, resp.Success, "client2_rec_3 should be deleted on %s", db)
+		assert.Contains(t, resp.Error, "secret record not found", "error should indicate not found on %s", db)
+	}
+
+	// Проверяем, что живые записи доступны
+	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
+		stdout, _, err := runClient(db, "get", "--name", "client1_rec_1")
+		require.NoError(t, err)
+
+		var resp CLIResponse
+		err = json.Unmarshal([]byte(stdout), &resp)
+		require.NoError(t, err)
+		assert.True(t, resp.Success, "client1_rec_1 should be accessible on %s", db)
+	}
+
+	t.Log("=== ✅ All tests passed! Soft delete synchronization works correctly ===")
+}
