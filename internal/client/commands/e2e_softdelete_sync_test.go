@@ -285,7 +285,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	_, stderr, err = runClient(dbClient3, "sync")
 	require.NoError(t, err, "client 3 sync failed: %s", stderr)
 
-	expectedClient3 := []string{
+	expectedClient3 = []string{
 		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
 		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
 		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
