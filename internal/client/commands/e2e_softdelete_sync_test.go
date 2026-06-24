@@ -293,11 +293,11 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient3, expectedClient3)
 
 	// =========================================================================
-	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ
+	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (ИСПРАВЛЕНО: = вместо :=)
 	// =========================================================================
 	t.Log("=== Step 8: Client 1 syncs (receives deletions from client 2) ===")
 
-	// ИСПРАВЛЕНО: используем = вместо :=
+	// Исправлено: используем = вместо :=
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
 
