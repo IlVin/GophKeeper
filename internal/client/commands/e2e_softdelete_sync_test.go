@@ -28,7 +28,8 @@ import (
 // 5. Клиент 2 синхронизируется → удаления уходят на сервер
 // 6. Клиент 3 синхронизируется → у клиента 3: все 13 записей (все кроме удаленных)
 // 7. Клиент 1 синхронизируется → у клиента 1: все 13 записей
-// 8. Все клиенты имеют одинаковый набор из 13 записей
+// 8. Клиент 2 синхронизируется → у клиента 2: все 13 записей
+// 9. Все клиенты имеют одинаковый набор из 13 записей
 func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soft delete E2E tests in short mode")
@@ -319,9 +320,17 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient1, expectedAllRecords)
 
 	// =========================================================================
-	// ЭТАП 9: ФИНАЛЬНАЯ ПРОВЕРКА ВСЕХ КЛИЕНТОВ
+	// ЭТАП 9: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (получает записи клиента 3)
 	// =========================================================================
-	t.Log("=== Step 9: Final verification of all clients ===")
+	t.Log("=== Step 9: Client 2 syncs (receives client 3 records) ===")
+
+	_, stderr, err = runClient(dbClient2, "sync")
+	require.NoError(t, err, "client 2 final sync failed: %s", stderr)
+
+	// =========================================================================
+	// ЭТАП 10: ФИНАЛЬНАЯ ПРОВЕРКА ВСЕХ КЛИЕНТОВ
+	// =========================================================================
+	t.Log("=== Step 10: Final verification of all clients ===")
 
 	// Все клиенты должны иметь одинаковый набор из 13 записей
 	assertRecordsEqual(t, dbClient1, expectedAllRecords)
@@ -329,9 +338,9 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient3, expectedAllRecords)
 
 	// =========================================================================
-	// ЭТАП 10: ПРОВЕРКА ЧТО УДАЛЕННЫЕ ЗАПИСИ НЕ ДОСТУПНЫ ЧЕРЕЗ GET
+	// ЭТАП 11: ПРОВЕРКА ЧТО УДАЛЕННЫЕ ЗАПИСИ НЕ ДОСТУПНЫ ЧЕРЕЗ GET
 	// =========================================================================
-	t.Log("=== Step 10: Verify deleted records are not accessible via get ===")
+	t.Log("=== Step 11: Verify deleted records are not accessible via get ===")
 
 	// Проверяем, что client1_rec_2 удален на всех клиентах
 	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
