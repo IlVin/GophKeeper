@@ -13,51 +13,133 @@ import (
 
 // mockSecretStore реализует интерфейс SecretStore в RAM для фикстур
 type mockSecretStore struct {
-	savedRecord *repository.EncryptedRecord
+	records map[string]*repository.EncryptedRecord
+	err     error
 }
 
 func (m *mockSecretStore) Save(ctx context.Context, record *repository.EncryptedRecord) error {
-	m.savedRecord = record
+	if m.err != nil {
+		return m.err
+	}
+	if m.records == nil {
+		m.records = make(map[string]*repository.EncryptedRecord)
+	}
+	m.records[record.ID] = record
 	return nil
 }
 
 func (m *mockSecretStore) GetByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
-	if m.savedRecord != nil && m.savedRecord.ID == id {
-		return m.savedRecord, nil
+	if m.err != nil {
+		return nil, m.err
 	}
-	return nil, nil
+	if m.records == nil {
+		return nil, nil
+	}
+	rec, ok := m.records[id]
+	if !ok {
+		return nil, nil
+	}
+	return rec, nil
 }
 
 func (m *mockSecretStore) GetByName(ctx context.Context, name string) (*repository.EncryptedRecord, error) {
-	if m.savedRecord != nil && m.savedRecord.Name == name {
-		return m.savedRecord, nil
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.records == nil {
+		return nil, nil
+	}
+	for _, rec := range m.records {
+		if rec.Name == name {
+			return rec, nil
+		}
 	}
 	return nil, nil
 }
 
 func (m *mockSecretStore) List(ctx context.Context) ([]repository.RecordMetadata, error) {
-	if m.savedRecord == nil {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.records == nil {
 		return nil, nil
 	}
-	return []repository.RecordMetadata{{ID: m.savedRecord.ID, Name: m.savedRecord.Name, Type: m.savedRecord.Type, UpdatedAt: time.Now()}}, nil
+	var result []repository.RecordMetadata
+	for _, rec := range m.records {
+		result = append(result, repository.RecordMetadata{
+			ID:        rec.ID,
+			Name:      rec.Name,
+			Type:      rec.Type,
+			UpdatedAt: rec.UpdatedAt,
+		})
+	}
+	return result, nil
 }
 
 func (m *mockSecretStore) Delete(ctx context.Context, id string) error {
-	m.savedRecord = nil
+	if m.err != nil {
+		return m.err
+	}
+	if m.records != nil {
+		delete(m.records, id)
+	}
 	return nil
 }
 
 func (m *mockSecretStore) GetSyncMetadata(ctx context.Context) (map[string]time.Time, error) {
-	return nil, nil
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.records == nil {
+		return nil, nil
+	}
+	result := make(map[string]time.Time)
+	for id, rec := range m.records {
+		result[id] = rec.UpdatedAt
+	}
+	return result, nil
 }
 
-func (m *mockSecretStore) SaveRaw(ctx context.Context, r *repository.EncryptedRecord) error {
-	m.savedRecord = r
+func (m *mockSecretStore) SaveRaw(ctx context.Context, record *repository.EncryptedRecord) error {
+	if m.err != nil {
+		return m.err
+	}
+	if m.records == nil {
+		m.records = make(map[string]*repository.EncryptedRecord)
+	}
+	m.records[record.ID] = record
 	return nil
 }
 
 func (m *mockSecretStore) GetRawByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
-	return m.savedRecord, nil
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.records == nil {
+		return nil, nil
+	}
+	rec, ok := m.records[id]
+	if !ok {
+		return nil, nil
+	}
+	return rec, nil
+}
+
+func (m *mockSecretStore) GetSyncMetadataWithDeleted(ctx context.Context) (map[string]repository.RecordVersionMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.records == nil {
+		return nil, nil
+	}
+	result := make(map[string]repository.RecordVersionMeta)
+	for id, rec := range m.records {
+		result[id] = repository.RecordVersionMeta{
+			UpdatedAt: rec.UpdatedAt,
+			IsDeleted: rec.IsDeleted,
+		}
+	}
+	return result, nil
 }
 
 // TestSecretService_CreateSecret_FailsIfEmptyPayload проверяет fail-fast барьер
