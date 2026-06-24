@@ -90,8 +90,8 @@ func (h *SyncHandler) SyncCheck(ctx context.Context, req *pb.SyncCheckRequest) (
 			continue
 		}
 
-		// Сравниваем по updated_at ИЛИ по is_deleted
-		if sMeta.UpdatedAt.After(cMeta.UpdatedAt) || sMeta.IsDeleted != cMeta.IsDeleted {
+		// Сравниваем ТОЛЬКО по updated_at (LWW)
+		if sMeta.UpdatedAt.After(cMeta.UpdatedAt) {
 			idsToPull = append(idsToPull, rID)
 		}
 	}
@@ -105,8 +105,8 @@ func (h *SyncHandler) SyncCheck(ctx context.Context, req *pb.SyncCheckRequest) (
 			continue
 		}
 
-		// Сравниваем по updated_at ИЛИ по is_deleted
-		if cMeta.UpdatedAt.After(sMeta.UpdatedAt) || cMeta.IsDeleted != sMeta.IsDeleted {
+		// Сравниваем ТОЛЬКО по updated_at (LWW)
+		if cMeta.UpdatedAt.After(sMeta.UpdatedAt) {
 			idsToPush = append(idsToPush, rID)
 		}
 	}
