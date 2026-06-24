@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,40 +18,32 @@ import (
 )
 
 // TestE2E_SoftDelete_Synchronization проверяет сквозную синхронизацию мягкого удаления
-// между тремя клиентами. Сценарий:
-// 1. 3 клиента, каждый создает по 5 записей
-// 2. Клиент 1 синхронизируется → на сервере 5 записей
-// 3. Клиент 2 синхронизируется → у клиента 2: 5 своих + 5 с сервера = 10 записей
-// 4. Клиент 2 удаляет 2 записи (1 свою, 1 с клиента 1)
-// 5. Клиент 2 синхронизируется → удаления уходят на сервер
-// 6. Клиент 3 синхронизируется → у клиента 3: 5 своих + 4 с клиента 1 + 4 с клиента 2 = 13 записей
-// 7. Клиент 1 синхронизируется → получает удаления от клиента 2
 func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soft delete E2E tests in short mode")
 	}
+
+	// Уникальный префикс для этого теста, чтобы не пересекаться с другими E2E тестами
+	testPrefix := fmt.Sprintf("sd_%d_", time.Now().UnixNano())
 
 	// 1. ИЗОЛЯЦИЯ ОКРУЖЕНИЯ
 	tmpDir, err := os.MkdirTemp("", "gophkeeper-e2e-softdelete-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Пути к базам данных трех клиентов
 	dbClient1 := filepath.Join(tmpDir, "client_1.db")
 	dbClient2 := filepath.Join(tmpDir, "client_2.db")
 	dbClient3 := filepath.Join(tmpDir, "client_3.db")
 
-	// Пути к бинарникам
 	clientBinary, err := filepath.Abs("../../../build/linux/gophkeeper")
 	require.NoError(t, err)
 	serverBinary, err := filepath.Abs("../../../build/linux/gophkeeper-server")
 	require.NoError(t, err)
 
-	// Проверяем наличие бинарников
 	_, err = os.Stat(clientBinary)
-	require.NoError(t, err, "client binary not found at %q. Run 'make build-linux' first", clientBinary)
+	require.NoError(t, err, "client binary not found")
 	_, err = os.Stat(serverBinary)
-	require.NoError(t, err, "server binary not found at %q. Run 'make build-linux' first", serverBinary)
+	require.NoError(t, err, "server binary not found")
 
 	// 2. ЗАПУСК СЕРВЕРА
 	serverTargetAddr := "127.0.0.1:9555"
@@ -122,7 +115,10 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 
 		names := make([]string, 0, len(items))
 		for _, item := range items {
-			names = append(names, item.Name)
+			// Фильтруем только записи с нашим префиксом
+			if strings.HasPrefix(item.Name, testPrefix) {
+				names = append(names, strings.TrimPrefix(item.Name, testPrefix))
+			}
 		}
 		return names, nil
 	}
@@ -148,8 +144,9 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 			return "", err
 		}
 
+		fullName := testPrefix + name
 		for _, item := range items {
-			if item.Name == name {
+			if item.Name == fullName {
 				return item.ID, nil
 			}
 		}
@@ -183,9 +180,9 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	// =========================================================================
 	t.Log("=== Step 2: Each client creates 5 records ===")
 
-	// Клиент 1: records_1_1 ... records_1_5
+	// Клиент 1
 	for i := 1; i <= 5; i++ {
-		name := fmt.Sprintf("client1_rec_%d", i)
+		name := fmt.Sprintf("%sclient1_rec_%d", testPrefix, i)
 		_, stderr, err := runClient(dbClient1, "create",
 			"--name", name,
 			"--type", "text",
@@ -194,9 +191,9 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 		require.NoError(t, err, "client 1 create %s failed: %s", name, stderr)
 	}
 
-	// Клиент 2: records_2_1 ... records_2_5
+	// Клиент 2
 	for i := 1; i <= 5; i++ {
-		name := fmt.Sprintf("client2_rec_%d", i)
+		name := fmt.Sprintf("%sclient2_rec_%d", testPrefix, i)
 		_, stderr, err := runClient(dbClient2, "create",
 			"--name", name,
 			"--type", "text",
@@ -205,9 +202,9 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 		require.NoError(t, err, "client 2 create %s failed: %s", name, stderr)
 	}
 
-	// Клиент 3: records_3_1 ... records_3_5
+	// Клиент 3
 	for i := 1; i <= 5; i++ {
-		name := fmt.Sprintf("client3_rec_%d", i)
+		name := fmt.Sprintf("%sclient3_rec_%d", testPrefix, i)
 		_, stderr, err := runClient(dbClient3, "create",
 			"--name", name,
 			"--type", "text",
@@ -217,64 +214,54 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	}
 
 	// Проверяем, что у каждого клиента по 5 записей
-	assertRecordsEqual(t, dbClient1, []string{
-		"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5",
-	})
-	assertRecordsEqual(t, dbClient2, []string{
-		"client2_rec_1", "client2_rec_2", "client2_rec_3", "client2_rec_4", "client2_rec_5",
-	})
-	assertRecordsEqual(t, dbClient3, []string{
-		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
-	})
+	expectedClient1 := []string{"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5"}
+	expectedClient2 := []string{"client2_rec_1", "client2_rec_2", "client2_rec_3", "client2_rec_4", "client2_rec_5"}
+	expectedClient3 := []string{"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5"}
+
+	assertRecordsEqual(t, dbClient1, expectedClient1)
+	assertRecordsEqual(t, dbClient2, expectedClient2)
+	assertRecordsEqual(t, dbClient3, expectedClient3)
 
 	// =========================================================================
-	// ЭТАП 3: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (5 записей на сервер)
+	// ЭТАП 3: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ
 	// =========================================================================
 	t.Log("=== Step 3: Client 1 syncs (5 records to server) ===")
 
 	_, stderr, err := runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync failed: %s", stderr)
-
-	// Клиент 1 все еще имеет 5 записей
-	assertRecordsEqual(t, dbClient1, []string{
-		"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5",
-	})
+	assertRecordsEqual(t, dbClient1, expectedClient1)
 
 	// =========================================================================
-	// ЭТАП 4: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (10 записей: 5 своих + 5 с клиента 1)
+	// ЭТАП 4: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ
 	// =========================================================================
 	t.Log("=== Step 4: Client 2 syncs (10 records: 5 own + 5 from client 1) ===")
 
 	_, stderr, err = runClient(dbClient2, "sync")
 	require.NoError(t, err, "client 2 sync failed: %s", stderr)
 
-	// Клиент 2 должен иметь 10 записей: 5 своих + 5 с клиента 1
-	expectedClient2 := []string{
+	expectedClient2AfterSync := []string{
 		"client2_rec_1", "client2_rec_2", "client2_rec_3", "client2_rec_4", "client2_rec_5",
 		"client1_rec_1", "client1_rec_2", "client1_rec_3", "client1_rec_4", "client1_rec_5",
 	}
-	assertRecordsEqual(t, dbClient2, expectedClient2)
+	assertRecordsEqual(t, dbClient2, expectedClient2AfterSync)
 
 	// =========================================================================
-	// ЭТАП 5: КЛИЕНТ 2 УДАЛЯЕТ 2 ЗАПИСИ (1 свою, 1 с клиента 1)
+	// ЭТАП 5: КЛИЕНТ 2 УДАЛЯЕТ 2 ЗАПИСИ
 	// =========================================================================
 	t.Log("=== Step 5: Client 2 deletes 2 records (1 own, 1 from client 1) ===")
 
-	// Получаем ID записей для удаления
 	client2OwnID, err := getRecordID(dbClient2, "client2_rec_3")
 	require.NoError(t, err)
 
 	client1RecID, err := getRecordID(dbClient2, "client1_rec_2")
 	require.NoError(t, err)
 
-	// Удаляем записи
 	_, stderr, err = runClient(dbClient2, "delete", "--id", client2OwnID)
 	require.NoError(t, err, "delete client2_rec_3 failed: %s", stderr)
 
 	_, stderr, err = runClient(dbClient2, "delete", "--id", client1RecID)
 	require.NoError(t, err, "delete client1_rec_2 failed: %s", stderr)
 
-	// Проверяем, что у клиента 2 осталось 8 записей (удалились client2_rec_3 и client1_rec_2)
 	expectedClient2AfterDelete := []string{
 		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
 		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
@@ -282,28 +269,22 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
 
 	// =========================================================================
-	// ЭТАП 6: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (удаления уходят на сервер)
+	// ЭТАП 6: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ
 	// =========================================================================
 	t.Log("=== Step 6: Client 2 syncs (deletions go to server) ===")
 
 	_, stderr, err = runClient(dbClient2, "sync")
 	require.NoError(t, err, "client 2 sync after delete failed: %s", stderr)
-
-	// Клиент 2 все еще имеет 8 записей
 	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
 
 	// =========================================================================
-	// ЭТАП 7: КЛИЕНТ 3 СИНХРОНИЗИРУЕТСЯ (13 записей: 5 своих + 4 с клиента 1 + 4 с клиента 2)
+	// ЭТАП 7: КЛИЕНТ 3 СИНХРОНИЗИРУЕТСЯ
 	// =========================================================================
 	t.Log("=== Step 7: Client 3 syncs (13 records: 5 own + 4 from client 1 + 4 from client 2) ===")
 
 	_, stderr, err = runClient(dbClient3, "sync")
 	require.NoError(t, err, "client 3 sync failed: %s", stderr)
 
-	// Клиент 3 должен иметь 13 записей:
-	// - 5 своих (client3_rec_1..5)
-	// - 4 с клиента 1 (все кроме client1_rec_2, который удалил клиент 2)
-	// - 4 с клиента 2 (все кроме client2_rec_3, который удалил клиент 2)
 	expectedClient3 := []string{
 		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
 		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
@@ -312,50 +293,35 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient3, expectedClient3)
 
 	// =========================================================================
-	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (получает удаления от клиента 2)
+	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ
 	// =========================================================================
 	t.Log("=== Step 8: Client 1 syncs (receives deletions from client 2) ===")
 
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
 
-	// Клиент 1 должен иметь 4 записи (все кроме client1_rec_2, который удалил клиент 2)
-	expectedClient1 := []string{
+	expectedClient1AfterDelete := []string{
 		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
 	}
-	assertRecordsEqual(t, dbClient1, expectedClient1)
+	assertRecordsEqual(t, dbClient1, expectedClient1AfterDelete)
 
 	// =========================================================================
 	// ЭТАП 9: ФИНАЛЬНАЯ ПРОВЕРКА ВСЕХ КЛИЕНТОВ
 	// =========================================================================
 	t.Log("=== Step 9: Final verification of all clients ===")
 
-	// Клиент 1: 4 записи (без client1_rec_2)
-	assertRecordsEqual(t, dbClient1, []string{
-		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
-	})
-
-	// Клиент 2: 8 записей (без client2_rec_3 и client1_rec_2)
-	assertRecordsEqual(t, dbClient2, []string{
-		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
-		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
-	})
-
-	// Клиент 3: 13 записей (все кроме удаленных)
-	assertRecordsEqual(t, dbClient3, []string{
-		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
-		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
-		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
-	})
+	assertRecordsEqual(t, dbClient1, expectedClient1AfterDelete)
+	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
+	assertRecordsEqual(t, dbClient3, expectedClient3)
 
 	// =========================================================================
-	// ЭТАП 10: ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА — УДАЛЕННЫЕ ЗАПИСИ НЕ ДОСТУПНЫ ЧЕРЕЗ GET
+	// ЭТАП 10: ПРОВЕРКА ЧТО УДАЛЕННЫЕ ЗАПИСИ НЕ ДОСТУПНЫ ЧЕРЕЗ GET
 	// =========================================================================
 	t.Log("=== Step 10: Verify deleted records are not accessible via get ===")
 
-	// Проверяем, что client1_rec_2 удален на всех клиентах
 	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
-		stdout, _, err := runClient(db, "get", "--name", "client1_rec_2")
+		fullName := testPrefix + "client1_rec_2"
+		stdout, _, err := runClient(db, "get", "--name", fullName)
 		require.NoError(t, err)
 
 		var resp CLIResponse
@@ -367,7 +333,8 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 
 	// Проверяем, что client2_rec_3 удален на всех клиентах
 	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
-		stdout, _, err := runClient(db, "get", "--name", "client2_rec_3")
+		fullName := testPrefix + "client2_rec_3"
+		stdout, _, err := runClient(db, "get", "--name", fullName)
 		require.NoError(t, err)
 
 		var resp CLIResponse
@@ -379,7 +346,8 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 
 	// Проверяем, что живые записи доступны
 	for _, db := range []string{dbClient1, dbClient2, dbClient3} {
-		stdout, _, err := runClient(db, "get", "--name", "client1_rec_1")
+		fullName := testPrefix + "client1_rec_1"
+		stdout, _, err := runClient(db, "get", "--name", fullName)
 		require.NoError(t, err)
 
 		var resp CLIResponse
