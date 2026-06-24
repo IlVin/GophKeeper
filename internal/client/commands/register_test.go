@@ -36,11 +36,11 @@ func TestRegisterCommandFormatting_WithStandardOutput(t *testing.T) {
 	}
 
 	cli.PrintResult(buf, mockPayload, func() {
-		fmt.Fprintf(buf, "✔ SUCCESS! Container successfully attached to cloud account %q.\n", mockPayload.UserID)
+		fmt.Fprintf(buf, "[OK] SUCCESS! Container successfully attached to cloud account %q.\n", mockPayload.UserID)
 		fmt.Fprintln(buf, "mTLS device passport received.")
 	})
 
-	assert.Contains(t, buf.String(), "✔ Успех!")
+	assert.Contains(t, buf.String(), "[OK] Успех!")
 	assert.Contains(t, buf.String(), "SHA256:mockfingerprint")
-	assert.Contains(t, buf.String(), "mTLS device passport received.)
+	assert.Contains(t, buf.String(), "mTLS device passport received.")
 }
