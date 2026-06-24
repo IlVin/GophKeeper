@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS records_history (
     type VARCHAR(32) NOT NULL,
     envelope BYTEA NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    archived_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    archived_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_records_history_lookup ON records_history(record_id, updated_at);

@@ -8,6 +8,7 @@
 2. **Криптографический барьер (withOwnerCheck)**: Сквозная middleware-проверка прав владения локальным контейнером. Блокирует доступ к данным, если в `ssh-agent` отсутствует оригинальный закрытый ключ деривации.
 3. **Унификация вывода (PrintResult/PrintError)**: Поддержка флага `--json` для бесшовной интеграции CLI-утилиты в CI/CD пайплайны и автоматизированные E2E-тесты.
 4. **RAM Hygiene (Гигиена памяти)**: Принудительное затирание промежуточных plaintext-байтов и деструкция DTO-структур ответов (`GetResponse.Destroy()`) сразу после вывода данных на экран.
+5. **Мягкое удаление (Soft Delete)**: Команда `delete` выполняет логическое удаление записи, устанавливая флаг `is_deleted = 1` и обновляя временную метку `updated_at`. Это позволяет синхронизировать состояние удаления между устройствами через протокол LWW.
 
 ---
 
@@ -25,8 +26,8 @@ graph TD
     RootCmd --> CreateCmd["create.go (Запечатывание секрета)"]
     RootCmd --> ListCmd["list.go (Вывод метаданных)"]
     RootCmd --> GetCmd["get.go (Дешифрование конверта)"]
-    RootCmd --> DelCmd["delete.go (Деструкция строки)"]
-    RootCmd --> SyncCmd["sync.go (LWW Репликация)"]
+    RootCmd --> DelCmd["delete.go (Мягкое удаление)"]
+    RootCmd --> SyncCmd["sync.go (LWW Репликация с is_deleted)"]
 
     style CLI fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
@@ -71,6 +72,40 @@ sequenceDiagram
 ```
 
 ---
+
+## 📊 Диаграмма синхронизации с поддержкой Soft Delete
+
+Процесс синхронизации состояния удаления между устройствами через протокол LWW:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C1 as Устройство А
+    participant S as Сервер
+    participant C2 as Устройство Б
+
+    Note over C1: Локальное удаление записи
+    C1->>C1: delete → is_deleted=1, updated_at=NOW
+
+    C1->>S: SyncCheck(RecordVersion{id, updated_at, is_deleted=1})
+    S->>S: Сравнение версий LWW
+    S-->>C1: ids_to_push = [id]
+    C1->>S: PushRecords(EncryptedRecordPayload{is_deleted=1})
+    S->>S: Обновление is_deleted=1 в PostgreSQL
+
+    Note over C2: Синхронизация второго устройства
+    C2->>S: SyncCheck(RecordVersion{id, updated_at, is_deleted=0})
+    S-->>C2: ids_to_pull = [id]
+    C2->>S: PullRecords([id])
+    S-->>C2: EncryptedRecordPayload{is_deleted=1}
+    C2->>C2: SaveRaw → is_deleted=1
+
+    Note over C2: Запись скрыта на втором устройстве
+    C2->>C2: list → запись не отображается
+```
+
+---
+
 
 ## 🔒 Инварианты безопасности слоя команд
 

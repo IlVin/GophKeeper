@@ -25,25 +25,28 @@ func NewSQLiteSecretStore(db *sql.DB) *SQLiteSecretStore {
 }
 
 // Save атомарно создает новую зашифрованную запись или обновляет существующую (UPSERT).
+// Сохраняет is_deleted в том виде, в котором передан в record.
+// Ответственность за установку правильного значения IsDeleted лежит на вызывающем коде.
 func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.EncryptedRecord) error {
 	if record == nil {
 		return errors.New("cannot save nil record")
 	}
 
 	query := `
-		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at, is_deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			user_id = excluded.user_id,
 			name = excluded.name,
 			type = excluded.type,
 			envelope = excluded.envelope,
-			updated_at = excluded.updated_at;`
+			updated_at = excluded.updated_at,
+			is_deleted = excluded.is_deleted;`
 
 	createdAtStr := record.CreatedAt.UTC().Format(time.RFC3339)
 	updatedAtStr := record.UpdatedAt.UTC().Format(time.RFC3339)
 
-	slog.Debug("Сохранение или обновление локальной зашифрованной записи", "record_id", record.ID)
+	slog.Debug("Сохранение или обновление локальной зашифрованной записи", "record_id", record.ID, "is_deleted", record.IsDeleted)
 	_, err := s.db.ExecContext(ctx, query,
 		record.ID,
 		record.UserID,
@@ -52,6 +55,7 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 		record.Envelope,
 		createdAtStr,
 		updatedAtStr,
+		record.IsDeleted,
 	)
 	if err != nil {
 		slog.Error("Не удалось выполнить UPSERT секретной записи", "record_id", record.ID, "error", err)
@@ -62,8 +66,9 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 }
 
 // GetByID извлекает зашифрованный конверт записи из СУБД по её уникальному UUID.
+// Возвращает только НЕ удаленные записи (is_deleted = 0).
 func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
-	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records WHERE id = ?;`
+	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records WHERE id = ? AND is_deleted = 0;`
 
 	var r repository.EncryptedRecord
 	var userIDNull sql.NullString
@@ -77,6 +82,7 @@ func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository
 		&r.Envelope,
 		&createdAtStr,
 		&updatedAtStr,
+		&r.IsDeleted,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		slog.Debug("Запрос GetByID: запись не найдена", "id", id)
@@ -104,8 +110,9 @@ func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository
 }
 
 // GetByName извлекает зашифрованный конверт записи по открытому текстовому имени для локального поиска.
+// Возвращает только НЕ удаленные записи (is_deleted = 0).
 func (s *SQLiteSecretStore) GetByName(ctx context.Context, name string) (*repository.EncryptedRecord, error) {
-	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records WHERE name = ?;`
+	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records WHERE name = ? AND is_deleted = 0;`
 
 	var r repository.EncryptedRecord
 	var userIDNull sql.NullString
@@ -119,6 +126,7 @@ func (s *SQLiteSecretStore) GetByName(ctx context.Context, name string) (*reposi
 		&r.Envelope,
 		&createdAtStr,
 		&updatedAtStr,
+		&r.IsDeleted,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		slog.Debug("Запрос GetByName: запись не найдена", "name", name)
@@ -146,8 +154,9 @@ func (s *SQLiteSecretStore) GetByName(ctx context.Context, name string) (*reposi
 }
 
 // List возвращает плоский список легковесных метаданных для CLI-отображения таблицы секретов.
+// Возвращает только НЕ удаленные записи (is_deleted = 0).
 func (s *SQLiteSecretStore) List(ctx context.Context) ([]repository.RecordMetadata, error) {
-	query := `SELECT id, name, type, updated_at FROM records ORDER BY updated_at DESC;`
+	query := `SELECT id, name, type, updated_at FROM records WHERE is_deleted = 0 ORDER BY updated_at DESC;`
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -178,7 +187,8 @@ func (s *SQLiteSecretStore) List(ctx context.Context) ([]repository.RecordMetada
 	return list, nil
 }
 
-// Delete полностью вычищает строку записи и её зашифрованный конверт по её ID.
+// Delete выполняет мягкое удаление записи, устанавливая флаг is_deleted = 1
+// и обновляя временную метку updated_at.
 func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 	query := `UPDATE records SET is_deleted = 1, updated_at = $1 WHERE id = $2;`
 
@@ -190,7 +200,7 @@ func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 
 	_, err := s.db.ExecContext(ctx, query, nowStr, id)
 	if err != nil {
-		slog.Error("Не удалось выполнить DELETE секретной записи", "id", id, "error", err)
+		slog.Error("Не удалось выполнить мягкое удаление секретной записи", "id", id, "error", err)
 		return fmt.Errorf("failed to delete record from sqlite: %w", err)
 	}
 
@@ -198,6 +208,7 @@ func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 }
 
 // GetSyncMetadata вычитывает легковесную карту соответствий ID -> UpdatedAt для сетевой LWW сверки.
+// ВАЖНО: Возвращает ВСЕ записи (включая удаленные) для корректной синхронизации.
 func (s *SQLiteSecretStore) GetSyncMetadata(ctx context.Context) (map[string]time.Time, error) {
 	query := `SELECT id, updated_at FROM records;`
 	rows, err := s.db.QueryContext(ctx, query)
@@ -222,8 +233,39 @@ func (s *SQLiteSecretStore) GetSyncMetadata(ctx context.Context) (map[string]tim
 	return meta, rows.Err()
 }
 
+// GetSyncMetadataWithDeleted вычитывает карту с метаданными включая is_deleted.
+// ВАЖНО: Возвращает ВСЕ записи (включая удаленные) для корректной синхронизации.
+func (s *SQLiteSecretStore) GetSyncMetadataWithDeleted(ctx context.Context) (map[string]repository.RecordVersionMeta, error) {
+	query := `SELECT id, updated_at, is_deleted FROM records;`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch sync metadata map with deleted: %w", err)
+	}
+	defer rows.Close()
+
+	meta := make(map[string]repository.RecordVersionMeta)
+	for rows.Next() {
+		var id, uStr string
+		var isDeleted int32
+		if err := rows.Scan(&id, &uStr, &isDeleted); err != nil {
+			return nil, fmt.Errorf("failed to scan sync row metadata: %w", err)
+		}
+
+		t, err := time.Parse(time.RFC3339, uStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse sync updated_at string: %w", err)
+		}
+		meta[id] = repository.RecordVersionMeta{
+			UpdatedAt: t.UTC(),
+			IsDeleted: isDeleted,
+		}
+	}
+	return meta, rows.Err()
+}
+
 // SaveRaw выполняет слепой Upsert зашифрованного конверта, пришедшего с сервера при Pull-сессии.
 // Обновление применится на диске только в том случае, если входящая дата строго свежее локальной.
+// ВАЖНО: Сохраняет is_deleted в том виде, в котором пришло с сервера.
 func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.EncryptedRecord) error {
 	query := `
 		INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at, is_deleted)
@@ -245,10 +287,6 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		userIDStr.Valid = true
 	}
 
-	// Извлекаем статус удаления из доменной модели (предполагается наличие поля IsDeleted типа int)
-	// Если в вашей структуре EncryptedRecord поле называется по-другому, адаптируйте имя:
-	isDeletedVal := r.IsDeleted
-
 	slog.Debug("Сетевая синхронизация (SaveRaw): применение LWW конверта из облака", "id", r.ID)
 	_, err := s.db.ExecContext(ctx, query,
 		r.ID,
@@ -258,7 +296,7 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		r.Envelope,
 		r.CreatedAt.Format(time.RFC3339),
 		r.UpdatedAt.Format(time.RFC3339),
-		isDeletedVal,
+		r.IsDeleted,
 	)
 	if err != nil {
 		slog.Error("Не удалось выполнить SaveRaw для входящего сетевого пакета", "id", r.ID, "error", err)
@@ -268,6 +306,7 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 }
 
 // GetRawByID вычитывает сырой зашифрованный конверт для его отправки в облако при Push-сессии.
+// ВАЖНО: Возвращает ВСЕ записи (включая удаленные) для корректной синхронизации.
 func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*repository.EncryptedRecord, error) {
 	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records WHERE id = ?;`
 

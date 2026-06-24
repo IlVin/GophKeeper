@@ -213,16 +213,17 @@ func executeNetworkSync(
 	secretStore := sqlite.NewSQLiteSecretStore(app.DB())
 
 	// Извлекаем карту версий локальных секретов
-	localMeta, err := secretStore.GetSyncMetadata(ctx)
+	localMeta, err := secretStore.GetSyncMetadataWithDeleted(ctx)
 	if err != nil {
 		return cli.PrintError(out, err, "чтение карты версий из локального SQLite")
 	}
 
 	var protoVersions []*pb.RecordVersion
-	for id, t := range localMeta {
+	for id, meta := range localMeta {
 		protoVersions = append(protoVersions, &pb.RecordVersion{
 			RecordId:  id,
-			UpdatedAt: timestamppb.New(t),
+			UpdatedAt: timestamppb.New(meta.UpdatedAt),
+			IsDeleted: meta.IsDeleted,
 		})
 	}
 

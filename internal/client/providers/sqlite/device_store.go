@@ -191,8 +191,8 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 		}
 
 		recordQuery := `
-			INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?);`
+			INSERT INTO records (id, user_id, name, type, envelope, created_at, updated_at, is_deleted)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
 
 		stmt, err := tx.PrepareContext(ctx, recordQuery)
 		if err != nil {
@@ -221,6 +221,7 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 				rec.Envelope,
 				rec.CreatedAt.Format(time.RFC3339),
 				rec.UpdatedAt.Format(time.RFC3339),
+				rec.IsDeleted,
 			)
 			if err != nil {
 				return fmt.Errorf("пакетная вставка мигрировавшей записи %s: %w", rec.ID, err)
@@ -245,7 +246,7 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 
 // GetAllRecords вычитывает плоский список зашифрованных оффлайн-записей для пакетной ре-энкрипции.
 func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.EncryptedRecord, error) {
-	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at FROM records;`
+	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records;`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		slog.Error("Не удалось выполнить выборку всех записей для миграции", "error", err)
@@ -258,8 +259,9 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 		var r repository.EncryptedRecord
 		var uNull sql.NullString
 		var cStr, uStr string
+		var isDeleted int32
 
-		if err := rows.Scan(&r.ID, &uNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr); err != nil {
+		if err := rows.Scan(&r.ID, &uNull, &r.Name, &r.Type, &r.Envelope, &cStr, &uStr, &isDeleted); err != nil {
 			return nil, fmt.Errorf("сканирование строки ре-энкрипции: %w", err)
 		}
 
@@ -276,6 +278,8 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 		if err != nil {
 			return nil, fmt.Errorf("парсинг даты обновления записи %s: %w", r.ID, err)
 		}
+
+		r.IsDeleted = isDeleted
 
 		list = append(list, r)
 	}

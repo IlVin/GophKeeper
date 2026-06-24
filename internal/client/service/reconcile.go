@@ -149,6 +149,7 @@ func (s *InitService) ReconcileContainer(
 			Envelope:  newRecEnvJSON,
 			CreatedAt: rec.CreatedAt,
 			UpdatedAt: rec.UpdatedAt,
+			IsDeleted: rec.IsDeleted,
 		})
 	}
 

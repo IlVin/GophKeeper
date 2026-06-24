@@ -107,6 +107,17 @@ func TestDeviceStore_ExecuteReconcileTransaction_Success(t *testing.T) {
 			Envelope:  []byte("encrypted-envelope-bytes"),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
+			IsDeleted: 0,
+		},
+		{
+			ID:        "22222222-3333-4444-5555-666666666666",
+			UserID:    &userNew,
+			Name:      "deleted-record",
+			Type:      "text",
+			Envelope:  []byte("deleted-envelope-bytes"),
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+			IsDeleted: 1, // Удаленная запись
 		},
 	}
 
@@ -118,4 +129,128 @@ func TestDeviceStore_ExecuteReconcileTransaction_Success(t *testing.T) {
 	checkState, err := store.ReadDeviceState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "new-canonical-server-user-id", *checkState.UserID)
+}
+
+// TestDeviceStore_ExecuteReconcileTransaction_PreservesIsDeleted проверяет,
+// что Reconcile транзакция сохраняет is_deleted при миграции.
+func TestDeviceStore_ExecuteReconcileTransaction_PreservesIsDeleted(t *testing.T) {
+	db := setupMockDB(t)
+	defer db.Close()
+
+	store := sqlite.NewSQLiteDeviceStore(db)
+	secretStore := sqlite.NewSQLiteSecretStore(db)
+	ctx := context.Background()
+
+	// 1. Создаем базовое состояние
+	userOld := "old-user"
+	stateBase := &repository.LocalDeviceState{
+		DeviceID:                 "44444444-5555-6666-7777-888888888888",
+		UserID:                   &userOld,
+		SshPublicKey:             []byte("pubkey"),
+		AccountSalt:              make([]byte, 32),
+		DeviceMasterKeyEnvelope:  []byte("env1"),
+		AccountBootstrapEnvelope: []byte("env2"),
+		CreatedAt:                time.Now().UTC().Format(time.RFC3339),
+	}
+	err := store.SaveDeviceState(ctx, stateBase)
+	require.NoError(t, err)
+
+	// 2. Создаем несколько записей с разными состояниями is_deleted
+	records := []repository.EncryptedRecord{
+		{
+			ID:        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			UserID:    &userOld,
+			Name:      "active-record",
+			Type:      "text",
+			Envelope:  []byte("active-envelope"),
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+			IsDeleted: 0,
+		},
+		{
+			ID:        "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+			UserID:    &userOld,
+			Name:      "deleted-record",
+			Type:      "text",
+			Envelope:  []byte("deleted-envelope"),
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+			IsDeleted: 1,
+		},
+	}
+
+	for _, rec := range records {
+		err = secretStore.Save(ctx, &rec)
+		require.NoError(t, err)
+	}
+
+	// 3. Проверяем, что записи сохранились с правильным is_deleted
+	rawActive, err := secretStore.GetRawByID(ctx, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), rawActive.IsDeleted)
+
+	rawDeleted, err := secretStore.GetRawByID(ctx, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), rawDeleted.IsDeleted)
+
+	// 4. Запускаем Reconcile транзакцию с новыми записями (миграция)
+	userNew := "new-canonical-user"
+	stateNew := &repository.LocalDeviceState{
+		DeviceID:                 "44444444-5555-6666-7777-888888888888",
+		UserID:                   &userNew,
+		SshPublicKey:             []byte("pubkey"),
+		AccountSalt:              make([]byte, 32),
+		DeviceMasterKeyEnvelope:  []byte("new-env1"),
+		AccountBootstrapEnvelope: []byte("new-env2"),
+		CreatedAt:                stateBase.CreatedAt,
+	}
+
+	// Мигрируем записи с сохранением is_deleted
+	migratedRecords := []repository.EncryptedRecord{
+		{
+			ID:        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			UserID:    &userNew,
+			Name:      "active-record",
+			Type:      "text",
+			Envelope:  []byte("migrated-active-envelope"),
+			CreatedAt: records[0].CreatedAt,
+			UpdatedAt: time.Now().UTC(),
+			IsDeleted: 0, // Сохраняем состояние
+		},
+		{
+			ID:        "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+			UserID:    &userNew,
+			Name:      "deleted-record",
+			Type:      "text",
+			Envelope:  []byte("migrated-deleted-envelope"),
+			CreatedAt: records[1].CreatedAt,
+			UpdatedAt: time.Now().UTC(),
+			IsDeleted: 1, // Сохраняем состояние удаления
+		},
+	}
+
+	err = store.ExecuteReconcileTransaction(ctx, stateNew, migratedRecords)
+	require.NoError(t, err)
+
+	// 5. Проверяем, что после миграции is_deleted сохранился
+	rawActiveAfter, err := secretStore.GetRawByID(ctx, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), rawActiveAfter.IsDeleted, "Активная запись должна остаться активной")
+	assert.Equal(t, []byte("migrated-active-envelope"), rawActiveAfter.Envelope, "Данные должны обновиться")
+
+	rawDeletedAfter, err := secretStore.GetRawByID(ctx, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), rawDeletedAfter.IsDeleted, "Удаленная запись должна остаться удаленной")
+	assert.Equal(t, []byte("migrated-deleted-envelope"), rawDeletedAfter.Envelope, "Данные должны обновиться")
+
+	// 6. Проверяем, что через обычные методы удаленная запись не видна
+	activeList, err := secretStore.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, activeList, 1, "В List должна быть только активная запись")
+	assert.Equal(t, "active-record", activeList[0].Name)
+
+	// 7. Проверяем, что удаленная запись не доступна через GetByID
+	deletedByID, err := secretStore.GetByID(ctx, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
+	require.NoError(t, err)
+	assert.Nil(t, deletedByID, "Удаленная запись не должна возвращаться через GetByID")
 }

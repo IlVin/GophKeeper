@@ -38,6 +38,12 @@ type EncryptedRecord struct {
 	IsDeleted int32
 }
 
+// RecordVersionMeta содержит метаданные для синхронизации
+type RecordVersionMeta struct {
+	UpdatedAt time.Time
+	IsDeleted int32
+}
+
 // Destroy осуществляет превентивную очистку ссылок и бинарных массивов структуры
 // EncryptedRecord в куче рантайма для соблюдения правил RAM Hygiene.
 func (e *EncryptedRecord) Destroy() {
@@ -84,6 +90,9 @@ type SecretStore interface {
 
 	// GetSyncMetadata вычитывает легковесную карту соответствий ID -> UpdatedAt для сетевой LWW сверки версий.
 	GetSyncMetadata(ctx context.Context) (map[string]time.Time, error)
+
+	// GetSyncMetadataWithDeleted вычитывает карту с метаданными включая is_deleted.
+	GetSyncMetadataWithDeleted(ctx context.Context) (map[string]RecordVersionMeta, error)
 
 	// SaveRaw выполняет слепой Upsert зашифрованного конверта, полученного от сервера при Pull-синхронизации.
 	// Обновление применится на диске только в том случае, если входящая дата строго свежее локальной.

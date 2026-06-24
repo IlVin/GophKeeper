@@ -94,6 +94,7 @@ func (s *SecretService) CreateSecret(ctx context.Context, name, secretType strin
 		Envelope:  envelopeJSON,
 		CreatedAt: now,
 		UpdatedAt: now,
+		IsDeleted: 0, // Явно указываем, что запись живая
 	}
 
 	slog.Debug("Persisting encrypted record block to SQLite records table", "id", recordID)
