@@ -160,11 +160,7 @@ func (h *SyncHandler) PushRecords(ctx context.Context, req *pb.PushRecordsReques
 		err = tx.QueryRow(ctx, "SELECT updated_at, is_deleted FROM records WHERE id = $1 FOR UPDATE;", r.GetRecordId()).Scan(&dbUpdatedAt, &dbIsDeleted)
 		if err == nil {
 			// Если серверная версия новее — пропускаем
-			if uTime.Before(dbUpdatedAt) {
-				continue
-			}
-			// Если updated_at равны, но is_deleted различается — обновляем
-			if uTime.Equal(dbUpdatedAt) && r.GetIsDeleted() == dbIsDeleted {
+			if !uTime.After(dbUpdatedAt) {
 				continue
 			}
 		}
