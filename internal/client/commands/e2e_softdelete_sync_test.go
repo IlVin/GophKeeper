@@ -18,6 +18,17 @@ import (
 )
 
 // TestE2E_SoftDelete_Synchronization проверяет сквозную синхронизацию мягкого удаления
+// между тремя клиентами одного аккаунта.
+//
+// Сценарий:
+// 1. 3 клиента, каждый создает по 5 записей
+// 2. Клиент 1 синхронизируется → на сервере 5 записей
+// 3. Клиент 2 синхронизируется → у клиента 2: 5 своих + 5 с сервера = 10 записей
+// 4. Клиент 2 удаляет 2 записи (1 свою, 1 с клиента 1)
+// 5. Клиент 2 синхронизируется → удаления уходят на сервер
+// 6. Клиент 3 синхронизируется → у клиента 3: все 13 записей (все кроме удаленных)
+// 7. Клиент 1 синхронизируется → у клиента 1: все 13 записей
+// 8. Все клиенты имеют одинаковый набор из 13 записей
 func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soft delete E2E tests in short mode")
@@ -41,9 +52,9 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = os.Stat(clientBinary)
-	require.NoError(t, err, "client binary not found")
+	require.NoError(t, err, "client binary not found at %q. Run 'make build-linux' first", clientBinary)
 	_, err = os.Stat(serverBinary)
-	require.NoError(t, err, "server binary not found")
+	require.NoError(t, err, "server binary not found at %q. Run 'make build-linux' first", serverBinary)
 
 	// 2. ЗАПУСК СЕРВЕРА
 	serverTargetAddr := "127.0.0.1:9555"
@@ -92,7 +103,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 		return stdout.String(), stderr.String(), err
 	}
 
-	// Хелпер для получения списка записей с клиента
+	// Хелпер для получения списка записей с клиента (возвращает только имена без префикса)
 	getRecordNames := func(dbPath string) ([]string, error) {
 		stdout, _, err := runClient(dbPath, "list")
 		if err != nil {
@@ -180,7 +191,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	// =========================================================================
 	t.Log("=== Step 2: Each client creates 5 records ===")
 
-	// Клиент 1
+	// Клиент 1: client1_rec_1 ... client1_rec_5
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("%sclient1_rec_%d", testPrefix, i)
 		_, stderr, err := runClient(dbClient1, "create",
@@ -191,7 +202,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 		require.NoError(t, err, "client 1 create %s failed: %s", name, stderr)
 	}
 
-	// Клиент 2
+	// Клиент 2: client2_rec_1 ... client2_rec_5
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("%sclient2_rec_%d", testPrefix, i)
 		_, stderr, err := runClient(dbClient2, "create",
@@ -202,7 +213,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 		require.NoError(t, err, "client 2 create %s failed: %s", name, stderr)
 	}
 
-	// Клиент 3
+	// Клиент 3: client3_rec_1 ... client3_rec_5
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("%sclient3_rec_%d", testPrefix, i)
 		_, stderr, err := runClient(dbClient3, "create",
@@ -223,7 +234,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient3, expectedClient3)
 
 	// =========================================================================
-	// ЭТАП 3: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ
+	// ЭТАП 3: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (5 записей на сервер)
 	// =========================================================================
 	t.Log("=== Step 3: Client 1 syncs (5 records to server) ===")
 
@@ -232,7 +243,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient1, expectedClient1)
 
 	// =========================================================================
-	// ЭТАП 4: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ
+	// ЭТАП 4: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (10 записей: 5 своих + 5 с клиента 1)
 	// =========================================================================
 	t.Log("=== Step 4: Client 2 syncs (10 records: 5 own + 5 from client 1) ===")
 
@@ -246,7 +257,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient2, expectedClient2AfterSync)
 
 	// =========================================================================
-	// ЭТАП 5: КЛИЕНТ 2 УДАЛЯЕТ 2 ЗАПИСИ
+	// ЭТАП 5: КЛИЕНТ 2 УДАЛЯЕТ 2 ЗАПИСИ (1 свою, 1 с клиента 1)
 	// =========================================================================
 	t.Log("=== Step 5: Client 2 deletes 2 records (1 own, 1 from client 1) ===")
 
@@ -262,6 +273,7 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	_, stderr, err = runClient(dbClient2, "delete", "--id", client1RecID)
 	require.NoError(t, err, "delete client1_rec_2 failed: %s", stderr)
 
+	// Проверяем, что у клиента 2 осталось 8 записей
 	expectedClient2AfterDelete := []string{
 		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
 		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
@@ -269,51 +281,52 @@ func TestE2E_SoftDelete_Synchronization(t *testing.T) {
 	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
 
 	// =========================================================================
-	// ЭТАП 6: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ
+	// ЭТАП 6: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (удаления уходят на сервер)
 	// =========================================================================
 	t.Log("=== Step 6: Client 2 syncs (deletions go to server) ===")
 
 	_, stderr, err = runClient(dbClient2, "sync")
 	require.NoError(t, err, "client 2 sync after delete failed: %s", stderr)
+
+	// Клиент 2 все еще имеет 8 записей (записей клиента 3 у него пока нет)
 	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
 
 	// =========================================================================
-	// ЭТАП 7: КЛИЕНТ 3 СИНХРОНИЗИРУЕТСЯ
+	// ЭТАП 7: КЛИЕНТ 3 СИНХРОНИЗИРУЕТСЯ (получает все 13 записей)
 	// =========================================================================
-	t.Log("=== Step 7: Client 3 syncs (13 records: 5 own + 4 from client 1 + 4 from client 2) ===")
+	t.Log("=== Step 7: Client 3 syncs (receives all 13 records from server) ===")
 
 	_, stderr, err = runClient(dbClient3, "sync")
 	require.NoError(t, err, "client 3 sync failed: %s", stderr)
 
-	expectedClient3 = []string{
-		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
+	// Все записи кроме удаленных (client1_rec_2 и client2_rec_3)
+	expectedAllRecords := []string{
 		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
 		"client2_rec_1", "client2_rec_2", "client2_rec_4", "client2_rec_5",
+		"client3_rec_1", "client3_rec_2", "client3_rec_3", "client3_rec_4", "client3_rec_5",
 	}
-	assertRecordsEqual(t, dbClient3, expectedClient3)
+	assertRecordsEqual(t, dbClient3, expectedAllRecords)
 
 	// =========================================================================
-	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (ИСПРАВЛЕНО: = вместо :=)
+	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (получает все 13 записей)
 	// =========================================================================
-	t.Log("=== Step 8: Client 1 syncs (receives deletions from client 2) ===")
+	t.Log("=== Step 8: Client 1 syncs (receives all 13 records from server) ===")
 
-	// Исправлено: используем = вместо :=
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
 
-	expectedClient1AfterDelete := []string{
-		"client1_rec_1", "client1_rec_3", "client1_rec_4", "client1_rec_5",
-	}
-	assertRecordsEqual(t, dbClient1, expectedClient1AfterDelete)
+	// Клиент 1 должен получить все 13 записей
+	assertRecordsEqual(t, dbClient1, expectedAllRecords)
 
 	// =========================================================================
 	// ЭТАП 9: ФИНАЛЬНАЯ ПРОВЕРКА ВСЕХ КЛИЕНТОВ
 	// =========================================================================
 	t.Log("=== Step 9: Final verification of all clients ===")
 
-	assertRecordsEqual(t, dbClient1, expectedClient1AfterDelete)
-	assertRecordsEqual(t, dbClient2, expectedClient2AfterDelete)
-	assertRecordsEqual(t, dbClient3, expectedClient3)
+	// Все клиенты должны иметь одинаковый набор из 13 записей
+	assertRecordsEqual(t, dbClient1, expectedAllRecords)
+	assertRecordsEqual(t, dbClient2, expectedAllRecords)
+	assertRecordsEqual(t, dbClient3, expectedAllRecords)
 
 	// =========================================================================
 	// ЭТАП 10: ПРОВЕРКА ЧТО УДАЛЕННЫЕ ЗАПИСИ НЕ ДОСТУПНЫ ЧЕРЕЗ GET
