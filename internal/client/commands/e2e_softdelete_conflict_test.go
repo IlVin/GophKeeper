@@ -4,8 +4,6 @@ package commands
 
 import (
 	"bytes"
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,123 +13,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	_ "modernc.org/sqlite"
 )
 
-// dumpSQLiteTable подключается к SQLite БД и выводит содержимое таблицы records
-func dumpSQLiteTable(t *testing.T, dbPath string, label string) {
-	t.Helper()
-
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Logf("[%s] SQLite DB does not exist: %s", label, dbPath)
-		return
-	}
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Logf("[%s] Failed to open SQLite: %v", label, err)
-		return
-	}
-	defer db.Close()
-
-	rows, err := db.Query(`SELECT id, name, type, created_at, updated_at, is_deleted FROM records ORDER BY name;`)
-	if err != nil {
-		t.Logf("[%s] Failed to query records: %v", label, err)
-		return
-	}
-	defer rows.Close()
-
-	t.Logf("=== DUMP: %s (SQLite) ===", label)
-	count := 0
-	for rows.Next() {
-		var id, name, typ, createdAt, updatedAt string
-		var isDeleted int32
-		if err := rows.Scan(&id, &name, &typ, &createdAt, &updatedAt, &isDeleted); err != nil {
-			t.Logf("  Scan error: %v", err)
-			continue
-		}
-		count++
-		t.Logf("  [%d] id=%s name=%s type=%s created=%s updated=%s is_deleted=%d",
-			count, id, name, typ, createdAt, updatedAt, isDeleted)
-	}
-	if count == 0 {
-		t.Logf("  (empty)")
-	}
-	t.Logf("=== END DUMP: %s ===", label)
-}
-
-// dumpPostgresTable подключается к PostgreSQL и выводит содержимое таблицы records для данного user_id
-func dumpPostgresTable(t *testing.T, dsn string, userID string, label string) {
-	t.Helper()
-
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Logf("[%s] Failed to connect to PostgreSQL: %v", label, err)
-		return
-	}
-	defer pool.Close()
-
-	rows, err := pool.Query(ctx, `SELECT id, name, type, created_at, updated_at, is_deleted FROM records WHERE user_id = $1 ORDER BY name;`, userID)
-	if err != nil {
-		t.Logf("[%s] Failed to query PostgreSQL records: %v", label, err)
-		return
-	}
-	defer rows.Close()
-
-	t.Logf("=== DUMP: %s (PostgreSQL) ===", label)
-	count := 0
-	for rows.Next() {
-		var id, name, typ string
-		var createdAt, updatedAt time.Time
-		var isDeleted int32
-		if err := rows.Scan(&id, &name, &typ, &createdAt, &updatedAt, &isDeleted); err != nil {
-			t.Logf("  Scan error: %v", err)
-			continue
-		}
-		count++
-		t.Logf("  [%d] id=%s name=%s type=%s created=%s updated=%s is_deleted=%d",
-			count, id, name, typ, createdAt.Format(time.RFC3339Nano), updatedAt.Format(time.RFC3339Nano), isDeleted)
-	}
-	if count == 0 {
-		t.Logf("  (empty)")
-	}
-	t.Logf("=== END DUMP: %s ===", label)
-}
-
-// getUserIDFromClient извлекает UserID из device_state таблицы SQLite
-func getUserIDFromClient(t *testing.T, dbPath string) string {
-	t.Helper()
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Logf("Failed to open SQLite for userID: %v", err)
-		return ""
-	}
-	defer db.Close()
-
-	var userID sql.NullString
-	err = db.QueryRow(`SELECT user_id FROM device_state WHERE id = 1;`).Scan(&userID)
-	if err != nil {
-		t.Logf("Failed to get user_id: %v", err)
-		return ""
-	}
-	if !userID.Valid {
-		return ""
-	}
-	return userID.String
-}
-
-// TestE2E_SoftDelete_ConflictWithRecreate проверяет граничный случай с полными дампами БД
+// TestE2E_SoftDelete_ConflictWithRecreate проверяет граничный случай:
+// - Клиент 1 удаляет запись (is_deleted=1, updated_at=T1)
+// - Клиент 2 пересоздает эту же запись (is_deleted=0, created_at=T2, updated_at=T2, T2 > T1)
+// - LWW должен победить: побеждает новая запись от клиента 2, так как T2 > T1
+//
+// Сценарий:
+// 1. Клиент 1 создает запись "shared" с payload "v1"
+// 2. Клиент 1 синхронизируется → на сервере "shared" v1
+// 3. Клиент 2 синхронизируется → у клиента 2 "shared" v1
+// 4. Клиент 1 удаляет запись "shared" (is_deleted=1, updated_at=T1)
+// 5. Клиент 2 пересоздает запись "shared" с payload "v2" (is_deleted=0, updated_at=T2, T2 > T1)
+// 6. Клиент 2 синхронизируется первым → отправляет v2 на сервер
+// 7. Клиент 1 синхронизируется → отправляет удаление на сервер
+// 8. Сервер применяет LWW: T2 > T1 → побеждает запись клиента 2
+// 9. Клиент 1 синхронизируется еще раз → получает v2 с сервера
+// 10. Все клиенты имеют запись "shared" с payload "v2" (is_deleted=0)
 func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soft delete conflict E2E test in short mode")
 	}
 
-	// Уникальный префикс для этого теста
+	// Уникальный префикс для изоляции теста
 	testPrefix := fmt.Sprintf("sd_conflict_%d_", time.Now().UnixNano())
 
 	// 1. ИЗОЛЯЦИЯ ОКРУЖЕНИЯ
@@ -148,9 +55,9 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = os.Stat(clientBinary)
-	require.NoError(t, err, "client binary not found")
+	require.NoError(t, err, "client binary not found. Run 'make build-linux' first")
 	_, err = os.Stat(serverBinary)
-	require.NoError(t, err, "server binary not found")
+	require.NoError(t, err, "server binary not found. Run 'make build-linux' first")
 
 	// 2. ЗАПУСК СЕРВЕРА
 	serverTargetAddr := "127.0.0.1:9556"
@@ -199,7 +106,7 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 		return stdout.String(), stderr.String(), err
 	}
 
-	// Хелпер для получения списка записей с клиента
+	// Хелпер для получения списка записей с клиента (только с нашим префиксом)
 	getRecordNames := func(dbPath string) ([]string, error) {
 		stdout, _, err := runClient(dbPath, "list")
 		if err != nil {
@@ -229,6 +136,7 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 		return names, nil
 	}
 
+	// Хелпер для получения ID записи по имени
 	getRecordID := func(dbPath, name string) (string, error) {
 		stdout, _, err := runClient(dbPath, "list")
 		if err != nil {
@@ -258,6 +166,7 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 		return "", fmt.Errorf("record %q not found", name)
 	}
 
+	// Хелпер для получения payload записи по ID
 	getRecordPayloadByID := func(dbPath, id string) (string, error) {
 		stdout, _, err := runClient(dbPath, "get", "--id", id)
 		if err != nil {
@@ -280,6 +189,31 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 		return getData.Payload, nil
 	}
 
+	// Хелпер для получения payload записи по имени
+	getRecordPayloadByName := func(dbPath, name string) (string, error) {
+		fullName := testPrefix + name
+		stdout, _, err := runClient(dbPath, "get", "--name", fullName)
+		if err != nil {
+			return "", err
+		}
+
+		var resp CLIResponse
+		if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+			return "", err
+		}
+		if !resp.Success {
+			return "", fmt.Errorf("get failed: %s", resp.Error)
+		}
+
+		dataBytes, _ := json.Marshal(resp.Data)
+		var getData GetResponse
+		if err := json.Unmarshal(dataBytes, &getData); err != nil {
+			return "", err
+		}
+		return getData.Payload, nil
+	}
+
+	// Хелпер для проверки наличия записей
 	assertRecordsEqual := func(t *testing.T, dbPath string, expected []string) {
 		t.Helper()
 		names, err := getRecordNames(dbPath)
@@ -303,14 +237,6 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 		require.NoError(t, err, "client %d register failed: %s", i+1, stderr)
 	}
 
-	userID1 := getUserIDFromClient(t, dbClient1)
-	userID2 := getUserIDFromClient(t, dbClient2)
-	t.Logf("UserID1: %s, UserID2: %s", userID1, userID2)
-
-	dumpSQLiteTable(t, dbClient1, "Client1 after init+register")
-	dumpSQLiteTable(t, dbClient2, "Client2 after init+register")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after init+register")
-
 	// =========================================================================
 	// ЭТАП 2: КЛИЕНТ 1 СОЗДАЕТ ЗАПИСЬ "shared" v1
 	// =========================================================================
@@ -330,10 +256,6 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("Record ID: %s", sharedID)
 
-	dumpSQLiteTable(t, dbClient1, "Client1 after create v1")
-	dumpSQLiteTable(t, dbClient2, "Client2 after create v1 (should be empty)")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after create v1")
-
 	// =========================================================================
 	// ЭТАП 3: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (v1 на сервер)
 	// =========================================================================
@@ -341,10 +263,6 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync failed: %s", stderr)
-
-	dumpSQLiteTable(t, dbClient1, "Client1 after sync v1 to server")
-	dumpSQLiteTable(t, dbClient2, "Client2 after sync v1 to server")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after sync v1 to server")
 
 	// =========================================================================
 	// ЭТАП 4: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ (получает v1)
@@ -355,13 +273,16 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	require.NoError(t, err, "client 2 sync failed: %s", stderr)
 
 	assertRecordsEqual(t, dbClient2, []string{recordName})
+
+	// Проверяем payload через --id
 	payload, err := getRecordPayloadByID(dbClient2, sharedID)
 	require.NoError(t, err)
-	assert.Equal(t, "v1", payload, "Client 2 should have payload 'v1'")
+	assert.Equal(t, "v1", payload, "Client 2 should have payload 'v1' (via --id)")
 
-	dumpSQLiteTable(t, dbClient1, "Client1 after client2 sync")
-	dumpSQLiteTable(t, dbClient2, "Client2 after client2 sync (should have v1)")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after client2 sync")
+	// Проверяем payload через --name
+	payload, err = getRecordPayloadByName(dbClient2, recordName)
+	require.NoError(t, err)
+	assert.Equal(t, "v1", payload, "Client 2 should have payload 'v1' (via --name)")
 
 	// =========================================================================
 	// ЭТАП 5: КЛИЕНТ 1 УДАЛЯЕТ ЗАПИСЬ "shared"
@@ -373,14 +294,10 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 
 	assertRecordsEqual(t, dbClient1, []string{})
 
-	dumpSQLiteTable(t, dbClient1, "Client1 after delete (should have is_deleted=1)")
-	dumpSQLiteTable(t, dbClient2, "Client2 after delete (should still have v1)")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after delete (should still have v1)")
-
 	// =========================================================================
 	// ЭТАП 6: КЛИЕНТ 2 ПЕРЕСОЗДАЕТ ЗАПИСЬ "shared" С PAYLOAD "v2"
 	// =========================================================================
-	t.Log("=== Step 6: Client 2 recreates record 'shared' with payload 'v2' (is_deleted=0, created_at=T2, updated_at=T2, T2 > T1) ===")
+	t.Log("=== Step 6: Client 2 recreates record 'shared' with payload 'v2' (is_deleted=0, updated_at=T2, T2 > T1) ===")
 
 	_, stderr, err = runClient(dbClient2, "create",
 		"--name", fullName,
@@ -390,77 +307,82 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	require.NoError(t, err, "client 2 recreate failed: %s", stderr)
 
 	assertRecordsEqual(t, dbClient2, []string{recordName})
+
+	// Проверяем payload через --id
 	payload, err = getRecordPayloadByID(dbClient2, sharedID)
 	require.NoError(t, err)
-	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2'")
+	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2' (via --id)")
 
-	dumpSQLiteTable(t, dbClient1, "Client1 after client2 recreate")
-	dumpSQLiteTable(t, dbClient2, "Client2 after recreate v2")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after client2 recreate")
+	// Проверяем payload через --name
+	payload, err = getRecordPayloadByName(dbClient2, recordName)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2' (via --name)")
 
 	// =========================================================================
 	// ЭТАП 7: КЛИЕНТ 2 СИНХРОНИЗИРУЕТСЯ ПЕРВЫМ (отправляет v2 на сервер)
 	// =========================================================================
-	t.Log("=== Step 7: Client 2 syncs first (sends v2 to server: is_deleted=0, created_at=T2, updated_at=T2) ===")
+	t.Log("=== Step 7: Client 2 syncs first (sends v2 to server: is_deleted=0, updated_at=T2) ===")
 
 	_, stderr, err = runClient(dbClient2, "sync")
 	require.NoError(t, err, "client 2 sync after recreate failed: %s", stderr)
 
 	assertRecordsEqual(t, dbClient2, []string{recordName})
-	payload, err = getRecordPayloadByID(dbClient2, sharedID)
-	require.NoError(t, err)
-	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2'")
-
-	dumpSQLiteTable(t, dbClient1, "Client1 before critical sync (should NOT have v2 yet)")
-	dumpSQLiteTable(t, dbClient2, "Client2 after sync v2 to server")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after client2 sync v2 (should have is_deleted=0, updated_at=T2)")
 
 	// =========================================================================
-	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (отправляет удаление, получает v2)
+	// ЭТАП 8: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ (отправляет удаление на сервер)
+	// Сервер применяет LWW: T2 > T1 → побеждает запись клиента 2
+	// Клиент 1 получает v2 с сервера
 	// =========================================================================
 	t.Log("=== Step 8: Client 1 syncs (sends deletion to server: is_deleted=1, updated_at=T1) ===")
 	t.Log("=== Server applies LWW: T2 > T1 → Client 2's record wins, deletion is ignored ===")
-	t.Log("=== Client 1 should receive v2 from server (record missing locally) ===")
+	t.Log("=== Client 1 receives v2 from server ===")
 
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 sync after delete failed: %s", stderr)
 
-	dumpSQLiteTable(t, dbClient1, "Client1 after critical sync (SHOULD have v2 with is_deleted=0)")
-	dumpSQLiteTable(t, dbClient2, "Client2 after critical sync")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after critical sync (should have is_deleted=0, updated_at=T2)")
-
 	// =========================================================================
-	// ЭТАП 9: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ ЕЩЕ РАЗ
+	// ЭТАП 9: КЛИЕНТ 1 СИНХРОНИЗИРУЕТСЯ ЕЩЕ РАЗ (убеждаемся, что v2 закрепилась)
 	// =========================================================================
 	t.Log("=== Step 9: Client 1 syncs again (ensures v2 is persisted) ===")
 
 	_, stderr, err = runClient(dbClient1, "sync")
 	require.NoError(t, err, "client 1 second sync failed: %s", stderr)
 
-	dumpSQLiteTable(t, dbClient1, "Client1 after second sync")
-	dumpSQLiteTable(t, dbClient2, "Client2 after second sync")
-	dumpPostgresTable(t, postgresDSN, userID1, "PostgreSQL after second sync")
-
 	// =========================================================================
 	// ЭТАП 10: ФИНАЛЬНАЯ ПРОВЕРКА
 	// =========================================================================
 	t.Log("=== Step 10: Final verification ===")
 
-	// Проверяем, что у клиента 1 есть запись "shared" в list
+	// Проверяем, что у клиента 1 есть запись "shared"
 	assertRecordsEqual(t, dbClient1, []string{recordName})
 
-	// Проверяем, что у клиента 2 есть запись "shared" в list
+	// Проверяем payload через --id на клиенте 1
+	payload, err = getRecordPayloadByID(dbClient1, sharedID)
+	require.NoError(t, err, "Client 1 should have payload via --id")
+	assert.Equal(t, "v2", payload, "Client 1 should have payload 'v2' (via --id)")
+
+	// Проверяем payload через --name на клиенте 1
+	payload, err = getRecordPayloadByName(dbClient1, recordName)
+	require.NoError(t, err, "Client 1 should have payload via --name")
+	assert.Equal(t, "v2", payload, "Client 1 should have payload 'v2' (via --name)")
+
+	// Проверяем, что у клиента 2 есть запись "shared"
 	assertRecordsEqual(t, dbClient2, []string{recordName})
 
-	// Проверяем payload через get --id на клиенте 1
-	payloadFinal, err := getRecordPayloadByID(dbClient1, sharedID)
-	require.NoError(t, err, "Client 1 should have payload via get --id")
-	assert.Equal(t, "v2", payloadFinal, "Client 1 should have payload 'v2'")
+	// Проверяем payload через --id на клиенте 2
+	payload, err = getRecordPayloadByID(dbClient2, sharedID)
+	require.NoError(t, err, "Client 2 should have payload via --id")
+	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2' (via --id)")
 
-	// Проверяем payload через get --id на клиенте 2
-	payloadFinal, err = getRecordPayloadByID(dbClient2, sharedID)
-	require.NoError(t, err, "Client 2 should have payload via get --id")
-	assert.Equal(t, "v2", payloadFinal, "Client 2 should have payload 'v2'")
+	// Проверяем payload через --name на клиенте 2
+	payload, err = getRecordPayloadByName(dbClient2, recordName)
+	require.NoError(t, err, "Client 2 should have payload via --name")
+	assert.Equal(t, "v2", payload, "Client 2 should have payload 'v2' (via --name)")
+
+	// Проверяем, что сервер имеет v2 (через клиента 1)
+	payload, err = getRecordPayloadByID(dbClient1, sharedID)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", payload, "Server should have payload 'v2'")
 
 	// =========================================================================
 	// ОЧИСТКА
@@ -485,4 +407,8 @@ func TestE2E_SoftDelete_ConflictWithRecreate(t *testing.T) {
 	}
 
 	t.Log("=== ✅ All tests passed! LWW correctly resolved delete vs recreate conflict ===")
+	t.Log("   - Client 1 deletion was overridden by LWW")
+	t.Log("   - Client 2 recreation won (T2 > T1)")
+	t.Log("   - All clients have the newest version 'v2'")
+	t.Log("   - Both --id and --name lookups work correctly")
 }
