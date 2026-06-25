@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 
 	pb "gophkeeper/gen/go/gophkeeper/v1"
 	clientapp "gophkeeper/internal/client/app"
@@ -182,11 +183,18 @@ func executeNetworkSync(
 		return cli.PrintError(out, err, "loading Server CA pool")
 	}
 
+	// Извлекаем хост из ServerURL
+	serverURL := *state.ServerURL
+	host, _, err := net.SplitHostPort(serverURL)
+	if err != nil || host == "" {
+		host = serverURL // fallback
+	}
+
 	tlsCfg := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		RootCAs:      serverCAPool,
 		Certificates: []tls.Certificate{clientCert},
-		ServerName:   "localhost",
+		ServerName:   host,
 	}
 
 	slog.Debug("Establishing secure mTLS 1.3 gRPC sync session",

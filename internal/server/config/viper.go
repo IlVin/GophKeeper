@@ -34,6 +34,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("server.bind_grpc", ":443")
 	v.SetDefault("server.lets_encrypt_domain", "")
 	v.SetDefault("server.use_proxy_protocol", false)
+	v.SetDefault("server.server_name", "")
 
 	v.SetDefault("storage.postgres_dsn", "")
 	v.SetDefault("storage.max_conns", int32(20))

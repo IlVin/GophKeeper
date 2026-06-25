@@ -119,10 +119,7 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 			return ctx, nil, fmt.Errorf("load server ca: %w", err)
 		}
 
-		host, _, err := net.SplitHostPort(cfg.Server.BindGRPC)
-		if err != nil || host == "" {
-			host = "localhost"
-		}
+		host := cfg.Server.ServerName
 
 		serverCert, err := pki.GenerateDynamicServerCertificate(caCert, caPrivKey, host)
 		if err != nil {

@@ -31,6 +31,7 @@ func (c *ServerCLI) NewServerRootCommand() (*cobra.Command, error) {
 	pFlags.String("bind-grpc", ":443", "server gRPC secure listener bind address")
 	pFlags.String("database", "", "postgres connection DSN")
 	pFlags.String("lets-encrypt", "", "domain name for automatic Let.s Encrypt TLS")
+	pFlags.String("server-name", "", "public server name for TLS verification (SNI), defaults to host from bind-grpc")
 	pFlags.Bool("proxy-protocol", false, "enable go-proxyproto listener layer for upstream load-balancers")
 
 	pFlags.String("server-ca-key", "", "path to Server CA private key file")
@@ -51,6 +52,9 @@ func (c *ServerCLI) NewServerRootCommand() (*cobra.Command, error) {
 	}
 	if err := c.v.BindPFlag("server.lets_encrypt_domain", pFlags.Lookup("lets-encrypt")); err != nil {
 		return nil, fmt.Errorf("failed to bind flag 'lets-encrypt': %w", err)
+	}
+	if err := c.v.BindPFlag("server.server_name", pFlags.Lookup("server-name")); err != nil {
+		return nil, fmt.Errorf("failed to bind flag 'server-name': %w", err)
 	}
 	if err := c.v.BindPFlag("server.use_proxy_protocol", pFlags.Lookup("proxy-protocol")); err != nil {
 		return nil, fmt.Errorf("failed to bind flag 'proxy-protocol': %w", err)

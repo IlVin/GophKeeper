@@ -4,6 +4,7 @@ package config
 
 import (
 	"errors"
+	"net"
 	"strings"
 )
 
@@ -21,6 +22,7 @@ type ServerConfig struct {
 	BindHTTP          string `mapstructure:"bind_http"`
 	BindGRPC          string `mapstructure:"bind_grpc"`
 	LetsEncryptDomain string `mapstructure:"lets_encrypt_domain"`
+	ServerName        string `mapstructure:"server_name"`
 	UseProxyProtocol  bool   `mapstructure:"use_proxy_protocol"` // Поддержка PROXY v1/v2 для AWS/Cloudflare шлюзов
 }
 
@@ -64,7 +66,17 @@ func (c *Config) Validate() error {
 		return ErrDeviceCAKeyEmpty
 	}
 
-	// Выставляем промышленные дефолты пула СУБД, если параметры пропущены
+	// Если ServerName не задан явно, извлекаем из BindGRPC
+	if strings.TrimSpace(c.Server.ServerName) == "" {
+		host, _, err := net.SplitHostPort(c.Server.BindGRPC)
+		if err != nil || host == "" {
+			c.Server.ServerName = "localhost"
+		} else {
+			c.Server.ServerName = host
+		}
+	}
+
+	// Выставляем дефолты пула СУБД, если параметры пропущены
 	if c.Storage.MaxConns <= 0 {
 		c.Storage.MaxConns = 20
 	}
