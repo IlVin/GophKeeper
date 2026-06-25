@@ -3,6 +3,7 @@
 package pki
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/pem"
@@ -33,10 +34,15 @@ func LoadServerCA(cfg config.Config) (*x509.Certificate, *ecdsa.PrivateKey, erro
 		return nil, nil, fmt.Errorf("failed to parse embedded server ca certificate: %w", err)
 	}
 
-	slog.Info("Loading Server CA private key material from secure local storage", "path", cfg.PKI.ServerCAKeyPath)
+	slog.Info("Loading Server CA private key material from secure local storage",
+		slog.String("path", cfg.PKI.ServerCAKeyPath),
+	)
 	ecdsaKey, err := loadPrivateKeyFromFile(cfg.PKI.ServerCAKeyPath)
 	if err != nil {
-		slog.Error("Failed to initialize Server CA root private key descriptor", "path", cfg.PKI.ServerCAKeyPath, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to initialize Server CA root private key descriptor",
+			slog.String("path", cfg.PKI.ServerCAKeyPath),
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("server ca key load from %q: %w", cfg.PKI.ServerCAKeyPath, err)
 	}
 
@@ -61,10 +67,15 @@ func LoadDeviceCA(cfg config.Config) (*x509.Certificate, *ecdsa.PrivateKey, erro
 		return nil, nil, fmt.Errorf("failed to parse embedded device ca certificate: %w", err)
 	}
 
-	slog.Info("Loading Device CA private key material from secure local storage", "path", cfg.PKI.DeviceCAKeyPath)
+	slog.Info("Loading Device CA private key material from secure local storage",
+		slog.String("path", cfg.PKI.DeviceCAKeyPath),
+	)
 	ecdsaKey, err := loadPrivateKeyFromFile(cfg.PKI.DeviceCAKeyPath)
 	if err != nil {
-		slog.Error("Failed to initialize Device CA root private key descriptor", "path", cfg.PKI.DeviceCAKeyPath, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to initialize Device CA root private key descriptor",
+			slog.String("path", cfg.PKI.DeviceCAKeyPath),
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("device ca key load from %q: %w", cfg.PKI.DeviceCAKeyPath, err)
 	}
 

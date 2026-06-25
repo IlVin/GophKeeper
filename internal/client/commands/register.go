@@ -69,7 +69,9 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 					serverURLStr = *localState.ServerURL
 				}
 				statusErr := fmt.Errorf("container already registered and contains active mTLS passport (Server: %s, UserID: %s)", serverURLStr, *localState.UserID)
-				slog.Warn("Attempted re-registration blocked by state machine", "user_id", *localState.UserID)
+				slog.Warn("Attempted re-registration blocked by state machine",
+					slog.String("user_id", *localState.UserID),
+				)
 				return cli.PrintError(out, statusErr, "status validation")
 			}
 
@@ -90,7 +92,9 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Failed to close UNIX agent socket in register defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket in register defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -117,7 +121,9 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 				RootCAs:    serverCAPool, // Намертво привязываем клиента к нашему Server CA
 			}
 
-			slog.Debug("Opening isolated secure gRPC TLS 1.3 channel", "sni", targetHost)
+			slog.Debug("Opening isolated secure gRPC TLS 1.3 channel",
+				slog.String("sni", targetHost),
+			)
 			conn, err := grpc.NewClient(
 				serverAddr,
 				grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
@@ -134,7 +140,9 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !connClosedChecked {
 					if closeErr := conn.Close(); closeErr != nil {
-						slog.Error("Failed to close gRPC connection in register defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close gRPC connection in register defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -148,7 +156,9 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 
 			for {
 				state := conn.GetState()
-				slog.Debug("gRPC transport auth state transition", "state", state.String())
+				slog.Debug("gRPC transport auth state transition",
+					slog.String("state", state.String()),
+				)
 
 				if state == connectivity.Ready {
 					break
@@ -171,18 +181,24 @@ func newRegisterCommand(cli *CLI) *cobra.Command {
 
 			err = regService.RunRegistration(cmd.Context(), serverAddr)
 			if err != nil {
-				slog.Error("Cryptographic registration pipeline crashed", "error", err)
+				slog.ErrorContext(context.Background(), "Cryptographic registration pipeline crashed",
+					slog.Any("error", err),
+				)
 				return cli.PrintError(out, err, "registration pipeline failure")
 			}
 
 			// Безопасно финализируем ресурсы до вывода результатов на экран
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Failed to close agent socket on successful exit from register", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close agent socket on successful exit from register",
+					slog.Any("error", closeErr),
+				)
 			}
 			agentClosedChecked = true
 
 			if closeErr := conn.Close(); closeErr != nil {
-				slog.Error("Failed to close gRPC transport on successful exit from register", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close gRPC transport on successful exit from register",
+					slog.Any("error", closeErr),
+				)
 			}
 			connClosedChecked = true
 

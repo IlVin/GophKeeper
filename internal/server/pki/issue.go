@@ -3,6 +3,7 @@
 package pki
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
@@ -34,13 +35,17 @@ func IssueDeviceCertificate(
 	// 1. Десериализуем и парсим входящий запрос CSR
 	csr, err := x509.ParseCertificateRequest(csrDER)
 	if err != nil {
-		slog.Warn("Failed to parse incoming client ASN.1 DER CSR structure", "error", err)
+		slog.Warn("Failed to parse incoming client ASN.1 DER CSR structure",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to parse client csr: %w", err)
 	}
 
 	// Валидируем подпись самого запроса CSR (защита от мусорных/поддельных данных)
 	if err = csr.CheckSignature(); err != nil {
-		slog.Warn("Client CSR public key cryptographic signature validation failed", "error", err)
+		slog.Warn("Client CSR public key cryptographic signature validation failed",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("client csr signature validation failed: %w", err)
 	}
 
@@ -59,8 +64,10 @@ func IssueDeviceCertificate(
 		}
 
 		if csrDeviceID != "" && csrDeviceID != deviceID {
-			slog.Error("Critical identity mismatch detected between CSR payload and registration arguments",
-				"argument_device_id", deviceID, "csr_device_id", csrDeviceID)
+			slog.ErrorContext(context.Background(), "Critical identity mismatch detected between CSR payload and registration arguments",
+				slog.String("argument_device_id", deviceID),
+				slog.String("csr_device_id", csrDeviceID),
+			)
 			return nil, nil, errors.New("security violation: device identity mismatch in CSR content")
 		}
 	}
@@ -69,7 +76,9 @@ func IssueDeviceCertificate(
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		slog.Error("CSPRNG entropy extraction failed for certificate serial number generation", "error", err)
+		slog.ErrorContext(context.Background(), "CSPRNG entropy extraction failed for certificate serial number generation",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to generate random serial number: %w", err)
 	}
 
@@ -77,7 +86,10 @@ func IssueDeviceCertificate(
 	containerURILayout := fmt.Sprintf("urn:gophkeeper:file:%s", deviceID)
 	containerURI, err := url.Parse(containerURILayout)
 	if err != nil {
-		slog.Error("Failed to parse target device SAN URI components layout", "uri", containerURILayout, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to parse target device SAN URI components layout",
+			slog.String("uri", containerURILayout),
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to parse target device san uri: %w", err)
 	}
 
@@ -104,16 +116,20 @@ func IssueDeviceCertificate(
 	}
 
 	// 5. Выпускаем и подписываем сертификат ключом нашего закрытого Device Identity CA
-	slog.Debug("Signing and sealing new x509 mTLS device passport via Device CA root key", "device_id", deviceID)
+	slog.Debug("Signing and sealing new x509 mTLS device passport via Device CA root key",
+		slog.String("device_id", deviceID),
+	)
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, deviceCACert, csr.PublicKey, deviceCAKey)
 	if err != nil {
-		slog.Error("PKI factory failed to execute x509.CreateCertificate signing operation", "error", err)
+		slog.ErrorContext(context.Background(), "PKI factory failed to execute x509.CreateCertificate signing operation",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to sign and create device certificate: %w", err)
 	}
 
 	slog.Info("Successfully issued new mTLS device passport",
-		"device_id", deviceID,
-		"serial_number", serialNumber.String(),
+		slog.String("device_id", deviceID),
+		slog.String("serial_number", serialNumber.String()),
 	)
 	return certDER, serialNumber, nil
 }

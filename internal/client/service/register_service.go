@@ -69,7 +69,9 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 	}
 	beginResp, err := s.grpcClient.RegisterBegin(ctx, beginReq)
 	if err != nil {
-		slog.Error("RPC RegisterBegin request failed", "error", err)
+		slog.ErrorContext(context.Background(), "RPC RegisterBegin request failed",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("gRPC RegisterBegin failed: %w", err)
 	}
 
@@ -118,7 +120,9 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 
 	finishResp, err := s.grpcClient.RegisterFinish(ctx, finishReq)
 	if err != nil {
-		slog.Error("RPC RegisterFinish authentication rejected by cloud server", "error", err)
+		slog.ErrorContext(context.Background(), "RPC RegisterFinish authentication rejected by cloud server",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("gRPC RegisterFinish failed: %w", err)
 	}
 
@@ -139,7 +143,9 @@ func (s *RegisterService) RunRegistration(ctx context.Context, serverURL string)
 			mtlsSecret,
 		)
 		if err != nil {
-			slog.Error("Automated local reconciliation migration collapsed", "error", err)
+			slog.ErrorContext(context.Background(), "Automated local reconciliation migration collapsed",
+				slog.Any("error", err),
+			)
 			return fmt.Errorf("local reconcile migration failed: %w", err)
 		}
 

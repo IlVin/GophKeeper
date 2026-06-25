@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -19,17 +20,23 @@ func Bootstrap(path string) (*sql.DB, error) {
 	// Открываем существующий или создаем новый файл БД с проверкой ИБ-прав доступа
 	db, err := Open(path)
 	if err != nil {
-		slog.Error("Failed to physically open database container file", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to physically open database container file",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("open SQLite container: %w", err)
 	}
 
 	// Запускаем бесшумный накат схемы миграций (таблицы device_state и records)
 	if err := Migrate(db); err != nil {
-		slog.Error("Critical abort of SQL schema migration roll, starting descriptor cleanup", "error", err)
+		slog.ErrorContext(context.Background(), "Critical abort of SQL schema migration roll, starting descriptor cleanup",
+			slog.Any("error", err),
+		)
 
 		// Явно перехватываем ошибку закрытия пула для исключения утечек в операционной системе
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("Critical error: database pool destructor failed on emergency exit", "close_error", closeErr)
+			slog.ErrorContext(context.Background(), "Critical error: database pool destructor failed on emergency exit",
+				slog.Any("close_error", closeErr),
+			)
 			return nil, fmt.Errorf("database migration failed (%w), cascade file descriptor close failure: %w", err, closeErr)
 		}
 

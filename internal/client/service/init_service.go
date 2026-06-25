@@ -43,7 +43,10 @@ func (s *InitService) ExecuteLocalInit(ctx context.Context, serverURL string, fi
 	// 1. Проверяем ключ в агенте, используя динамический nonce для защиты от replay-атак
 	testNonce := []byte(fmt.Sprintf("gophkeeper-init-nonce-%s-%d", uuid.New().String(), time.Now().UnixNano()))
 	if err := s.agentClient.SelfTestDeterministicED25519(fingerprint, testNonce); err != nil {
-		slog.Error("SSH key self-test validation failed: randomized hardware token detected", "fingerprint", fingerprint, "error", err)
+		slog.ErrorContext(context.Background(), "SSH key self-test validation failed: randomized hardware token detected",
+			slog.String("fingerprint", fingerprint),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("ssh-agent key self-test failed: %w", err)
 	}
 

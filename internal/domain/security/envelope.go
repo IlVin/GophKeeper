@@ -3,6 +3,7 @@
 package security
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -75,7 +76,7 @@ func BuildAccountBootstrapAAD(sshFingerprint string) []byte {
 
 	// ИБ-барьер контроля переполнения типов длины uint16
 	if len(ctxBytes) > maxAADFieldLength || len(fpBytes) > maxAADFieldLength {
-		slog.Error("Critical AAD assembly failure: bootstrap field overflow detected")
+		slog.ErrorContext(context.Background(), "Critical AAD assembly failure: bootstrap field overflow detected")
 		return nil
 	}
 
@@ -104,7 +105,7 @@ func BuildDeviceMasterKeyAAD(userID *string, deviceID string) []byte {
 	}
 
 	if len(ctxBytes) > maxAADFieldLength || len(uBytes) > maxAADFieldLength || len(devIDBytes) > maxAADFieldLength {
-		slog.Error("Critical AAD assembly failure: device master key field overflow detected")
+		slog.ErrorContext(context.Background(), "Critical AAD assembly failure: device master key field overflow detected")
 		return nil
 	}
 
@@ -139,7 +140,7 @@ func BuildRecordAAD(userID *string, recordID string) []byte {
 	}
 
 	if len(ctxBytes) > maxAADFieldLength || len(uBytes) > maxAADFieldLength || len(recIDBytes) > maxAADFieldLength {
-		slog.Error("Critical AAD assembly failure: record field overflow detected")
+		slog.ErrorContext(context.Background(), "Critical AAD assembly failure: record field overflow detected")
 		return nil
 	}
 
@@ -225,7 +226,7 @@ func OpenEnvelope(key SecretBytes, envJSON []byte, aad []byte) ([]byte, error) {
 
 	plaintext, err := aead.Open(nil, env.Nonce, env.Ciphertext, aad)
 	if err != nil {
-		slog.Error("Poly1305 cryptographic authentication failed: ciphertext tag mismatch or data tampering tracked")
+		slog.ErrorContext(context.Background(), "Poly1305 cryptographic authentication failed: ciphertext tag mismatch or data tampering tracked")
 		return nil, fmt.Errorf("failed to open envelope (integrity check or key failure): %w", err)
 	}
 

@@ -3,6 +3,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -65,7 +66,9 @@ func ReadConfigFile(v *viper.Viper) error {
 
 	if configFile != "" {
 		v.SetConfigFile(configFile)
-		slog.Debug("Attempting to read config from explicit path", "path", configFile)
+		slog.Debug("Attempting to read config from explicit path",
+			slog.String("path", configFile),
+		)
 
 		if err := v.ReadInConfig(); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -76,11 +79,15 @@ func ReadConfigFile(v *viper.Viper) error {
 				slog.Debug("Config file not found, using defaults")
 				return nil
 			}
-			slog.Error("Critical error reading specified config file", "error", err)
+			slog.ErrorContext(context.Background(), "Critical error reading specified config file",
+				slog.Any("error", err),
+			)
 			return fmt.Errorf("read config file %q: %w", configFile, err)
 		}
 
-		slog.Debug("Config file successfully applied", "used_path", v.ConfigFileUsed())
+		slog.Debug("Config file successfully applied",
+			slog.String("used_path", v.ConfigFileUsed()),
+		)
 		return nil
 	}
 
@@ -93,11 +100,15 @@ func ReadConfigFile(v *viper.Viper) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		slog.Error("Error scanning config paths", "error", err)
+		slog.ErrorContext(context.Background(), "Error scanning config paths",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("auto read config: %w", err)
 	}
 
-	slog.Debug("Config file automatically found and applied", "used_path", v.ConfigFileUsed())
+	slog.Debug("Config file automatically found and applied",
+		slog.String("used_path", v.ConfigFileUsed()),
+	)
 	return nil
 }
 
@@ -131,7 +142,9 @@ func LoadFromViper(v *viper.Viper) (Config, error) {
 
 	// Вызов внешнего валидатора (бизнес-правила)
 	if err := cfg.Validate(); err != nil {
-		slog.Error("Config parameter validation failed", "error", err)
+		slog.ErrorContext(context.Background(), "Config parameter validation failed",
+			slog.Any("error", err),
+		)
 		return Config{}, fmt.Errorf("validate params: %w", err)
 	}
 
@@ -147,7 +160,9 @@ func defaultConfigPath() string {
 func defaultConfigPathFromFunc(configFile func(string) (string, error)) string {
 	path, err := configFile(defaultConfigRelativePath)
 	if err != nil {
-		slog.Debug("XDG spec could not determine config path, using stub", "error", err)
+		slog.Debug("XDG spec could not determine config path, using stub",
+			slog.Any("error", err),
+		)
 		return ""
 	}
 	return path
@@ -161,7 +176,9 @@ func defaultSQLitePath() string {
 func defaultSQLitePathFromFunc(stateFile func(string) (string, error)) string {
 	path, err := stateFile(defaultSQLiteRelativePath)
 	if err != nil {
-		slog.Debug("XDG spec could not determine state storage path", "error", err)
+		slog.Debug("XDG spec could not determine state storage path",
+			slog.Any("error", err),
+		)
 		return ""
 	}
 	return path
@@ -172,7 +189,9 @@ func defaultSQLitePathFromFunc(stateFile func(string) (string, error)) string {
 func DefaultLogPath() string {
 	path, err := xdg.StateFile("gophkeeper/client.log")
 	if err != nil {
-		slog.Debug("XDG spec could not determine log file path", "error", err)
+		slog.Debug("XDG spec could not determine log file path",
+			slog.Any("error", err),
+		)
 		return ""
 	}
 	return path

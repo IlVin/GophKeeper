@@ -8,6 +8,7 @@
 package sshagent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -118,9 +119,13 @@ func (c *Client) List() ([]SignerInfo, error) {
 
 	keys, err := c.ag.List()
 	if err != nil {
-		slog.Warn("Lost connection to ssh-agent socket during List, attempting reconnect", "error", err)
+		slog.Warn("Lost connection to ssh-agent socket during List, attempting reconnect",
+			slog.Any("error", err),
+		)
 		if reconnectErr := c.reconnectLocked(); reconnectErr != nil {
-			slog.Error("Emergency agent socket reconnect failed", "error", reconnectErr)
+			slog.ErrorContext(context.Background(), "Emergency agent socket reconnect failed",
+				slog.Any("error", reconnectErr),
+			)
 			return nil, err
 		}
 
@@ -138,7 +143,9 @@ func (c *Client) List() ([]SignerInfo, error) {
 	for _, k := range keys {
 		pub, err := ssh.ParsePublicKey(k.Blob)
 		if err != nil {
-			slog.Debug("Skipped invalid key blob during agent parsing", "error", err)
+			slog.Debug("Skipped invalid key blob during agent parsing",
+				slog.Any("error", err),
+			)
 			continue
 		}
 

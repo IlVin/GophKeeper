@@ -44,7 +44,10 @@ func (s *SecretService) CreateSecret(ctx context.Context, name, secretType strin
 		return errors.New("secret payload cannot be empty")
 	}
 
-	slog.Info("Initiating local record encryption and persistence pipeline", "name", name, "type", secretType)
+	slog.Info("Initiating local record encryption and persistence pipeline",
+		slog.String("name", name),
+		slog.String("type", secretType),
+	)
 
 	// 1. Извлекаем текущее состояние устройства из БД
 	state, err := s.deviceStore.ReadDeviceState(ctx)
@@ -80,7 +83,9 @@ func (s *SecretService) CreateSecret(ctx context.Context, name, secretType strin
 		security.AADSchemaLocalRecord,
 	)
 	if err != nil {
-		slog.Error("XChaCha20 encryption pipeline failed", "error", err)
+		slog.ErrorContext(context.Background(), "XChaCha20 encryption pipeline failed",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to encrypt secret payload: %w", err)
 	}
 
@@ -97,7 +102,9 @@ func (s *SecretService) CreateSecret(ctx context.Context, name, secretType strin
 		IsDeleted: 0, // Явно указываем, что запись живая
 	}
 
-	slog.Debug("Persisting encrypted record block to SQLite records table", "id", recordID)
+	slog.Debug("Persisting encrypted record block to SQLite records table",
+		slog.String("id", recordID),
+	)
 	if err := s.secretStore.Save(ctx, record); err != nil {
 		return fmt.Errorf("failed to persist record to database: %w", err)
 	}
@@ -121,10 +128,14 @@ func (s *SecretService) UnsealSecret(ctx context.Context, idOrName string, isFin
 	// 1. Поиск записи в репозитории СУБД
 	var record *repository.EncryptedRecord
 	if isFindByID {
-		slog.Debug("Executing database lookup by record UUID", "id", idOrName)
+		slog.Debug("Executing database lookup by record UUID",
+			slog.String("id", idOrName),
+		)
 		record, err = s.secretStore.GetByID(ctx, idOrName)
 	} else {
-		slog.Debug("Executing database lookup by record human-readable name", "name", idOrName)
+		slog.Debug("Executing database lookup by record human-readable name",
+			slog.String("name", idOrName),
+		)
 		record, err = s.secretStore.GetByName(ctx, idOrName)
 	}
 	if err != nil {
@@ -146,10 +157,14 @@ func (s *SecretService) UnsealSecret(ctx context.Context, idOrName string, isFin
 	recordAAD := security.BuildRecordAAD(state.UserID, record.ID)
 
 	// 4. Вскрытие конверта XChaCha20-Poly1305 с проверкой целостности структуры
-	slog.Debug("Opening secret envelope via AccountMasterKey", "record_id", record.ID)
+	slog.Debug("Opening secret envelope via AccountMasterKey",
+		slog.String("record_id", record.ID),
+	)
 	plaintext, err := security.OpenEnvelope(masterKey, record.Envelope, recordAAD)
 	if err != nil {
-		slog.Error("Poly1305 tag verification failed: record envelope corrupted or key mismatch", "record_id", record.ID)
+		slog.ErrorContext(context.Background(), "Poly1305 tag verification failed: record envelope corrupted or key mismatch",
+			slog.String("record_id", record.ID),
+		)
 		return "", nil, fmt.Errorf("failed to open secret envelope (tampering or key mismatch): %w", err)
 	}
 

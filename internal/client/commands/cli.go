@@ -64,7 +64,9 @@ func (c *CLI) NewRootCommand() (*cobra.Command, error) {
 	}
 
 	if err := c.bindPersistentFlags(cmd); err != nil {
-		slog.Error("Failed to bind global flags", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to bind global flags",
+			slog.Any("error", err),
+		)
 		return nil, err
 	}
 
@@ -151,7 +153,9 @@ func (c *CLI) Close() error {
 	c.appErr = nil
 
 	if err != nil {
-		slog.Error("Runtime destructor failed during CLI shutdown", "error", err)
+		slog.ErrorContext(context.Background(), "Runtime destructor failed during CLI shutdown",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("runtime shutdown: %w", err)
 	}
 
@@ -213,11 +217,15 @@ func (c *CLI) withOwnerCheck(
 		// 3. Восстанавливаем публичный ключ инициализации
 		dbPubKey, err := ssh.ParsePublicKey(state.SshPublicKey)
 		if err != nil {
-			slog.Error("Critical metadata structure corruption in SQLite", "error", err)
+			slog.ErrorContext(context.Background(), "Critical metadata structure corruption in SQLite",
+				slog.Any("error", err),
+			)
 			return fmt.Errorf("DB structure corrupted (public key parse failed): %w", err)
 		}
 		expectedFingerprint := sshagent.FingerprintSHA256(dbPubKey)
-		slog.Debug("Extracted target root of trust fingerprint", "fingerprint", expectedFingerprint)
+		slog.Debug("Extracted target root of trust fingerprint",
+			slog.String("fingerprint", expectedFingerprint),
+		)
 
 		// 4. Подключаемся к агенту и верифицируем наличие закрытой части ключа
 		agentClient, err := sshagent.NewFromEnv()
@@ -258,7 +266,9 @@ func (c *CLI) deviceStoreReader(ctx context.Context) (*repository.LocalDeviceSta
 	}
 	defer func() {
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("Failed to close DB descriptor in deviceStoreReader", "error", closeErr)
+			slog.ErrorContext(context.Background(), "Failed to close DB descriptor in deviceStoreReader",
+				slog.Any("error", closeErr),
+			)
 		}
 	}()
 
@@ -271,7 +281,9 @@ func (c *CLI) PrintResult(out io.Writer, payload interface{}, textRender func())
 	if c.JSONOutput {
 		slog.Debug("Formatting success result as JSON marker")
 		if err := json.NewEncoder(out).Encode(CLIResponse{Success: true, Data: payload}); err != nil {
-			slog.Error("JSON response marshaling failed", "error", err)
+			slog.ErrorContext(context.Background(), "JSON response marshaling failed",
+				slog.Any("error", err),
+			)
 			fmt.Fprintf(out, `{"success":false,"error":"internal json formatting error: %v"}`+"\n", err)
 		}
 		return
@@ -286,11 +298,16 @@ func (c *CLI) PrintError(out io.Writer, err error, contextMessage string) error 
 	}
 
 	fullErr := fmt.Errorf("%s: %w", contextMessage, err)
-	slog.Error("Registering system command runtime failure", "context", contextMessage, "error", err)
+	slog.ErrorContext(context.Background(), "Registering system command runtime failure",
+		slog.String("context", contextMessage),
+		slog.Any("error", err),
+	)
 
 	if c.JSONOutput {
 		if jsonErr := json.NewEncoder(out).Encode(CLIResponse{Success: false, Error: fullErr.Error()}); jsonErr != nil {
-			slog.Error("Critical JSON error marshaling failure", "error", jsonErr)
+			slog.ErrorContext(context.Background(), "Critical JSON error marshaling failure",
+				slog.Any("error", jsonErr),
+			)
 		}
 		return nil // Гасим панику Cobra, так как ответ уже записан в stdout конверт
 	}

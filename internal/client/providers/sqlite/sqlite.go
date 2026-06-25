@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -39,7 +40,9 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	slog.Debug("Opening physical connection descriptor to SQLite container", "path", path)
+	slog.Debug("Opening physical connection descriptor to SQLite container",
+		slog.String("path", path),
+	)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database file: %w", err)
@@ -47,9 +50,13 @@ func Open(path string) (*sql.DB, error) {
 
 	// Проверяем живой отклик СУБД до настройки внутренних прагм
 	if err := db.Ping(); err != nil {
-		slog.Error("SQLite storage ping failed, cascading resource closure started", "error", err)
+		slog.ErrorContext(context.Background(), "SQLite storage ping failed, cascading resource closure started",
+			slog.Any("error", err),
+		)
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("Cascade failure: could not close connection pool after failed ping", "close_error", closeErr)
+			slog.ErrorContext(context.Background(), "Cascade failure: could not close connection pool after failed ping",
+				slog.Any("close_error", closeErr),
+			)
 			return nil, fmt.Errorf("database ping failed (%w), close handler failed: %w", err, closeErr)
 		}
 		return nil, fmt.Errorf("database ping failed: %w", err)
@@ -57,9 +64,13 @@ func Open(path string) (*sql.DB, error) {
 
 	// Настройка ИБ и отказоустойчивости СУБД
 	if err := configureSQLite(db); err != nil {
-		slog.Error("SQLite pragma configuration pipeline failed, cascading connection cleanup started", "error", err)
+		slog.ErrorContext(context.Background(), "SQLite pragma configuration pipeline failed, cascading connection cleanup started",
+			slog.Any("error", err),
+		)
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("Cascade failure: could not close connection pool after failed pragma configuration", "close_error", closeErr)
+			slog.ErrorContext(context.Background(), "Cascade failure: could not close connection pool after failed pragma configuration",
+				slog.Any("close_error", closeErr),
+			)
 			return nil, fmt.Errorf("database configuration failed (%w), close handler failed: %w", err, closeErr)
 		}
 		return nil, fmt.Errorf("database configuration failed: %w", err)
@@ -73,7 +84,9 @@ func ensureParentDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			slog.Debug("Parent storage directory missing, initiating secure mkdir", "dir", dir)
+			slog.Debug("Parent storage directory missing, initiating secure mkdir",
+				slog.String("dir", dir),
+			)
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return fmt.Errorf("failed to create secure parent directory %q: %w", dir, err)
 			}
@@ -114,7 +127,9 @@ func ensureDatabaseFile(path string) (bool, error) {
 		return false, fmt.Errorf("failed to verify database file stat %q: %w", path, err)
 	}
 
-	slog.Debug("Database file missing, initiating secure atomic file initialization", "path", path)
+	slog.Debug("Database file missing, initiating secure atomic file initialization",
+		slog.String("path", path),
+	)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("failed to create atomic database file %q: %w", path, err)

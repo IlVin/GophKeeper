@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,7 +16,9 @@ func main() {
 	// Инициируем сквозной запуск сервера с перехватом критических исключений
 	if err := run(); err != nil {
 		// Фиксируем ИБ-инцидент падения сервера в системный логгер
-		slog.Error("Critical runtime failure: server terminated abnormally", "error", err)
+		slog.ErrorContext(context.Background(), "Critical runtime failure: server terminated abnormally",
+			slog.Any("error", err),
+		)
 
 		// Дублируем чистый трейс в stderr для системных демонов ОС (systemd/docker logs)
 		fmt.Fprintf(os.Stderr, "FATAL: server terminated with error: %v\n", err)
@@ -36,7 +39,9 @@ func run() error {
 	defer func() {
 		if closeErr := serverCLI.Close(); closeErr != nil {
 			// Явно перехватываем ошибку закрытия ресурсов для исключения зомби-дескрипторов в ОС
-			slog.Error("Error finalizing server resources during Graceful Shutdown", "error", closeErr)
+			slog.ErrorContext(context.Background(), "Error finalizing server resources during Graceful Shutdown",
+				slog.Any("error", closeErr),
+			)
 		}
 	}()
 

@@ -46,7 +46,10 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 	createdAtStr := record.CreatedAt.UTC().Format(time.RFC3339Nano)
 	updatedAtStr := record.UpdatedAt.UTC().Format(time.RFC3339Nano)
 
-	slog.Debug("Saving or updating local encrypted record", "record_id", record.ID, "is_deleted", record.IsDeleted)
+	slog.Debug("Saving or updating local encrypted record",
+		slog.String("record_id", record.ID),
+		slog.Int64("is_deleted", int64(record.IsDeleted)),
+	)
 	_, err := s.db.ExecContext(ctx, query,
 		record.ID,
 		record.UserID,
@@ -58,7 +61,10 @@ func (s *SQLiteSecretStore) Save(ctx context.Context, record *repository.Encrypt
 		record.IsDeleted,
 	)
 	if err != nil {
-		slog.Error("Failed to UPSERT secret record", "record_id", record.ID, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to UPSERT secret record",
+			slog.String("record_id", record.ID),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to insert/update record into sqlite: %w", err)
 	}
 
@@ -85,11 +91,16 @@ func (s *SQLiteSecretStore) GetByID(ctx context.Context, id string) (*repository
 		&r.IsDeleted,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		slog.Debug("GetByID query: record not found", "id", id)
+		slog.Debug("GetByID query: record not found",
+			slog.String("id", id),
+		)
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("Error reading row by ID from SQLite", "id", id, "error", err)
+		slog.ErrorContext(context.Background(), "Error reading row by ID from SQLite",
+			slog.String("id", id),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to scan record by id from sqlite: %w", err)
 	}
 
@@ -129,11 +140,16 @@ func (s *SQLiteSecretStore) GetByName(ctx context.Context, name string) (*reposi
 		&r.IsDeleted,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		slog.Debug("GetByName query: record not found", "name", name)
+		slog.Debug("GetByName query: record not found",
+			slog.String("name", name),
+		)
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("Error reading row by name from SQLite", "name", name, "error", err)
+		slog.ErrorContext(context.Background(), "Error reading row by name from SQLite",
+			slog.String("name", name),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to scan record by name from sqlite: %w", err)
 	}
 
@@ -160,7 +176,9 @@ func (s *SQLiteSecretStore) List(ctx context.Context) ([]repository.RecordMetada
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		slog.Error("Failed to read flat metadata list from SQLite", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to read flat metadata list from SQLite",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to query records list from sqlite: %w", err)
 	}
 	defer rows.Close()
@@ -196,11 +214,17 @@ func (s *SQLiteSecretStore) Delete(ctx context.Context, id string) error {
 	// 2. Сериализуем его в канонический текстовый формат RFC3339 для SQLite
 	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
 
-	slog.Debug("Soft delete local record (is_deleted flag)", "id", id, "updated_at", nowStr)
+	slog.Debug("Soft delete local record (is_deleted flag)",
+		slog.String("id", id),
+		slog.String("updated_at", nowStr),
+	)
 
 	_, err := s.db.ExecContext(ctx, query, nowStr, id)
 	if err != nil {
-		slog.Error("Failed to soft delete secret record", "id", id, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to soft delete secret record",
+			slog.String("id", id),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to delete record from sqlite: %w", err)
 	}
 
@@ -287,7 +311,9 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		userIDStr.Valid = true
 	}
 
-	slog.Debug("Network sync (SaveRaw): applying LWW envelope from cloud", "id", r.ID)
+	slog.Debug("Network sync (SaveRaw): applying LWW envelope from cloud",
+		slog.String("id", r.ID),
+	)
 	_, err := s.db.ExecContext(ctx, query,
 		r.ID,
 		userIDStr,
@@ -299,7 +325,10 @@ func (s *SQLiteSecretStore) SaveRaw(ctx context.Context, r *repository.Encrypted
 		r.IsDeleted,
 	)
 	if err != nil {
-		slog.Error("Failed to execute SaveRaw for incoming network packet", "id", r.ID, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to execute SaveRaw for incoming network packet",
+			slog.String("id", r.ID),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to save raw synchronised record: %w", err)
 	}
 	return nil
@@ -321,7 +350,10 @@ func (s *SQLiteSecretStore) GetRawByID(ctx context.Context, id string) (*reposit
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
-		slog.Error("Error calling GetRawByID for network push packet assembly", "id", id, "error", err)
+		slog.ErrorContext(context.Background(), "Error calling GetRawByID for network push packet assembly",
+			slog.String("id", id),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to fetch raw record by id: %w", err)
 	}
 

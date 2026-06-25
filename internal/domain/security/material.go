@@ -3,6 +3,7 @@
 package security
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -64,7 +65,9 @@ func (s SecretBytes) Clone() SecretBytes {
 // В случае сбоя гарантирует мгновенное выжигание выделенного буфера в RAM нулями.
 func GenerateRandomKey(size int) (SecretBytes, error) {
 	if size <= 0 {
-		slog.Error("Key generation rejected: invalid highly-entropic size constraint", "size", size)
+		slog.ErrorContext(context.Background(), "Key generation rejected: invalid highly-entropic size constraint",
+			slog.Int("size", size),
+		)
 		return nil, errors.New("invalid key size: must be greater than zero")
 	}
 
@@ -80,7 +83,9 @@ func GenerateRandomKey(size int) (SecretBytes, error) {
 		}
 	}()
 
-	slog.Debug("Requesting high-entropy random byte stream from system rand.Reader", "size", size)
+	slog.Debug("Requesting high-entropy random byte stream from system rand.Reader",
+		slog.Int("size", size),
+	)
 	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
 		return nil, fmt.Errorf("failed to read secure entropy stream: %w", err)
 	}

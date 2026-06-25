@@ -3,6 +3,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -67,7 +68,9 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Failed to close UNIX agent socket in get defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket in get defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -93,7 +96,9 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			// Вызов криптографического конвейера дешифрования
 			recordName, plainBytes, err := secretService.UnsealSecret(ctx, targetKey, isFindByID)
 			if err != nil {
-				slog.Error("Cryptographic pipeline failed to open record envelope", "error", err)
+				slog.ErrorContext(context.Background(), "Cryptographic pipeline failed to open record envelope",
+					slog.Any("error", err),
+				)
 				return cli.PrintError(out, err, "secret decryption error")
 			}
 
@@ -104,7 +109,9 @@ func newGetCommand(cli *CLI) *cobra.Command {
 			var plain security.RecordPlaintext
 			if err := json.Unmarshal(plainBytes, &plain); err != nil {
 				secretBlock.Destroy() // Стираем расшифрованные байты при сбое парсинга
-				slog.Error("Failed to deserialize decrypted monolithic JSON block", "error", err)
+				slog.ErrorContext(context.Background(), "Failed to deserialize decrypted monolithic JSON block",
+					slog.Any("error", err),
+				)
 				return cli.PrintError(out, err, "plaintext structure corrupted")
 			}
 
@@ -133,11 +140,16 @@ func newGetCommand(cli *CLI) *cobra.Command {
 
 			// Если указан флаг --file — производим принудительную выгрузку сырых байт на диск
 			if exportPath != "" {
-				slog.Info("Initiating persistent plaintext content export to disk", "path", exportPath)
+				slog.Info("Initiating persistent plaintext content export to disk",
+					slog.String("path", exportPath),
+				)
 				if err := os.WriteFile(exportPath, plain.Payload, 0o600); err != nil {
 					secretBlock.Destroy()
 					payloadBlock.Destroy()
-					slog.Error("Failed to write decrypted file to disk", "path", exportPath, "error", err)
+					slog.ErrorContext(context.Background(), "Failed to write decrypted file to disk",
+						slog.String("path", exportPath),
+						slog.Any("error", err),
+					)
 					return cli.PrintError(out, err, "file export")
 				}
 			}
@@ -154,7 +166,9 @@ func newGetCommand(cli *CLI) *cobra.Command {
 
 			// Безопасно финализируем соединение с агентом до вывода результатов на экран
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Failed to close agent socket descriptor on successful exit from get", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close agent socket descriptor on successful exit from get",
+					slog.Any("error", closeErr),
+				)
 			}
 			agentClosedChecked = true
 

@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,10 +21,13 @@ func (a *App) Run() error {
 	}
 
 	slog.Info("Cloud GophKeeper gRPC server successfully started and broadcasting",
-		"addr", a.Listener.Addr().String())
+		slog.String("addr", a.Listener.Addr().String()),
+	)
 
 	if err := a.GRPCServer.Serve(a.Listener); err != nil && !errors.Is(err, errors.New("grpc: the server has been stopped")) {
-		slog.Error("Critical gRPC network broadcast failure", "error", err)
+		slog.ErrorContext(context.Background(), "Critical gRPC network broadcast failure",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("grpc server serve collapsed: %w", err)
 	}
 
@@ -43,7 +47,9 @@ func (a *App) Shutdown() error {
 		shutdownTimeout := 10 * time.Second
 		done := make(chan struct{})
 
-		slog.Debug("Waiting for active client sync RPC calls to complete", "timeout", shutdownTimeout)
+		slog.Debug("Waiting for active client sync RPC calls to complete",
+			slog.Duration("timeout", shutdownTimeout),
+		)
 		go func() {
 			a.GRPCServer.GracefulStop()
 			close(done)
@@ -62,7 +68,9 @@ func (a *App) Shutdown() error {
 	if a.AcmeListener != nil {
 		slog.Debug("Closing auxiliary Let.s Encrypt ACME socket")
 		if closeErr := a.AcmeListener.Close(); closeErr != nil {
-			slog.Error("ACME Listener socket destructor failed during resource finalization", "error", closeErr)
+			slog.ErrorContext(context.Background(), "ACME Listener socket destructor failed during resource finalization",
+				slog.Any("error", closeErr),
+			)
 		}
 	}
 

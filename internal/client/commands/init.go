@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -43,7 +44,9 @@ func newInitCommand(cli *CLI) *cobra.Command {
 			// 2. Читаем дефолтную конфигурацию приложения из Viper
 			cfg, err := cli.AppConfig()
 			if err != nil {
-				slog.Error("Failed to read config params for init", "error", err)
+				slog.ErrorContext(context.Background(), "Failed to read config params for init",
+					slog.Any("error", err),
+				)
 				return cli.PrintError(out, err, "config loading")
 			}
 
@@ -76,7 +79,9 @@ func newInitCommand(cli *CLI) *cobra.Command {
 				return cli.PrintError(out, err, "root key selector")
 			}
 
-			slog.Info("Root of trust successfully selected for container initialization", "fingerprint", targetKeyInfo.Fingerprint)
+			slog.Info("Root of trust successfully selected for container initialization",
+				slog.String("fingerprint", targetKeyInfo.Fingerprint),
+			)
 
 			// 4. Записываем персистентный YAML файл конфигурации на диск, если его нет
 			if err := clientconfig.WriteDefaultConfigFile(configPath, cfg); err != nil {
@@ -94,7 +99,9 @@ func newInitCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !dbClosedCheked {
 					if closeErr := db.Close(); closeErr != nil {
-						slog.Error("Failed to close database descriptor in init defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close database descriptor in init defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -114,13 +121,17 @@ func newInitCommand(cli *CLI) *cobra.Command {
 
 			err = initService.ExecuteLocalInit(cmd.Context(), defaultServer, targetKeyInfo.Fingerprint, rawPublicKeyBytes)
 			if err != nil {
-				slog.Error("Cryptographic initialization pipeline crashed", "error", err)
+				slog.ErrorContext(context.Background(), "Cryptographic initialization pipeline crashed",
+					slog.Any("error", err),
+				)
 				return cli.PrintError(out, err, "cryptographic initialization")
 			}
 
 			// Проверяем явное закрытие пула до вывода результатов
 			if closeErr := db.Close(); closeErr != nil {
-				slog.Error("Failed to safely commit WAL session during DB pool close", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to safely commit WAL session during DB pool close",
+					slog.Any("error", closeErr),
+				)
 				return cli.PrintError(out, closeErr, "database finalization")
 			}
 			dbClosedCheked = true

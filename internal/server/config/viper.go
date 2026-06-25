@@ -3,6 +3,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -55,27 +56,38 @@ func ReadConfigFile(v *viper.Viper) error {
 		return nil
 	}
 
-	slog.Debug("Attempting to parse explicit configuration file", "path", configFile)
+	slog.Debug("Attempting to parse explicit configuration file",
+		slog.String("path", configFile),
+	)
 	v.SetConfigFile(configFile)
 
 	if err := v.ReadInConfig(); err != nil {
 		// Явный переданный файл обязан существовать. Немой запуск заблокирован.
 		if errors.Is(err, os.ErrNotExist) {
-			slog.Error("Critical initialization failure: explicit config file not found", "path", configFile)
+			slog.ErrorContext(context.Background(), "Critical initialization failure: explicit config file not found",
+				slog.String("path", configFile),
+			)
 			return fmt.Errorf("%w: %s", ErrExplicitConfigMissing, configFile)
 		}
 
 		var configFileNotFoundErr viper.ConfigFileNotFoundError
 		if errors.As(err, &configFileNotFoundErr) {
-			slog.Error("Critical initialization failure: viper config resolution failed", "path", configFile)
+			slog.ErrorContext(context.Background(), "Critical initialization failure: viper config resolution failed",
+				slog.String("path", configFile),
+			)
 			return fmt.Errorf("%w: %s", ErrExplicitConfigMissing, configFile)
 		}
 
-		slog.Error("Failed to parse configuration file syntax structure", "path", configFile, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to parse configuration file syntax structure",
+			slog.String("path", configFile),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to read config file layout: %w", err)
 	}
 
-	slog.Debug("Configuration file successfully read and aggregated", "path", configFile)
+	slog.Debug("Configuration file successfully read and aggregated",
+		slog.String("path", configFile),
+	)
 	return nil
 }
 
@@ -86,13 +98,17 @@ func LoadFromViper(v *viper.Viper) (Config, error) {
 
 	slog.Debug("Unmarshaling internal viper map to domain Config structure")
 	if err := v.Unmarshal(&cfg); err != nil {
-		slog.Error("Viper structure unmarshal extraction failed", "error", err)
+		slog.ErrorContext(context.Background(), "Viper structure unmarshal extraction failed",
+			slog.Any("error", err),
+		)
 		return Config{}, fmt.Errorf("failed to unmarshal configuration map: %w", err)
 	}
 
 	// Запуск сквозного ИБ-контроля на пустые DSN, порты и крипто-ключи
 	if err := cfg.Validate(); err != nil {
-		slog.Error("Domain configuration validation check constraint failed", "error", err)
+		slog.ErrorContext(context.Background(), "Domain configuration validation check constraint failed",
+			slog.Any("error", err),
+		)
 		return Config{}, fmt.Errorf("configuration validation failed: %w", err)
 	}
 

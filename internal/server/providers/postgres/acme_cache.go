@@ -35,17 +35,24 @@ func NewPostgresCache(pool pgxPoolIface) *PostgresCache {
 
 // Get извлекает бинарные данные PEM-сертификата Let's Encrypt по его текстовому ключу.
 func (p *PostgresCache) Get(ctx context.Context, key string) ([]byte, error) {
-	slog.Debug("Executing ACME Let's Encrypt cache lookup operation", "key", key)
+	slog.Debug("Executing ACME Let's Encrypt cache lookup operation",
+		slog.String("key", key),
+	)
 	query := `SELECT data FROM acme_cache WHERE key = $1`
 	var data []byte
 
 	err := p.pool.QueryRow(ctx, query, key).Scan(&data)
 	if errors.Is(err, pgx.ErrNoRows) {
-		slog.Debug("ACME cache miss tracking token", "key", key)
+		slog.Debug("ACME cache miss tracking token",
+			slog.String("key", key),
+		)
 		return nil, autocert.ErrCacheMiss
 	}
 	if err != nil {
-		slog.Error("Database query failed inside ACME cache extraction phase", "key", key, "error", err)
+		slog.ErrorContext(context.Background(), "Database query failed inside ACME cache extraction phase",
+			slog.String("key", key),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("pgx acme cache get failed: %w", err)
 	}
 
@@ -54,7 +61,9 @@ func (p *PostgresCache) Get(ctx context.Context, key string) ([]byte, error) {
 
 // Put атомарно сохраняет или обновляет бинарный PEM-блок сертификата в таблице acme_cache.
 func (p *PostgresCache) Put(ctx context.Context, key string, data []byte) error {
-	slog.Info("Publishing updated Let's Encrypt TLS certificate block to PostgreSQL cache", "key", key)
+	slog.Info("Publishing updated Let's Encrypt TLS certificate block to PostgreSQL cache",
+		slog.String("key", key),
+	)
 
 	// Время модификации канонично выставляется триггером trigger_update_acme_cache_timestamp в СУБД
 	query := `
@@ -65,7 +74,10 @@ func (p *PostgresCache) Put(ctx context.Context, key string, data []byte) error 
 	`
 	_, err := p.pool.Exec(ctx, query, key, data)
 	if err != nil {
-		slog.Error("UPSERT query collapsed inside ACME cache commit phase", "key", key, "error", err)
+		slog.ErrorContext(context.Background(), "UPSERT query collapsed inside ACME cache commit phase",
+			slog.String("key", key),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("pgx acme cache put failed: %w", err)
 	}
 	return nil
@@ -73,12 +85,17 @@ func (p *PostgresCache) Put(ctx context.Context, key string, data []byte) error 
 
 // Delete безвозвратно удаляет закэшированный сертификат по его имени (инвалидация ключей).
 func (p *PostgresCache) Delete(ctx context.Context, key string) error {
-	slog.Warn("Evicting and purging Let's Encrypt TLS certificate entry from PostgreSQL cache", "key", key)
+	slog.Warn("Evicting and purging Let's Encrypt TLS certificate entry from PostgreSQL cache",
+		slog.String("key", key),
+	)
 	query := `DELETE FROM acme_cache WHERE key = $1`
 
 	_, err := p.pool.Exec(ctx, query, key)
 	if err != nil {
-		slog.Error("DELETE query crashed inside ACME cache eviction phase", "key", key, "error", err)
+		slog.ErrorContext(context.Background(), "DELETE query crashed inside ACME cache eviction phase",
+			slog.String("key", key),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("pgx acme cache delete failed: %w", err)
 	}
 	return nil

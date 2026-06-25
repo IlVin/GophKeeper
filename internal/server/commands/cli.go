@@ -91,7 +91,10 @@ func (c *ServerCLI) PrintError(out io.Writer, err error, contextMessage string) 
 	}
 
 	fullErr := fmt.Errorf("%s: %w", contextMessage, err)
-	slog.Error("Registering system command runtime failure", "context", contextMessage, "error", err)
+	slog.ErrorContext(context.Background(), "Registering system command runtime failure",
+		slog.String("context", contextMessage),
+		slog.Any("error", err),
+	)
 
 	return fullErr
 }

@@ -3,6 +3,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"text/tabwriter"
@@ -49,7 +50,9 @@ func newListCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Failed to close UNIX agent socket in list defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket in list defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -72,7 +75,9 @@ func newListCommand(cli *CLI) *cobra.Command {
 
 			// Безопасно финализируем соединение с агентом до форматирования вывода
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Failed to close agent socket descriptor on successful exit from list", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close agent socket descriptor on successful exit from list",
+					slog.Any("error", closeErr),
+				)
 			}
 			agentClosedChecked = true
 
@@ -109,7 +114,9 @@ func newListCommand(cli *CLI) *cobra.Command {
 
 				// Контроль финализации буфера tabwriter с логированием ошибок вывода
 				if flushErr := w.Flush(); flushErr != nil {
-					slog.Error("Failed to flush tabwriter buffer to terminal output", "error", flushErr)
+					slog.ErrorContext(context.Background(), "Failed to flush tabwriter buffer to terminal output",
+						slog.Any("error", flushErr),
+					)
 				}
 			})
 

@@ -2,6 +2,7 @@ package sshagent
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -27,9 +28,13 @@ func (c *Client) ListED25519() ([]SignerInfo, error) {
 
 	for _, k := range keys {
 		if k.Algorithm == KeyAlgoED25519 {
-			slog.Debug("Starting security test for key signature determinism", "fingerprint", k.Fingerprint)
+			slog.Debug("Starting security test for key signature determinism",
+				slog.String("fingerprint", k.Fingerprint),
+			)
 			if err := c.SelfTestDeterministicED25519(k.Fingerprint, testPayload); err != nil {
-				slog.Warn("Key rejected: randomized hardware signature detected", "fingerprint", k.Fingerprint)
+				slog.Warn("Key rejected: randomized hardware signature detected",
+					slog.String("fingerprint", k.Fingerprint),
+				)
 				continue
 			}
 			out = append(out, k)
@@ -72,7 +77,9 @@ func (c *Client) FindED25519ByFingerprint(fingerprint string) (*SignerInfo, erro
 	}
 
 	if info.Algorithm != KeyAlgoED25519 {
-		slog.Error("Requested key does not match ed25519 standard", "algo", info.Algorithm)
+		slog.ErrorContext(context.Background(), "Requested key does not match ed25519 standard",
+			slog.String("algo", info.Algorithm),
+		)
 		return nil, ErrUnsupportedKeyAlgorithm
 	}
 	return info, nil
@@ -108,7 +115,7 @@ func (c *Client) SignED25519(fingerprint string, payload []byte) (*ssh.Signature
 	}
 
 	if sig == nil || sig.Format != ssh.KeyAlgoED25519 {
-		return nil, fmt.Errorf("%w: получено=%v ожидалось=%s", ErrUnexpectedSignatureFormat, signatureFormat(sig), ssh.KeyAlgoED25519)
+		return nil, fmt.Errorf("%w: got format %s, expected %s", ErrUnexpectedSignatureFormat, signatureFormat(sig), ssh.KeyAlgoED25519)
 	}
 	return sig, nil
 }
@@ -176,9 +183,13 @@ func (c *Client) signWithPublicKey(pub ssh.PublicKey, payload []byte) (*ssh.Sign
 
 	sig, err := c.ag.Sign(pub, payload)
 	if err != nil {
-		slog.Warn("Connection lost to ssh-agent socket during Sign, attempting reconnect", "error", err)
+		slog.Warn("Connection lost to ssh-agent socket during Sign, attempting reconnect",
+			slog.Any("error", err),
+		)
 		if reconnectErr := c.reconnectLocked(); reconnectErr != nil {
-			slog.Error("Emergency reconnect during signing failed", "error", reconnectErr)
+			slog.ErrorContext(context.Background(), "Emergency reconnect during signing failed",
+				slog.Any("error", reconnectErr),
+			)
 			return nil, err
 		}
 

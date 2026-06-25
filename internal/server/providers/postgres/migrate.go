@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,7 +33,9 @@ func Migrate(pool *pgxpool.Pool) error {
 
 	// Явно фиксируем диалект PostgreSQL
 	if err := goose.SetDialect("postgres"); err != nil {
-		slog.Error("Failed to set strict goose dialect for postgres engine", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to set strict goose dialect for postgres engine",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to set goose dialect for postgres: %w", err)
 	}
 
@@ -42,14 +45,20 @@ func Migrate(pool *pgxpool.Pool) error {
 	defer func() {
 		slog.Debug("Closing virtual stdlib sql.DB wrap layer descriptor")
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("Failed to cleanly dispose virtual stdlib sql.DB wrap layer", "error", closeErr)
+			slog.ErrorContext(context.Background(), "Failed to cleanly dispose virtual stdlib sql.DB wrap layer",
+				slog.Any("error", closeErr),
+			)
 		}
 	}()
 
 	// Запускаем процесс миграции (накатывает все новые *.sql файлы до актуальной версии)
-	slog.Debug("Executing goose.Up migration path sequence mapping", "dir", migrationsDir)
+	slog.Debug("Executing goose.Up migration path sequence mapping",
+		slog.String("dir", migrationsDir),
+	)
 	if err := goose.Up(db, migrationsDir); err != nil {
-		slog.Error("Critical database migrations apply collapse tracked", "error", err)
+		slog.ErrorContext(context.Background(), "Critical database migrations apply collapse tracked",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("failed to run postgres server migrations: %w", err)
 	}
 

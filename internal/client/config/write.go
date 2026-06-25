@@ -3,6 +3,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -47,9 +48,14 @@ func WriteDefaultConfigFile(path string, cfg Config) error {
 	}
 
 	dir := filepath.Dir(path)
-	slog.Debug("Preparing directory for config file", "dir", dir)
+	slog.Debug("Preparing directory for config file",
+		slog.String("dir", dir),
+	)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		slog.Error("Failed to create config directory", "dir", dir, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to create config directory",
+			slog.String("dir", dir),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("create config directory %q: %w", dir, err)
 	}
 
@@ -58,7 +64,10 @@ func WriteDefaultConfigFile(path string, cfg Config) error {
 		slog.Debug("Default config write skipped: file already exists on disk")
 		return nil
 	} else if !os.IsNotExist(err) {
-		slog.Error("Failed to check config file status", "path", path, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to check config file status",
+			slog.String("path", path),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("check config file status %q: %w", path, err)
 	}
 
@@ -80,13 +89,18 @@ func WriteDefaultConfigFile(path string, cfg Config) error {
 	// Честный маршалинг структуры со всеми отступами
 	content, err := yaml.Marshal(dto)
 	if err != nil {
-		slog.Error("Critical config YAML serialization error", "error", err)
+		slog.ErrorContext(context.Background(), "Critical config YAML serialization error",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("marshal config to yaml: %w", err)
 	}
 
 	slog.Debug("Writing config params to disk with strict 0600 permissions")
 	if err := os.WriteFile(path, content, 0o600); err != nil {
-		slog.Error("Failed to write config file to disk", "path", path, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to write config file to disk",
+			slog.String("path", path),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("write config file %q: %w", path, err)
 	}
 

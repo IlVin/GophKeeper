@@ -30,7 +30,7 @@ func NewGRPCServer(
 	pool *pgxpool.Pool,
 	authInterceptor *auth.AuthInterceptor,
 ) *grpc.Server {
-	slog.Info("Инициализация базового сетевого ядра gRPC сервера GophKeeper")
+	slog.Info("Initializing core gRPC server network kernel for GophKeeper")
 
 	creds := credentials.NewTLS(tlsConfig)
 
@@ -43,22 +43,22 @@ func NewGRPCServer(
 
 	// Контролируем активность mTLS интерцептора авторизации устройств
 	if authInterceptor != nil {
-		slog.Debug("Регистрация унарного mTLS интерцептора защиты context-binding")
+		slog.Debug("Registering unary mTLS interceptor for context-binding protection")
 		opts = append(opts, grpc.UnaryInterceptor(authInterceptor.UnaryAuthInterceptor()))
 	} else {
-		slog.Warn("ВНИМАНИЕ: gRPC сервер собирается БЕЗ интерцептора mTLS авторизации! Доступ открыт для любых валидных сертификатов.")
+		slog.Warn("WARNING: gRPC server is being built WITHOUT mTLS authorization interceptor! Access is open to any valid certificates.")
 	}
 
 	server := grpc.NewServer(opts...)
 
-	slog.Debug("Сборка и регистрация хендлера RegistrationHandler (Challenge State Machine)")
+	slog.Debug("Building and registering RegistrationHandler (Challenge State Machine)")
 	regHandler := NewRegistrationHandler(cfg, pool)
 	pb.RegisterRegistrationServer(server, regHandler)
 
-	slog.Debug("Сборка и регистрация хендлера SyncHandler (LWW Репликация)")
+	slog.Debug("Building and registering SyncHandler (LWW Replication)")
 	syncHandler := NewSyncHandler(cfg, pool)
 	pb.RegisterSyncServiceServer(server, syncHandler)
 
-	slog.Info("gRPC сервер успешно сконфигурирован и готов к обработке сетевых вызовов")
+	slog.Info("gRPC server successfully configured and ready to handle network calls")
 	return server
 }

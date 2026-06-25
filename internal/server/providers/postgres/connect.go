@@ -32,7 +32,9 @@ func Connect(ctx context.Context, cfg config.StorageConfig) (*pgxpool.Pool, erro
 	slog.Debug("Parsing PostgreSQL DSN connection parameters layout")
 	poolConfig, err := pgxpool.ParseConfig(cfg.PostgresDSN)
 	if err != nil {
-		slog.Error("Failed to parse provided PostgreSQL DSN string format", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to parse provided PostgreSQL DSN string format",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to parse postgres dsn: %w", err)
 	}
 
@@ -62,14 +64,18 @@ func Connect(ctx context.Context, cfg config.StorageConfig) (*pgxpool.Pool, erro
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		slog.Error("PostgreSQL pool allocation factory crashed", "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL pool allocation factory crashed",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to create postgres pool: %w", err)
 	}
 
 	// Обязательно пингуем базу для проверки сетевой доступности и авторизации (Fail-Fast)
 	slog.Debug("Executing diagnostic network ping against PostgreSQL cluster nodes")
 	if err = pool.Ping(ctx); err != nil {
-		slog.Error("Diagnostic ping failed: PostgreSQL node is unreachable or auth rejected", "error", err)
+		slog.ErrorContext(context.Background(), "Diagnostic ping failed: PostgreSQL node is unreachable or auth rejected",
+			slog.Any("error", err),
+		)
 		pool.Close() // Защита от утечки RAM-дескрипторов
 		return nil, fmt.Errorf("failed to ping postgres pool: %w", err)
 	}

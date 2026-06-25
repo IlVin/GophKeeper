@@ -66,7 +66,7 @@ func TestRecordVersion_IsDeleted_Mapping(t *testing.T) {
 		UpdatedAt: timestamppb.New(now),
 		IsDeleted: 0,
 	}
-	assert.Equal(t, int32(0), recordVersionActive.GetIsDeleted(), "IsDeleted=0 должен корректно передаваться")
+	assert.Equal(t, int32(0), recordVersionActive.GetIsDeleted(), "IsDeleted=0 should be correctly transmitted")
 }
 
 // TestSyncCheckRequest_ContainsIsDeleted checks that SyncCheckRequest contains is_deleted.

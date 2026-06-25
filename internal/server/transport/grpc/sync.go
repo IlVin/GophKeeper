@@ -44,7 +44,10 @@ func (h *SyncHandler) SyncCheck(ctx context.Context, req *pb.SyncCheckRequest) (
 	query := `SELECT id, updated_at, is_deleted FROM records WHERE user_id = $1;`
 	rows, err := h.pool.Query(ctx, query, userID)
 	if err != nil {
-		slog.Error("Database query failed in SyncCheck phase", "user_id", userID, "error", err)
+		slog.ErrorContext(context.Background(), "Database query failed in SyncCheck phase",
+			slog.String("user_id", userID),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 	defer rows.Close()
@@ -55,7 +58,9 @@ func (h *SyncHandler) SyncCheck(ctx context.Context, req *pb.SyncCheckRequest) (
 		var uTime time.Time
 		var isDeleted int32
 		if err := rows.Scan(&rID, &uTime, &isDeleted); err != nil {
-			slog.Error("Row scan failed in SyncCheck database iteration", "error", err)
+			slog.ErrorContext(context.Background(), "Row scan failed in SyncCheck database iteration",
+				slog.Any("error", err),
+			)
 			return nil, status.Error(codes.Internal, "Internal server error")
 		}
 		serverVersions[rID] = repository.RecordVersionMeta{
@@ -68,7 +73,9 @@ func (h *SyncHandler) SyncCheck(ctx context.Context, req *pb.SyncCheckRequest) (
 	clientVersions := make(map[string]repository.RecordVersionMeta)
 	for _, lv := range req.GetLocalVersions() {
 		if lv.GetUpdatedAt() == nil {
-			slog.Warn("Client provided nil updated_at timestamp, record skipped", "record_id", lv.GetRecordId())
+			slog.Warn("Client provided nil updated_at timestamp, record skipped",
+				slog.String("record_id", lv.GetRecordId()),
+			)
 			continue
 		}
 		// Время извлекается аппаратно через .AsTime() без строкового парсинга
@@ -131,7 +138,10 @@ func (h *SyncHandler) PushRecords(ctx context.Context, req *pb.PushRecordsReques
 	// Запускаем транзакцию для обеспечения атомарности записи в records и records_history
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		slog.Error("Failed to initiate PostgreSQL transaction for PushRecords", "user_id", userID, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to initiate PostgreSQL transaction for PushRecords",
+			slog.String("user_id", userID),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -139,14 +149,18 @@ func (h *SyncHandler) PushRecords(ctx context.Context, req *pb.PushRecordsReques
 	defer func() {
 		if !txCommitted {
 			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-				slog.Error("Critical failure: transaction rollback crashed during PushRecords panic handler", "error", rollbackErr)
+				slog.ErrorContext(context.Background(), "Critical failure: transaction rollback crashed during PushRecords panic handler",
+					slog.Any("error", rollbackErr),
+				)
 			}
 		}
 	}()
 
 	for _, r := range req.GetRecords() {
 		if r.GetCreatedAt() == nil || r.GetUpdatedAt() == nil {
-			slog.Warn("Push packet contains record with missing timestamps, skipped", "record_id", r.GetRecordId())
+			slog.Warn("Push packet contains record with missing timestamps, skipped",
+				slog.String("record_id", r.GetRecordId()),
+			)
 			continue
 		}
 
@@ -178,7 +192,10 @@ func (h *SyncHandler) PushRecords(ctx context.Context, req *pb.PushRecordsReques
 
 		_, err = tx.Exec(ctx, upsertQuery, r.GetRecordId(), userID, r.GetName(), r.GetType(), r.GetEnvelope(), cTime, uTime, r.GetIsDeleted())
 		if err != nil {
-			slog.Error("UPSERT query failed inside PushRecords transaction", "record_id", r.GetRecordId(), "error", err)
+			slog.ErrorContext(context.Background(), "UPSERT query failed inside PushRecords transaction",
+				slog.String("record_id", r.GetRecordId()),
+				slog.Any("error", err),
+			)
 			return nil, status.Error(codes.Internal, "Internal server error")
 		}
 
@@ -190,13 +207,19 @@ func (h *SyncHandler) PushRecords(ctx context.Context, req *pb.PushRecordsReques
 
 		_, err = tx.Exec(ctx, historyQuery, r.GetRecordId(), userID, r.GetName(), r.GetType(), r.GetEnvelope(), uTime, r.GetIsDeleted())
 		if err != nil {
-			slog.Error("History log insert failed inside PushRecords transaction", "record_id", r.GetRecordId(), "error", err)
+			slog.ErrorContext(context.Background(), "History log insert failed inside PushRecords transaction",
+				slog.String("record_id", r.GetRecordId()),
+				slog.Any("error", err),
+			)
 			return nil, status.Error(codes.Internal, "Internal server error")
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		slog.Error("PostgreSQL transaction commit crashed for PushRecords", "user_id", userID, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL transaction commit crashed for PushRecords",
+			slog.String("user_id", userID),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 	txCommitted = true
@@ -218,7 +241,10 @@ func (h *SyncHandler) PullRecords(ctx context.Context, req *pb.PullRecordsReques
 	query := `SELECT id, name, type, envelope, created_at, updated_at, is_deleted FROM records WHERE id = ANY($1) AND user_id = $2;`
 	rows, err := h.pool.Query(ctx, query, req.GetRecordIds(), userID)
 	if err != nil {
-		slog.Error("Database query failed inside PullRecords packet stream", "user_id", userID, "error", err)
+		slog.ErrorContext(context.Background(), "Database query failed inside PullRecords packet stream",
+			slog.String("user_id", userID),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 	defer rows.Close()
@@ -229,7 +255,9 @@ func (h *SyncHandler) PullRecords(ctx context.Context, req *pb.PullRecordsReques
 		var cTime, uTime time.Time
 		var isDeleted int32
 		if err := rows.Scan(&r.RecordId, &r.Name, &r.Type, &r.Envelope, &cTime, &uTime, &isDeleted); err != nil {
-			slog.Error("Row scan failed inside PullRecords processing iteration", "error", err)
+			slog.ErrorContext(context.Background(), "Row scan failed inside PullRecords processing iteration",
+				slog.Any("error", err),
+			)
 			return nil, status.Error(codes.Internal, "Internal server error")
 		}
 
@@ -242,7 +270,9 @@ func (h *SyncHandler) PullRecords(ctx context.Context, req *pb.PullRecordsReques
 	}
 
 	if err := rows.Err(); err != nil {
-		slog.Error("Rows iteration error tracked inside PullRecords stream finalisation", "error", err)
+		slog.ErrorContext(context.Background(), "Rows iteration error tracked inside PullRecords stream finalisation",
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -259,11 +289,16 @@ func (h *SyncHandler) getUserIDFromContext(ctx context.Context) (string, error) 
 	var userID string
 	err := h.pool.QueryRow(ctx, "SELECT user_id FROM devices WHERE id = $1 AND status = 'active';", deviceID).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		slog.Warn("mTLS access denied: current DeviceID is revoked or unregistered", "device_id", deviceID)
+		slog.Warn("mTLS access denied: current DeviceID is revoked or unregistered",
+			slog.String("device_id", deviceID),
+		)
 		return "", status.Error(codes.PermissionDenied, "device is revoked or not registered")
 	}
 	if err != nil {
-		slog.Error("Database lookup failure in mTLS interceptor context validation", "device_id", deviceID, "error", err)
+		slog.ErrorContext(context.Background(), "Database lookup failure in mTLS interceptor context validation",
+			slog.String("device_id", deviceID),
+			slog.Any("error", err),
+		)
 		return "", status.Error(codes.Internal, "Internal server error")
 	}
 

@@ -17,7 +17,9 @@ var gophkeeperRecordNamespace = uuid.MustParse("a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b
 // Алгоритм гарантирует, что параллельные оффлайн-клиенты сгенерируют идентичный ID
 // для одной и той же текстовой записи, позволяя серверной LWW-логике корректно разрешать конфликты.
 func DeriveRecordID(secretName string) string {
-	slog.Debug("Executing deterministic UUID v5 derivation from record name", "name", secretName)
+	slog.Debug("Executing deterministic UUID v5 derivation from record name",
+		slog.String("name", secretName),
+	)
 
 	// Генерация UUID v5 на базе SHA-1 хеширования по спецификации RFC 4122
 	derivedUUID := uuid.NewSHA1(gophkeeperRecordNamespace, []byte(secretName))

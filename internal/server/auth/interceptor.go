@@ -48,7 +48,9 @@ func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 	) (any, error) {
 		// 1. White List: Разрешаем анонимный TLS-доступ к методам регистрации
 		if isPublicEndpoint(info.FullMethod) {
-			slog.Debug("Bypassing mTLS check for public registration endpoint", "method", info.FullMethod)
+			slog.Debug("Bypassing mTLS check for public registration endpoint",
+				slog.String("method", info.FullMethod),
+			)
 			return handler(ctx, req)
 		}
 
@@ -80,7 +82,7 @@ func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		if _, err := clientCert.Verify(opts); err != nil {
-			slog.Error("mTLS cryptographic validation failed: client used untrusted CA or expired passport")
+			slog.ErrorContext(context.Background(), "mTLS cryptographic validation failed: client used untrusted CA or expired passport")
 			// Маскируем сырую ошибку x509 для защиты от Information Disclosure
 			return nil, status.Error(codes.Unauthenticated, "client certificate verification failed")
 		}
@@ -100,7 +102,9 @@ func (in *AuthInterceptor) UnaryAuthInterceptor() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "invalid client identity: missing or malformed container SAN URI")
 		}
 
-		slog.Debug("mTLS session successfully established and authorized on shared port", "device_id", deviceID)
+		slog.Debug("mTLS session successfully established and authorized on shared port",
+			slog.String("device_id", deviceID),
+		)
 
 		// 5. Прокидываем проверенный DeviceID в контекст
 		ctx = context.WithValue(ctx, DeviceIDContextKey, deviceID)

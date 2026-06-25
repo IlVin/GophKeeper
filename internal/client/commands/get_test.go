@@ -42,8 +42,8 @@ func TestGetCommandFormatting_WithStandardOutput(t *testing.T) {
 	}
 
 	cli.PrintResult(buf, mockPayload, func() {
-		fmt.Fprintf(buf, "Имя секрета  : %s\n", mockPayload.Name)
-		fmt.Fprintf(buf, "Полезная нагрузка (Payload): %s\n", mockPayload.Payload)
+		fmt.Fprintf(buf, "Secret Name  : %s\n", mockPayload.Name)
+		fmt.Fprintf(buf, "Payload: %s\n", mockPayload.Payload)
 	})
 
 	assert.Contains(t, buf.String(), "Имя секрета  : test-safe-record")

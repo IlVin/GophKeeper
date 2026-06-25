@@ -3,6 +3,7 @@
 package grpc
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -27,7 +28,9 @@ func ConfigForBootstrap() (*tls.Config, error) {
 
 	pool, err := certs.LoadServerCAPool()
 	if err != nil {
-		slog.Error("Failed to load embedded server CA pool for bootstrap TLS", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to load embedded server CA pool for bootstrap TLS",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("load server CA pool: %w", err)
 	}
 
@@ -56,7 +59,9 @@ func ConfigForMTLS(cert tls.Certificate, caPool *x509.CertPool) (*tls.Config, er
 		var err error
 		caPool, err = certs.LoadServerCAPool()
 		if err != nil {
-			slog.Error("Failed to lazy load embedded server CA pool for mTLS", "error", err)
+			slog.ErrorContext(context.Background(), "Failed to lazy load embedded server CA pool for mTLS",
+				slog.Any("error", err),
+			)
 			return nil, fmt.Errorf("load server CA pool: %w", err)
 		}
 	}

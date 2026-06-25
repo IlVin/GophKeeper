@@ -3,6 +3,7 @@
 package device
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -25,7 +26,9 @@ func GenerateContainerCSR(deviceID string) (rawPrivateKey []byte, csrBytes []byt
 	// 1. Генерируем ключ на кривой NIST P-256 (ECDSA)
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		slog.Error("Failed to generate secure ecdsa p-256 key pair", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to generate secure ecdsa p-256 key pair",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to generate ecdsa p-256 key: %w", err)
 	}
 
@@ -43,7 +46,9 @@ func GenerateContainerCSR(deviceID string) (rawPrivateKey []byte, csrBytes []byt
 	// 2. Маршалируем приватный ключ в кроссплатформенный стандарт PKCS#8
 	rawPriv, err := x509.MarshalPKCS8PrivateKey(privKey)
 	if err != nil {
-		slog.Error("Failed to marshal private key to PKCS8 format", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to marshal private key to PKCS8 format",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to marshal private key to pkcs8: %w", err)
 	}
 
@@ -62,7 +67,10 @@ func GenerateContainerCSR(deviceID string) (rawPrivateKey []byte, csrBytes []byt
 	urnStr := fmt.Sprintf("urn:gophkeeper:file:%s", deviceID)
 	uri, err := url.Parse(urnStr)
 	if err != nil {
-		slog.Error("Failed to parse identity SAN URN layout string", "urn", urnStr, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to parse identity SAN URN layout string",
+			slog.String("urn", urnStr),
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to parse container identity URN: %w", err)
 	}
 	template.URIs = []*url.URL{uri}
@@ -71,7 +79,9 @@ func GenerateContainerCSR(deviceID string) (rawPrivateKey []byte, csrBytes []byt
 	slog.Debug("Signing PKCS10 certificate request via newly generated ECDSA private key")
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &template, privKey)
 	if err != nil {
-		slog.Error("Failed to create signed certificate request block", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to create signed certificate request block",
+			slog.Any("error", err),
+		)
 		return nil, nil, fmt.Errorf("failed to create certificate request: %w", err)
 	}
 

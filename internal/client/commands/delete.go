@@ -3,6 +3,7 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -64,7 +65,9 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Failed to close UNIX agent socket in delete defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket in delete defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -79,19 +82,25 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 			}
 
 			// 4. Проверяем существование записи перед удалением для вменяемого UX
-			slog.Debug("Checking existence of deleting UUID in SQLite DB", "id", id)
+			slog.Debug("Checking existence of deleting UUID in SQLite DB",
+				slog.String("id", id),
+			)
 			record, err := secretStore.GetByID(ctx, id)
 			if err != nil {
 				return cli.PrintError(out, err, "checking record existence in DB")
 			}
 			if record == nil {
 				statusErr := fmt.Errorf("record with identifier %q not found in vault", id)
-				slog.Warn("Attempt to delete non-existent record rejected", "id", id)
+				slog.Warn("Attempt to delete non-existent record rejected",
+					slog.String("id", id),
+				)
 				return cli.PrintError(out, statusErr, "search error")
 			}
 
 			// 5. Вызываем непосредственное удаление в сервисном слое
-			slog.Debug("Executing low-level row deletion transaction", "id", id)
+			slog.Debug("Executing low-level row deletion transaction",
+				slog.String("id", id),
+			)
 			err = secretService.DeleteSecret(ctx, id)
 			if err != nil {
 				return cli.PrintError(out, err, "delete record from SQLite")
@@ -99,7 +108,9 @@ func newDeleteCommand(cli *CLI) *cobra.Command {
 
 			// Безопасно финализируем соединение с агентом до вывода результатов
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Failed to close agent socket descriptor on successful exit from delete", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close agent socket descriptor on successful exit from delete",
+					slog.Any("error", closeErr),
+				)
 			}
 			agentClosedChecked = true
 

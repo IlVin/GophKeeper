@@ -34,7 +34,9 @@ func (s *InitService) ReconcileContainer(
 	// 1. Извлекаем текущую конфигурацию синглтона из SQLite через легитимный метод интерфейса
 	currentState, err := s.deviceStore.ReadDeviceState(ctx)
 	if err != nil {
-		slog.Error("Reconcile aborted: failed to read device state baseline", "error", err)
+		slog.ErrorContext(context.Background(), "Reconcile aborted: failed to read device state baseline",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("read current state for reconcile: %w", err)
 	}
 
@@ -80,7 +82,9 @@ func (s *InitService) ReconcileContainer(
 	oldDeviceAAD := security.BuildDeviceMasterKeyAAD(currentState.UserID, currentState.DeviceID)
 	oldMasterKeyBytes, err := security.OpenEnvelope(oldDeviceKEK, currentState.DeviceMasterKeyEnvelope, oldDeviceAAD)
 	if err != nil {
-		slog.Error("Reconcile structural block violation: local container tampering detected", "error", err)
+		slog.ErrorContext(context.Background(), "Reconcile structural block violation: local container tampering detected",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("open old master key envelope: %w", err)
 	}
 	oldAccountMasterKey := security.SecretBytes(oldMasterKeyBytes)
@@ -100,7 +104,9 @@ func (s *InitService) ReconcileContainer(
 	canonicalBootstrapAAD := security.BuildAccountBootstrapAAD(fingerprint)
 	canonicalMasterKeyBytes, err := security.OpenEnvelope(canonicalUnlockKey, canonicalBootstrapEnvJSON, canonicalBootstrapAAD)
 	if err != nil {
-		slog.Error("Reconcile master key sync failed: server envelope key mismatch", "error", err)
+		slog.ErrorContext(context.Background(), "Reconcile master key sync failed: server envelope key mismatch",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("open canonical bootstrap envelope: %w", err)
 	}
 	canonicalAccountMasterKey := security.SecretBytes(canonicalMasterKeyBytes)
@@ -116,7 +122,9 @@ func (s *InitService) ReconcileContainer(
 	migratedRecords := make([]repository.EncryptedRecord, 0, len(localRecords))
 	serverUserIDStr := string(serverUserID)
 
-	slog.Info("Iterating over local cache, executing XChaCha20-Poly1305 re-encryption loop", "count", len(localRecords))
+	slog.Info("Iterating over local cache, executing XChaCha20-Poly1305 re-encryption loop",
+		slog.Int("count", len(localRecords)),
+	)
 	for _, rec := range localRecords {
 		// Вычисляем старый контекст AAD для расшифровки записи
 		oldRecInterfaceAAD := security.BuildRecordAAD(currentState.UserID, rec.ID)
@@ -225,7 +233,9 @@ func (s *InitService) ReconcileContainer(
 	// 9. ФИКСАЦИЯ ИЗМЕНЕНИЙ В ЕДИНОЙ СУБД ТРАНЗАКЦИИ (Инвариант №15)
 	slog.Info("Executing transacted atomic commit of updated state structure and records table")
 	if err := s.deviceStore.ExecuteReconcileTransaction(ctx, updatedState, migratedRecords); err != nil {
-		slog.Error("Critical database failure during transacted reconcile commit", "error", err)
+		slog.ErrorContext(context.Background(), "Critical database failure during transacted reconcile commit",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("atomic transaction reconciliation failed: %w", err)
 	}
 

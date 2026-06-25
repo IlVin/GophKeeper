@@ -73,7 +73,9 @@ func newSyncCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Failed to close UNIX agent socket in sync defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket in sync defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -187,7 +189,9 @@ func executeNetworkSync(
 		ServerName:   "localhost",
 	}
 
-	slog.Debug("Establishing secure mTLS 1.3 gRPC sync session", "url", *state.ServerURL)
+	slog.Debug("Establishing secure mTLS 1.3 gRPC sync session",
+		slog.String("url", *state.ServerURL),
+	)
 	conn, err := grpc.NewClient(
 		*state.ServerURL,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
@@ -204,7 +208,9 @@ func executeNetworkSync(
 	defer func() {
 		if !connClosedChecked {
 			if closeErr := conn.Close(); closeErr != nil {
-				slog.Error("Failed to close gRPC connection in sync defer", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close gRPC connection in sync defer",
+					slog.Any("error", closeErr),
+				)
 			}
 		}
 	}()
@@ -228,7 +234,9 @@ func executeNetworkSync(
 	}
 
 	// Сетевой вызов SyncCheck (Сверка версий Last-Write-Wins)
-	slog.Debug("RPC SyncCheck call: sending local version map to cloud", "count", len(protoVersions))
+	slog.Debug("RPC SyncCheck call: sending local version map to cloud",
+		slog.Int("count", len(protoVersions)),
+	)
 	checkResp, err := syncClient.SyncCheck(ctx, &pb.SyncCheckRequest{LocalVersions: protoVersions})
 	if err != nil {
 		return cli.PrintError(out, err, "remote SyncCheck call failed")
@@ -236,7 +244,9 @@ func executeNetworkSync(
 
 	// Безопасно финализируем сокет агента, так как криптооперации деривации завершены
 	if closeErr := agentClient.Close(); closeErr != nil {
-		slog.Error("Failed to close UNIX agent socket during exchange", "error", closeErr)
+		slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket during exchange",
+			slog.Any("error", closeErr),
+		)
 	}
 	*agentClosedChecked = true
 
@@ -244,7 +254,9 @@ func executeNetworkSync(
 	pulledCount := 0
 	idsToPull := checkResp.GetIdsToPull()
 	if len(idsToPull) > 0 {
-		slog.Debug("Outdated local records found, initiating RPC PullRecords", "count", len(idsToPull))
+		slog.Debug("Outdated local records found, initiating RPC PullRecords",
+			slog.Int("count", len(idsToPull)),
+		)
 		pullResp, err := syncClient.PullRecords(ctx, &pb.PullRecordsRequest{RecordIds: idsToPull})
 		if err != nil {
 			return cli.PrintError(out, err, "remote PullRecords phase rejected by server")
@@ -253,7 +265,9 @@ func executeNetworkSync(
 		for _, r := range pullResp.GetRecords() {
 			// Даты извлекаются нативно через .AsTime() без риска Scan Errors
 			if r.GetCreatedAt() == nil || r.GetUpdatedAt() == nil {
-				slog.Error("Server sent empty Timestamp block for pulled record, packet skipped", "record_id", r.GetRecordId())
+				slog.ErrorContext(context.Background(), "Server sent empty Timestamp block for pulled record, packet skipped",
+					slog.String("record_id", r.GetRecordId()),
+				)
 				continue
 			}
 
@@ -270,7 +284,10 @@ func executeNetworkSync(
 				IsDeleted: r.GetIsDeleted(),
 			})
 			if err != nil {
-				slog.Error("Failed to save pulled envelope to SQLite", "record_id", r.GetRecordId(), "error", err)
+				slog.ErrorContext(context.Background(), "Failed to save pulled envelope to SQLite",
+					slog.String("record_id", r.GetRecordId()),
+					slog.Any("error", err),
+				)
 				return cli.PrintError(out, err, "saving pulled record to storage")
 			}
 			pulledCount++
@@ -281,13 +298,18 @@ func executeNetworkSync(
 	pushedCount := 0
 	idsToPush := checkResp.GetIdsToPush()
 	if len(idsToPush) > 0 {
-		slog.Debug("Fresh offline changes found, building packet for RPC PushRecords", "count", len(idsToPush))
+		slog.Debug("Fresh offline changes found, building packet for RPC PushRecords",
+			slog.Int("count", len(idsToPush)),
+		)
 		var recordsToPush []*pb.EncryptedRecordPayload
 
 		for _, id := range idsToPush {
 			localRec, err := secretStore.GetRawByID(ctx, id)
 			if err != nil {
-				slog.Error("Failed to extract raw envelope for push", "id", id, "error", err)
+				slog.ErrorContext(context.Background(), "Failed to extract raw envelope for push",
+					slog.String("id", id),
+					slog.Any("error", err),
+				)
 				continue
 			}
 
@@ -313,7 +335,9 @@ func executeNetworkSync(
 
 	// Безопасно закрываем сетевой канал gRPC до рендеринга вывода
 	if closeErr := conn.Close(); closeErr != nil {
-		slog.Error("Failed to close gRPC transport on clean sync exit", "error", closeErr)
+		slog.ErrorContext(context.Background(), "Failed to close gRPC transport on clean sync exit",
+			slog.Any("error", closeErr),
+		)
 	}
 	connClosedChecked = true
 

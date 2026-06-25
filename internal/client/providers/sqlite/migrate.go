@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -37,13 +38,17 @@ func Migrate(db *sql.DB) error {
 	goose.SetLogger(goose.NopLogger())
 
 	if err := goose.SetDialect("sqlite"); err != nil {
-		slog.Error("Failed to set sqlite dialect for migrator", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to set sqlite dialect for migrator",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("set sqlite dialect: %w", err)
 	}
 
 	slog.Debug("Starting automatic update of device_state and records tables to current state")
 	if err := goose.Up(db, "migrations"); err != nil {
-		slog.Error("SQL migrations roll completed with critical schema failure", "error", err)
+		slog.ErrorContext(context.Background(), "SQL migrations roll completed with critical schema failure",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("execute container SQL migrations: %w", err)
 	}
 

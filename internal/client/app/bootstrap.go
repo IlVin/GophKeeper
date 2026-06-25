@@ -30,22 +30,30 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	// Проверяем физическое наличие файла БД перед открытием.
 	if _, err := os.Stat(sqlitePath); os.IsNotExist(err) {
-		slog.Error("runtime initialization rejected: SQLite container not created", "path", sqlitePath)
+		slog.ErrorContext(ctx, "runtime initialization rejected: SQLite container not created",
+			slog.String("path", sqlitePath),
+		)
 		return nil, fmt.Errorf("%w (путь: %s)", ErrDatabaseMissing, sqlitePath)
 	}
 
 	// Открываем существующую БД. Внутренний метод sqlite.Open проверит права доступа 0600/0700.
 	db, err := sqlite.Open(sqlitePath)
 	if err != nil {
-		slog.Error("failed to open local storage container", "error", err)
+		slog.ErrorContext(ctx, "failed to open local storage container",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("open sqlite container: %w", err)
 	}
 
 	// Проверяем живое соединение с учетом контекста прерывания сессии (Ctrl+C)
 	if err := db.PingContext(ctx); err != nil {
-		slog.Error("SQLite connection verification failed", "error", err)
+		slog.ErrorContext(ctx, "SQLite connection verification failed",
+			slog.Any("error", err),
+		)
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("failed to close DB descriptor after failed ping", "close_error", closeErr)
+			slog.ErrorContext(ctx, "failed to close DB descriptor after failed ping",
+				slog.Any("close_error", closeErr),
+			)
 			return nil, fmt.Errorf("database ping (%w), closing descriptor: %w", err, closeErr)
 		}
 		return nil, fmt.Errorf("sqlite connection check: %w", err)
@@ -56,7 +64,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// Собираем валидированный инкапсулированный объект приложения
 	application, err := NewApp(cfg, db)
 	if err != nil {
-		slog.Error("failed to build application container", "error", err)
+		slog.ErrorContext(ctx, "failed to build application container",
+			slog.Any("error", err),
+		)
 		_ = db.Close()
 		return nil, fmt.Errorf("runtime build: %w", err)
 	}
@@ -79,7 +89,9 @@ func Shutdown(application *App) error {
 	if application.db != nil {
 		dbErr = application.db.Close()
 		if dbErr != nil {
-			slog.Error("database destructor failed", "error", dbErr)
+			slog.ErrorContext(context.Background(), "database destructor failed",
+				slog.Any("error", dbErr),
+			)
 		}
 		application.db = nil // Принудительно очищаем указатель на пул соединений
 	}

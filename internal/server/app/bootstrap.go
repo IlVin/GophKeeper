@@ -55,7 +55,7 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 
 	defer func() {
 		if !bootstrapSuccess {
-			slog.Error("Bootstrap pipeline collapsed, triggering emergency resource rollback cascade")
+			slog.ErrorContext(context.Background(), "Bootstrap pipeline collapsed, triggering emergency resource rollback cascade")
 			if acmeHTTPListener != nil {
 				_ = acmeHTTPListener.Close()
 			}
@@ -79,7 +79,8 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 	// 2. Инициализация PKI и TLS/mTLS слоев защиты
 	if strings.TrimSpace(cfg.Server.LetsEncryptDomain) != "" {
 		slog.Info("Enforcing Automated Certificate Management Environment (ACME) via Let's Encrypt",
-			"domain", cfg.Server.LetsEncryptDomain)
+			slog.String("domain", cfg.Server.LetsEncryptDomain),
+		)
 
 		certManager := &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
@@ -97,12 +98,16 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 		acmeHTTPListener, err = net.Listen("tcp", cfg.Server.BindHTTP)
 		if err != nil {
 			slog.Warn("Failed to listen on HTTP socket for ACME challenge verifications",
-				"bind", cfg.Server.BindHTTP, "error", err)
+				slog.String("bind", cfg.Server.BindHTTP),
+				slog.Any("error", err),
+			)
 		} else {
 			go func() {
 				slog.Debug("Starting automated HTTP ACME challenge listener daemon")
 				if serveErr := http.Serve(acmeHTTPListener, certManager.HTTPHandler(nil)); serveErr != nil && !errors.Is(serveErr, net.ErrClosed) {
-					slog.Error("ACME HTTP server daemon collapsed", "error", serveErr)
+					slog.ErrorContext(context.Background(), "ACME HTTP server daemon collapsed",
+						slog.Any("error", serveErr),
+					)
 				}
 			}()
 		}
@@ -143,7 +148,9 @@ func Bootstrap(ctx context.Context, v *viper.Viper) (context.Context, *App, erro
 	}
 
 	// 3. Открытие и конфигурация слушателя входящего gRPC вещания
-	slog.Debug("Opening main gRPC TCP listening network socket descriptor", "bind", cfg.Server.BindGRPC)
+	slog.Debug("Opening main gRPC TCP listening network socket descriptor",
+		slog.String("bind", cfg.Server.BindGRPC),
+	)
 	rawGrpcListener, err = net.Listen("tcp", cfg.Server.BindGRPC)
 	if err != nil {
 		return ctx, nil, fmt.Errorf("listen grpc socket %s: %w", cfg.Server.BindGRPC, err)

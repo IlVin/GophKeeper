@@ -3,6 +3,7 @@
 package sshcheck
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,7 +34,10 @@ func RequireAgent() error {
 
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
-		slog.Error("Failed to dial unix socket path specified in SSH_AUTH_SOCK", "path", sock, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to dial unix socket path specified in SSH_AUTH_SOCK",
+			slog.String("path", sock),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("%w: cannot connect to SSH_AUTH_SOCK socket %q: %v", ErrSSHAgentUnavailable, sock, err)
 	}
 
@@ -41,7 +45,9 @@ func RequireAgent() error {
 	defer func() {
 		if !connClosed {
 			if closeErr := conn.Close(); closeErr != nil {
-				slog.Error("Failed to close diagnostic ssh-agent net connection descriptor", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close diagnostic ssh-agent net connection descriptor",
+					slog.Any("error", closeErr),
+				)
 			}
 		}
 	}()
@@ -50,7 +56,9 @@ func RequireAgent() error {
 
 	keys, err := agentClient.List()
 	if err != nil {
-		slog.Error("System ssh-agent daemon rejected keys list request or socket is broken", "error", err)
+		slog.ErrorContext(context.Background(), "System ssh-agent daemon rejected keys list request or socket is broken",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("%w: ssh-agent socket is not responding correctly: %v", ErrSSHAgentUnavailable, err)
 	}
 
@@ -59,11 +67,15 @@ func RequireAgent() error {
 		return fmt.Errorf("%w: no SSH keys loaded in ssh-agent, vault cannot be unlocked", ErrSSHAgentUnavailable)
 	}
 
-	slog.Debug("Pre-flight ssh-agent verification check completed successfully", "loaded_keys_count", len(keys))
+	slog.Debug("Pre-flight ssh-agent verification check completed successfully",
+		slog.Int("loaded_keys_count", len(keys)),
+	)
 
 	// Безопасно финализируем дескриптор до выхода
 	if closeErr := conn.Close(); closeErr != nil {
-		slog.Error("Failed to close active diagnostic socket descriptor on success path", "error", closeErr)
+		slog.ErrorContext(context.Background(), "Failed to close active diagnostic socket descriptor on success path",
+			slog.Any("error", closeErr),
+		)
 	}
 	connClosed = true
 

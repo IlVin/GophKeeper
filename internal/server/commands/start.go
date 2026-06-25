@@ -3,6 +3,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -27,7 +28,9 @@ func (c *ServerCLI) newStartCommand() *cobra.Command {
 			// Ленивая инициализация и бутстрап контейнера СТРОГО в момент старта команды
 			application, err := c.App(cmd.Context())
 			if err != nil {
-				slog.Error("Failed to bootstrap server core infrastructure inside start command execution", "error", err)
+				slog.ErrorContext(context.Background(), "Failed to bootstrap server core infrastructure inside start command execution",
+					slog.Any("error", err),
+				)
 				return err
 			}
 
@@ -61,15 +64,21 @@ func (c *ServerCLI) newStartCommand() *cobra.Command {
 			// Ожидаем либо критической ошибки рантайма gRPC, либо сигнала остановки от ОС
 			select {
 			case err := <-serverErrChan:
-				slog.Error("Server network listener runtime execution collapsed unexpectedly", "error", err)
+				slog.ErrorContext(context.Background(), "Server network listener runtime execution collapsed unexpectedly",
+					slog.Any("error", err),
+				)
 				return fmt.Errorf("server runtime execution crashed: %w", err)
 			case sig := <-sigChan:
-				slog.Info("Received termination OS signal, initiating graceful shutdown sequence", "signal", sig.String())
+				slog.Info("Received termination OS signal, initiating graceful shutdown sequence",
+					slog.String("signal", sig.String()),
+				)
 				fmt.Fprintf(out, "\nReceived OS signal %v. Finalizing active pools...\n", sig)
 
 				// Явный контроль и проброс ошибок закрытия ресурсов для исключения утечек в ОС
 				if closeErr := c.Close(); closeErr != nil {
-					slog.Error("Resource cleanup transaction crashed during command finalization phase", "error", closeErr)
+					slog.ErrorContext(context.Background(), "Resource cleanup transaction crashed during command finalization phase",
+						slog.Any("error", closeErr),
+					)
 					return fmt.Errorf("failed to shutdown server cleanly: %w", closeErr)
 				}
 

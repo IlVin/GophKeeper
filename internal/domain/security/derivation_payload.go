@@ -3,6 +3,7 @@
 package security
 
 import (
+	"context"
 	"encoding/binary"
 	"log/slog"
 	"strings"
@@ -44,7 +45,7 @@ func (p *DerivationPayload) Marshal() []byte {
 
 	// Жесткий ИБ-контроль длин полей перед аллокацией буфера для исключения integer overflow
 	if len(ctxBytes) > maxDerivationFieldLength || len(fpBytes) > maxDerivationFieldLength {
-		slog.Error("Critical serialization anomaly: derivation payload field constraint violated")
+		slog.ErrorContext(context.Background(), "Critical serialization anomaly: derivation payload field constraint violated")
 		return nil
 	}
 

@@ -3,6 +3,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,7 +109,9 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 			defer func() {
 				if !agentClosedChecked {
 					if closeErr := agentClient.Close(); closeErr != nil {
-						slog.Error("Failed to close UNIX agent socket in create defer", "error", closeErr)
+						slog.ErrorContext(context.Background(), "Failed to close UNIX agent socket in create defer",
+							slog.Any("error", closeErr),
+						)
 					}
 				}
 			}()
@@ -126,7 +129,9 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 
 			// Безопасно финализируем соединение с агентом до вывода результатов
 			if closeErr := agentClient.Close(); closeErr != nil {
-				slog.Error("Failed to close agent socket descriptor on successful exit", "error", closeErr)
+				slog.ErrorContext(context.Background(), "Failed to close agent socket descriptor on successful exit",
+					slog.Any("error", closeErr),
+				)
 			}
 			agentClosedChecked = true
 
@@ -161,7 +166,9 @@ func newCreateCommand(cli *CLI) *cobra.Command {
 func parseMetadata(metaStr string) (map[string]string, error) {
 	var metadataMap map[string]string
 	if err := json.Unmarshal([]byte(metaStr), &metadataMap); err != nil {
-		slog.Error("--meta flag parsing failed with syntax error", "error", err)
+		slog.ErrorContext(context.Background(), "--meta flag parsing failed with syntax error",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("invalid --meta format: must be a valid flat JSON object like .{\"key\": \"value\"}.")
 	}
 	return metadataMap, nil
@@ -176,18 +183,26 @@ func resolvePayload(secretType, payloadStr, filePath string) ([]byte, error) {
 
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
-			slog.Error("Failed to stat specified binary file", "path", filePath, "error", err)
+			slog.ErrorContext(context.Background(), "Failed to stat specified binary file",
+				slog.String("path", filePath),
+				slog.Any("error", err),
+			)
 			return nil, fmt.Errorf("file %q not found or inaccessible", filePath)
 		}
 
 		if fileInfo.Size() > maxBinarySize {
-			slog.Warn("Blocked attempt to upload file exceeding MVP limits", "size", fileInfo.Size())
+			slog.Warn("Blocked attempt to upload file exceeding MVP limits",
+				slog.Int64("size", fileInfo.Size()),
+			)
 			return nil, fmt.Errorf("file size exceeds security limit of 10 MB (provided: %d bytes)", fileInfo.Size())
 		}
 
 		finalPayload, err := os.ReadFile(filePath)
 		if err != nil {
-			slog.Error("Failed reading binary file from disk to heap", "path", filePath, "error", err)
+			slog.ErrorContext(context.Background(), "Failed reading binary file from disk to heap",
+				slog.String("path", filePath),
+				slog.Any("error", err),
+			)
 			return nil, fmt.Errorf("binary file read error")
 		}
 		return finalPayload, nil

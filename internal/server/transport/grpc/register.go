@@ -58,7 +58,10 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 
 	existingUser, err := h.repo.GetByFingerprint(ctx, fingerprint)
 	if err != nil {
-		slog.Error("Database fetch failed in RegisterBegin", "fingerprint", fingerprint, "error", err)
+		slog.ErrorContext(context.Background(), "Database fetch failed in RegisterBegin",
+			slog.String("fingerprint", fingerprint),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -73,7 +76,9 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 
 	serverNonce := make([]byte, 32)
 	if _, err = rand.Read(serverNonce); err != nil {
-		slog.Error("CSPRNG entropy generation failed for server nonce", "error", err)
+		slog.ErrorContext(context.Background(), "CSPRNG entropy generation failed for server nonce",
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -88,7 +93,10 @@ func (h *RegistrationHandler) RegisterBegin(ctx context.Context, req *pb.Registe
 	}
 
 	if err = h.repo.CreateChallengeSession(ctx, session); err != nil {
-		slog.Error("Failed to persist challenge session context in PostgreSQL", "session_id", sessionID, "error", err)
+		slog.ErrorContext(context.Background(), "Failed to persist challenge session context in PostgreSQL",
+			slog.String("session_id", sessionID),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -117,7 +125,10 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	// 1. Вызываем потокобезопасный транзакционный ConsumeChallengeSession
 	session, err := h.repo.ConsumeChallengeSession(ctx, req.GetSessionId())
 	if err != nil {
-		slog.Error("Transactional challenge token consumption crashed", "session_id", req.GetSessionId(), "error", err)
+		slog.ErrorContext(context.Background(), "Transactional challenge token consumption crashed",
+			slog.String("session_id", req.GetSessionId()),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 	if session == nil {
@@ -161,7 +172,9 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	}
 
 	if !ed25519.Verify(ed25519PubKey, marshaledChallenge, req.GetAuthChallengeSignature()) {
-		slog.Warn("Cryptographic signature challenge verification failed: unauthorized tampering detected", "user_id", session.UserID)
+		slog.Warn("Cryptographic signature challenge verification failed: unauthorized tampering detected",
+			slog.String("user_id", session.UserID),
+		)
 		return nil, status.Error(codes.Unauthenticated, "cryptographic challenge signature verification failed")
 	}
 
@@ -174,7 +187,9 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 
 	existingUser, err := h.repo.GetByFingerprint(ctx, currentFingerprint)
 	if err != nil {
-		slog.Error("Database fetch failed in RegisterFinish white-listing check", "error", err)
+		slog.ErrorContext(context.Background(), "Database fetch failed in RegisterFinish white-listing check",
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -194,7 +209,10 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 		}
 
 		if err = h.repo.CreateUser(ctx, newUser); err != nil {
-			slog.Error("Failed to commit new user entity registration block to PostgreSQL", "user_id", session.UserID, "error", err)
+			slog.ErrorContext(context.Background(), "Failed to commit new user entity registration block to PostgreSQL",
+				slog.String("user_id", session.UserID),
+				slog.Any("error", err),
+			)
 			return nil, status.Error(codes.Internal, "Internal server error")
 		}
 	} else {
@@ -207,7 +225,9 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	// 4. ДИНАМИЧЕСКИЙ ВЫПУСК mTLS СЕРТИФИКАТА УСТРОЙСТВА (PKI слой)
 	deviceCACert, deviceCAKey, err := pki.LoadDeviceCA(h.cfg)
 	if err != nil {
-		slog.Error("PKI infrastructure failure: could not read Device CA trust anchors", "error", err)
+		slog.ErrorContext(context.Background(), "PKI infrastructure failure: could not read Device CA trust anchors",
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -218,7 +238,10 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 		deviceCAKey,
 	)
 	if err != nil {
-		slog.Error("PKI generation cascade failure: could not sign container CSR template", "device_id", req.GetDeviceId(), "error", err)
+		slog.ErrorContext(context.Background(), "PKI generation cascade failure: could not sign container CSR template",
+			slog.String("device_id", req.GetDeviceId()),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 
@@ -234,7 +257,10 @@ func (h *RegistrationHandler) RegisterFinish(ctx context.Context, req *pb.Regist
 	}
 
 	if err = h.repo.CreateDevice(ctx, newDevice); err != nil {
-		slog.Error("Failed to register active device metadata mapping in PostgreSQL", "device_id", req.GetDeviceId(), "error", err)
+		slog.ErrorContext(context.Background(), "Failed to register active device metadata mapping in PostgreSQL",
+			slog.String("device_id", req.GetDeviceId()),
+			slog.Any("error", err),
+		)
 		return nil, status.Error(codes.Internal, "Internal server error")
 	}
 

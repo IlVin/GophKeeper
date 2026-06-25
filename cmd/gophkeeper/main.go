@@ -59,12 +59,16 @@ func run() (err error) {
 	// Инициализация загрузчика конфигурации Viper
 	v, err := config.NewViper()
 	if err != nil {
-		slog.Error("failed to create config loader", "error", err)
+		slog.ErrorContext(ctx, "failed to create config loader",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("create config loader: %w", err)
 	}
 
 	if err := config.ReadConfigFile(v); err != nil {
-		slog.Error("failed to read config file", "error", err)
+		slog.ErrorContext(ctx, "failed to read config file",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("read config: %w", err)
 	}
 
@@ -75,11 +79,23 @@ func run() (err error) {
 
 	// Если пользователь переопределил путь или параметры — атомарно переключаем логгер
 	if customLogPath != defaultLogPath || customLevel != "debug" || customFormat != "text" {
-		slog.Debug("reconfiguring logger with user settings", "new_path", customLogPath)
+		slog.Debug("reconfiguring logger with user settings",
+			slog.String("path", customLogPath),
+			slog.String("level", customLevel),
+			slog.String("format", customFormat),
+		)
 
 		newFile, err := configureGlobalSlog(customLogPath, customLevel, customFormat)
 		if err != nil {
-			slog.Error("failed to apply user logging settings, keeping default logger", "error", err)
+			slog.ErrorContext(ctx, "failed to apply user logging settings",
+				slog.Group("requested_settings",
+					slog.String("path", customLogPath),
+					slog.String("level", customLevel),
+					slog.String("format", customFormat),
+				),
+				slog.Any("error", err),
+				slog.Bool("fallback_to_default", true),
+			)
 		} else {
 			if earlyFile != nil {
 				_ = earlyFile.Close()
@@ -95,7 +111,9 @@ func run() (err error) {
 	// Защитный барьер от непредвиденных паник рантайма (предотвращает утечку stack-trace в консоль)
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("critical application panic intercepted", slog.Any("panic_info", r))
+			slog.ErrorContext(ctx, "critical application panic intercepted",
+				slog.Any("panic_info", r),
+			)
 			err = errors.New("critical internal error occurred")
 		}
 	}()
@@ -103,7 +121,9 @@ func run() (err error) {
 	// Контроль освобождения дескрипторов ресурсов и соединений SQLite СУБД
 	defer func() {
 		if closeErr := cli.Close(); closeErr != nil {
-			slog.Error("failed to safely close application resources", "error", closeErr)
+			slog.ErrorContext(ctx, "failed to safely close application resources",
+				slog.Any("error", closeErr),
+			)
 			if err == nil {
 				err = fmt.Errorf("close resources: %w", closeErr)
 			}
@@ -112,13 +132,17 @@ func run() (err error) {
 
 	cmd, err := cli.NewRootCommand()
 	if err != nil {
-		slog.Error("failed to build CLI command tree", "error", err)
+		slog.ErrorContext(ctx, "failed to build CLI command tree",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("CLI init: %w", err)
 	}
 
 	// Запуск исполнения дерева команд с передачей контекста отмены сигналов ОС
 	if executeErr := cmd.ExecuteContext(ctx); executeErr != nil {
-		slog.Error("CLI command execution failed", "error", executeErr)
+		slog.ErrorContext(ctx, "CLI command execution failed",
+			slog.Any("error", executeErr),
+		)
 		return executeErr
 	}
 

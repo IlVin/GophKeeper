@@ -3,6 +3,7 @@
 package security
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"log/slog"
@@ -60,7 +61,7 @@ func (p *ChallengePayload) Marshal() []byte {
 	if len(ctxBytes) > maxFieldLength || len(uBytes) > maxFieldLength ||
 		len(sBytes) > maxFieldLength || len(p.ServerNonce) > maxFieldLength ||
 		len(opBytes) > maxFieldLength {
-		slog.Error("Critical serialization anomaly: challenge payload field constraint violated")
+		slog.ErrorContext(context.Background(), "Critical serialization anomaly: challenge payload field constraint violated")
 		return nil
 	}
 

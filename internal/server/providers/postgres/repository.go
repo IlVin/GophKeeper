@@ -30,14 +30,19 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 // CreateUser атомарно регистрирует доменную сущность нового аккаунта в PostgreSQL.
 func (r *PostgresRepository) CreateUser(ctx context.Context, u *repository.User) error {
-	slog.Debug("Executing PostgreSQL INSERT for user record entity alignment", "user_id", u.ID)
+	slog.Debug("Executing PostgreSQL INSERT for user record entity alignment",
+		slog.String("user_id", u.ID),
+	)
 	query := `
 		INSERT INTO users (id, ssh_fingerprint, ssh_public_key, canonical_account_salt, canonical_bootstrap_envelope)
 		VALUES ($1, $2, $3, $4, $5);
 	`
 	_, err := r.pool.Exec(ctx, query, u.ID, u.SshFingerprint, u.SshPublicKey, u.CanonicalAccountSalt, u.CanonicalBootstrapEnvelope)
 	if err != nil {
-		slog.Error("PostgreSQL user entry persistence transaction failed", "user_id", u.ID, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL user entry persistence transaction failed",
+			slog.String("user_id", u.ID),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("repository create user transaction failed: %w", err)
 	}
 	return nil
@@ -45,7 +50,9 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, u *repository.User)
 
 // GetByFingerprint извлекает аккаунт пользователя по уникальному SHA256-хешу SSH-ключа.
 func (r *PostgresRepository) GetByFingerprint(ctx context.Context, fingerprint string) (*repository.User, error) {
-	slog.Debug("Executing PostgreSQL lookup by user public key SSH fingerprint", "fingerprint", fingerprint)
+	slog.Debug("Executing PostgreSQL lookup by user public key SSH fingerprint",
+		slog.String("fingerprint", fingerprint),
+	)
 	query := `
 		SELECT id, ssh_fingerprint, ssh_public_key, canonical_account_salt, canonical_bootstrap_envelope, created_at 
 		FROM users WHERE ssh_fingerprint = $1;
@@ -58,7 +65,10 @@ func (r *PostgresRepository) GetByFingerprint(ctx context.Context, fingerprint s
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("PostgreSQL lookup by fingerprint failed", "fingerprint", fingerprint, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL lookup by fingerprint failed",
+			slog.String("fingerprint", fingerprint),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("repository fingerprint lookup failed: %w", err)
 	}
 	return &u, nil
@@ -68,7 +78,9 @@ func (r *PostgresRepository) GetByFingerprint(ctx context.Context, fingerprint s
 
 // CreateDevice регистрирует метаданные mTLS-паспорта нового доверенного контейнера.
 func (r *PostgresRepository) CreateDevice(ctx context.Context, d *repository.Device) error {
-	slog.Debug("Executing PostgreSQL INSERT for client container mTLS device registry mapping", "device_id", d.ID)
+	slog.Debug("Executing PostgreSQL INSERT for client container mTLS device registry mapping",
+		slog.String("device_id", d.ID),
+	)
 	query := `
 		INSERT INTO devices (id, user_id, device_master_key_envelope, client_certificate, cert_serial_number, status)
 		VALUES ($1, $2, $3, $4, $5, $6);
@@ -80,7 +92,10 @@ func (r *PostgresRepository) CreateDevice(ctx context.Context, d *repository.Dev
 	serialStr := d.CertSerialNumber.String()
 	_, err := r.pool.Exec(ctx, query, d.ID, d.UserID, d.DeviceMasterKeyEnvelope, d.ClientCertificate, serialStr, d.Status)
 	if err != nil {
-		slog.Error("PostgreSQL device entity persistence transaction failed", "device_id", d.ID, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL device entity persistence transaction failed",
+			slog.String("device_id", d.ID),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("repository create device transaction failed: %w", err)
 	}
 	return nil
@@ -88,7 +103,9 @@ func (r *PostgresRepository) CreateDevice(ctx context.Context, d *repository.Dev
 
 // GetByID извлекает метаданные контейнера по его уникальному аппаратному UUID.
 func (r *PostgresRepository) GetByID(ctx context.Context, id string) (*repository.Device, error) {
-	slog.Debug("Executing PostgreSQL lookup by hardware container device UUID", "device_id", id)
+	slog.Debug("Executing PostgreSQL lookup by hardware container device UUID",
+		slog.String("device_id", id),
+	)
 	query := `
 		SELECT id, user_id, device_master_key_envelope, client_certificate, cert_serial_number, status, registered_at, last_sync_at 
 		FROM devices WHERE id = $1;
@@ -102,14 +119,19 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id string) (*repositor
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("PostgreSQL lookup by device UUID crashed", "device_id", id, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL lookup by device UUID crashed",
+			slog.String("device_id", id),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("repository device lookup failed: %w", err)
 	}
 
 	var ok bool
 	d.CertSerialNumber, ok = new(big.Int).SetString(serialStr, 10)
 	if !ok {
-		slog.Error("PKI serialization failure: failed to reconstruct big.Int from database serial string", "serial", serialStr)
+		slog.ErrorContext(context.Background(), "PKI serialization failure: failed to reconstruct big.Int from database serial string",
+			slog.String("serial", serialStr),
+		)
 		return nil, errors.New("repository big.Int serial number restoration failure")
 	}
 
@@ -121,7 +143,10 @@ func (r *PostgresRepository) UpdateSyncTime(ctx context.Context, id string) erro
 	query := `UPDATE devices SET last_sync_at = CURRENT_TIMESTAMP WHERE id = $1;`
 	_, err := r.pool.Exec(ctx, query, id)
 	if err != nil {
-		slog.Error("PostgreSQL update sync timestamp query failed", "device_id", id, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL update sync timestamp query failed",
+			slog.String("device_id", id),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("repository update sync time failed: %w", err)
 	}
 	return nil
@@ -132,7 +157,11 @@ func (r *PostgresRepository) UpdateStatus(ctx context.Context, id string, status
 	query := `UPDATE devices SET status = $1 WHERE id = $2;`
 	_, err := r.pool.Exec(ctx, query, status, id)
 	if err != nil {
-		slog.Error("PostgreSQL update device status query failed", "device_id", id, "status", status, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL update device status query failed",
+			slog.String("device_id", id),
+			slog.String("status", status),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("repository update device status failed: %w", err)
 	}
 	return nil
@@ -142,14 +171,19 @@ func (r *PostgresRepository) UpdateStatus(ctx context.Context, id string, status
 
 // CreateChallengeSession инициализирует одноразовую сессию вызова для Zero-Knowledge проверки.
 func (r *PostgresRepository) CreateChallengeSession(ctx context.Context, s *repository.ChallengeSession) error {
-	slog.Debug("Executing PostgreSQL INSERT for single-use challenge token entity mapping", "session_id", s.ID)
+	slog.Debug("Executing PostgreSQL INSERT for single-use challenge token entity mapping",
+		slog.String("session_id", s.ID),
+	)
 	query := `
 		INSERT INTO challenge_sessions (id, user_id, server_nonce, operation, state, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6);
 	`
 	_, err := r.pool.Exec(ctx, query, s.ID, s.UserID, s.ServerNonce, s.Operation, s.State, s.ExpiresAt)
 	if err != nil {
-		slog.Error("PostgreSQL challenge session token transaction failed", "session_id", s.ID, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL challenge session token transaction failed",
+			slog.String("session_id", s.ID),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("repository create challenge session transaction failed: %w", err)
 	}
 	return nil
@@ -161,11 +195,15 @@ func (r *PostgresRepository) CreateChallengeSession(ctx context.Context, s *repo
 // и МГНОВЕННО переводит её в состояние 'Used' в рамках единого COMMIT. Полностью ликвидирует
 // возможность конкурентных Replay-атак (Double Spending) обхода mTLS.
 func (r *PostgresRepository) ConsumeChallengeSession(ctx context.Context, id string) (*repository.ChallengeSession, error) {
-	slog.Debug("Executing atomic multi-operational transaction for safe challenge token consumption", "session_id", id)
+	slog.Debug("Executing atomic multi-operational transaction for safe challenge token consumption",
+		slog.String("session_id", id),
+	)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		slog.Error("Failed to initiate database atomic transaction block for safe challenge consumption", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to initiate database atomic transaction block for safe challenge consumption",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to begin atomic challenge session transaction: %w", err)
 	}
 
@@ -186,23 +224,34 @@ func (r *PostgresRepository) ConsumeChallengeSession(ctx context.Context, id str
 		return nil, nil
 	}
 	if err != nil {
-		slog.Error("Row locking failed inside PostgreSQL FOR UPDATE challenge sub-transaction", "session_id", id, "error", err)
+		slog.ErrorContext(context.Background(), "Row locking failed inside PostgreSQL FOR UPDATE challenge sub-transaction",
+			slog.String("session_id", id),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to fetch and lock challenge session: %w", err)
 	}
 
 	// Если сессия валидна, мгновенно выжигаем её прямо внутри транзакции
 	if s.State == "Unused" {
-		slog.Debug("Atomic challenge state transition validation approved, executing state update to Used", "session_id", id)
+		slog.Debug("Atomic challenge state transition validation approved, executing state update to Used",
+			slog.String("session_id", id),
+		)
 		_, err = tx.Exec(ctx, "UPDATE challenge_sessions SET state = 'Used' WHERE id = $1;", id)
 		if err != nil {
-			slog.Error("Failed to update challenge state sub-transaction inside active commit layout", "session_id", id, "error", err)
+			slog.ErrorContext(context.Background(), "Failed to update challenge state sub-transaction inside active commit layout",
+				slog.String("session_id", id),
+				slog.Any("error", err),
+			)
 			return nil, fmt.Errorf("failed to update challenge session state atomic: %w", err)
 		}
 		s.State = "Used" // Синхронизируем возвращаемый DTO-объект рантайма
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		slog.Error("PostgreSQL atomic transaction commit crashed for safe challenge token consumption", "session_id", id, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL atomic transaction commit crashed for safe challenge token consumption",
+			slog.String("session_id", id),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("failed to commit challenge consumption transaction: %w", err)
 	}
 	txCommitted = true
@@ -215,7 +264,11 @@ func (r *PostgresRepository) UpdateState(ctx context.Context, id string, newStat
 	query := `UPDATE challenge_sessions SET state = $1 WHERE id = $2;`
 	_, err := r.pool.Exec(ctx, query, newState, id)
 	if err != nil {
-		slog.Error("PostgreSQL challenge session state transition failure", "session_id", id, "new_state", newState, "error", err)
+		slog.ErrorContext(context.Background(), "PostgreSQL challenge session state transition failure",
+			slog.String("session_id", id),
+			slog.String("new_state", newState),
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("repository update challenge state failed: %w", err)
 	}
 	return nil

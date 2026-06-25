@@ -54,7 +54,9 @@ func (s *SQLiteDeviceStore) ReadDeviceState(ctx context.Context) (*repository.Lo
 			slog.Debug("State query: device_state table empty (init required)")
 			return nil, fmt.Errorf("environment not initialized: %w", err)
 		}
-		slog.Error("Critical Scan error reading device_state", "error", err)
+		slog.ErrorContext(context.Background(), "Critical Scan error reading device_state",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("scan state row: %w", err)
 	}
 
@@ -115,7 +117,9 @@ func (s *SQLiteDeviceStore) SaveDeviceState(ctx context.Context, state *reposito
 		state.CreatedAt,
 	)
 	if err != nil {
-		slog.Error("Failed to UPSERT device_state table", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to UPSERT device_state table",
+			slog.Any("error", err),
+		)
 		return fmt.Errorf("save device_state: %w", err)
 	}
 	return nil
@@ -140,7 +144,9 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 	defer func() {
 		if !txCommitted {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-				slog.Error("Critical failure: could not rollback transaction on emergency exit", "error", rollbackErr)
+				slog.ErrorContext(context.Background(), "Critical failure: could not rollback transaction on emergency exit",
+					slog.Any("error", rollbackErr),
+				)
 			}
 		}
 	}()
@@ -185,7 +191,9 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 
 	// 2. Если у нас были оффлайн-записи, атомарно перешифровываем и подменяем их под новый канонический вид
 	if len(records) > 0 {
-		slog.Debug("Step 2: Full cleanup of obsolete records table before batch insert", "count", len(records))
+		slog.Debug("Step 2: Full cleanup of obsolete records table before batch insert",
+			slog.Int("count", len(records)),
+		)
 		if _, err = tx.ExecContext(ctx, `DELETE FROM records;`); err != nil {
 			return fmt.Errorf("cleanup records before migration: %w", err)
 		}
@@ -229,7 +237,9 @@ func (s *SQLiteDeviceStore) ExecuteReconcileTransaction(
 		}
 
 		if stmtCloseErr := stmt.Close(); stmtCloseErr != nil {
-			slog.Error("Failed to close prepared records migration statement", "error", stmtCloseErr)
+			slog.ErrorContext(context.Background(), "Failed to close prepared records migration statement",
+				slog.Any("error", stmtCloseErr),
+			)
 		}
 		stmtClosed = true
 	}
@@ -249,7 +259,9 @@ func (s *SQLiteDeviceStore) GetAllRecords(ctx context.Context) ([]repository.Enc
 	query := `SELECT id, user_id, name, type, envelope, created_at, updated_at, is_deleted FROM records;`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		slog.Error("Failed to fetch all records for migration", "error", err)
+		slog.ErrorContext(context.Background(), "Failed to fetch all records for migration",
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("fetch all records: %w", err)
 	}
 	defer rows.Close()
