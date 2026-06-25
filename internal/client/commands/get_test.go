@@ -46,8 +46,8 @@ func TestGetCommandFormatting_WithStandardOutput(t *testing.T) {
 		fmt.Fprintf(buf, "Payload: %s\n", mockPayload.Payload)
 	})
 
-	assert.Contains(t, buf.String(), "Имя секрета  : test-safe-record")
-	assert.Contains(t, buf.String(), "Полезная нагрузка (Payload): plain-text-data")
+	assert.Contains(t, buf.String(), "Secret Name  : test-safe-record")
+	assert.Contains(t, buf.String(), "Payload: plain-text-data")
 }
 
 // TestPrintError_InGetStandardMode checks decryption error propagation for human readability.
